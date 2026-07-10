@@ -542,6 +542,8 @@ function detectDefaultProviderLogin(login: string) {
 
 function DashboardContent() {
   const searchParams = useSearchParams();
+  const isDemoMode = searchParams.get("demo") === "1";
+  const shouldUseSupabase = isSupabaseConfigured && !isDemoMode;
   const initialView = searchParams.get("view") === "account" ? "account" : "dashboard";
   const [activeSection, setActiveSection] = useState<Section>(initialView);
   const [activeCategory, setActiveCategory] = useState("");
@@ -921,7 +923,7 @@ function DashboardContent() {
   }, []);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     let isCancelled = false;
     setIsLoadingAccounts(true);
@@ -944,10 +946,10 @@ function DashboardContent() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [shouldUseSupabase]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     let isCancelled = false;
     const supabase = createSupabaseClient();
@@ -965,10 +967,10 @@ function DashboardContent() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [shouldUseSupabase]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     let isCancelled = false;
     setIsLoadingTools(true);
@@ -1022,7 +1024,7 @@ function DashboardContent() {
     return () => {
       isCancelled = true;
     };
-  }, []);
+  }, [shouldUseSupabase]);
 
   useEffect(() => {
     if (!hasLoadedStoredTools) return;
@@ -1720,7 +1722,7 @@ function DashboardContent() {
     };
 
     const persistAccount = async () => {
-      if (!isSupabaseConfigured) return accountDetails;
+      if (!shouldUseSupabase) return accountDetails;
 
       const payload = accountToInput(accountDetails);
       const savedRecord =
@@ -1864,7 +1866,7 @@ function DashboardContent() {
     };
 
     const persistTool = async () => {
-      if (!isSupabaseConfigured) return toolDetails;
+      if (!shouldUseSupabase) return toolDetails;
 
       const savedRecord = editingTool
         ? await updateToolRecord(editingTool.id, toolToInput(toolDetails), accountList)
@@ -2036,7 +2038,7 @@ function DashboardContent() {
       ),
     );
 
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     try {
       await patchToolRecord(targetTool.id, { favorite: nextFavorite });
@@ -2107,7 +2109,7 @@ function DashboardContent() {
       },
     }));
 
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     try {
       await updateToolLinkDetails(toolId, accountLabel, accountList, { plan: nextStatus });
@@ -2170,7 +2172,7 @@ function DashboardContent() {
         { ...(currentStatuses[linkingTool.id] ?? {}) },
       ),
     }));
-    if (isSupabaseConfigured) {
+    if (shouldUseSupabase) {
       try {
         await replaceToolLinks(linkingTool.id, nextAccounts, accountList);
         await Promise.all(
@@ -2284,7 +2286,7 @@ function DashboardContent() {
       return nextDetails;
     });
 
-    if (isSupabaseConfigured) {
+    if (shouldUseSupabase) {
       try {
         await replaceToolLinks(toolId, nextAccounts, accountList);
         await updateToolLinkDetails(toolId, managedAccountLabel, accountList, {
@@ -2335,7 +2337,7 @@ function DashboardContent() {
         [linkToolAccountLabel]: linkToolPlan === "Active" ? linkToolPlanName.trim() : "",
       },
     }));
-    if (isSupabaseConfigured) {
+    if (shouldUseSupabase) {
       try {
         await replaceToolLinks(selectedTool.id, nextAccounts, accountList);
         await updateToolLinkDetails(selectedTool.id, linkToolAccountLabel, accountList, {
@@ -2390,7 +2392,7 @@ function DashboardContent() {
       nextDetails[toolId] = nextToolDetails;
       return nextDetails;
     });
-    if (isSupabaseConfigured && targetTool) {
+    if (shouldUseSupabase && targetTool) {
       try {
         await replaceToolLinks(toolId, nextAccounts, accountList);
       } catch (error) {
@@ -2416,7 +2418,7 @@ function DashboardContent() {
     );
     setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
 
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     try {
       await Promise.all(
@@ -2451,7 +2453,7 @@ function DashboardContent() {
     );
     setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
 
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     try {
       await Promise.all(
@@ -2483,7 +2485,7 @@ function DashboardContent() {
     setToolList((currentTools) => currentTools.filter((tool) => !selectedIds.has(tool.id)));
     setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
 
-    if (!isSupabaseConfigured) return;
+    if (!shouldUseSupabase) return;
 
     try {
       await deleteToolRecords(toolIds);
@@ -2501,7 +2503,7 @@ function DashboardContent() {
     const previousTools = toolList;
     setToolList((currentTools) => currentTools.filter((tool) => !selectedIds.has(tool.id)));
     setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
-    if (isSupabaseConfigured) {
+    if (shouldUseSupabase) {
       try {
         await deleteToolRecords(toolIds);
       } catch (error) {
@@ -2555,7 +2557,7 @@ function DashboardContent() {
           : tool,
       ),
     );
-    if (isSupabaseConfigured && targetTool) {
+    if (shouldUseSupabase && targetTool) {
       try {
         await patchToolRecord(targetTool.id, { logo: nextLogo, name: trimmedName });
       } catch (error) {
@@ -2589,7 +2591,7 @@ function DashboardContent() {
       ),
     );
 
-    if (isSupabaseConfigured) {
+    if (shouldUseSupabase) {
       try {
         await patchToolRecord(toolId, { category: nextCategory });
       } catch (error) {
@@ -5548,7 +5550,7 @@ function DashboardContent() {
                   setAccountDataError("");
                   setIsSavingAccount(true);
                   try {
-                    if (isSupabaseConfigured && deletingAccount.id) {
+                    if (shouldUseSupabase && deletingAccount.id) {
                       await deleteAccountRecord(deletingAccount.id);
                     }
                     setAccountList((currentAccounts) =>
@@ -5621,3 +5623,4 @@ export default function DashboardPage() {
     </Suspense>
   );
 }
+
