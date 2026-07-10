@@ -38,6 +38,10 @@ build the wrong thing (e.g. a marketing landing page). Open the plan and build f
    is a LATER "Lock it down" sprint, before real users/data. (Keeps the app demoable + screenshot-able.)
 7. Never put secrets in frontend code.
 
+## Writing style rules
+- Do not include em dashes in copy, documentation, comments, or user-facing text.
+- Use UK English spelling and formatting instead of US English.
+
 ## Deploy & data (binding — this stack is already provisioned)
 - **Deploy by git, never by CLI.** `git add -A && git commit -m "…" && git push` to `main`;
   Vercel auto-deploys from GitHub. Do NOT run `vercel deploy` / `vercel --prod` with local
