@@ -124,7 +124,7 @@ export async function getToolLinkDetailRecords() {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("tool_email_links")
-    .select("tool_id,plan,plan_name,status,billing_type,amount,trial_expiry_date,email_accounts(label)");
+    .select("tool_id,plan,plan_name,status,billing_type,amount,currency,next_charge_date,trial_expiry_date,email_accounts(label)");
 
   if (error) throw error;
 
@@ -137,9 +137,11 @@ export async function getToolLinkDetailRecords() {
       accountLabel: account?.label ?? "",
       amount: typeof rawLink.amount === "string" ? rawLink.amount : "",
       billingType: typeof rawLink.billing_type === "string" && rawLink.billing_type ? rawLink.billing_type : "Monthly",
+      currency: typeof rawLink.currency === "string" && rawLink.currency ? rawLink.currency : "USD",
+      nextChargeDate: typeof rawLink.next_charge_date === "string" ? rawLink.next_charge_date : "",
       plan: typeof rawLink.plan === "string" && rawLink.plan ? rawLink.plan : "Free Tier",
       planName: typeof rawLink.plan_name === "string" ? rawLink.plan_name : "",
-      status: typeof rawLink.status === "string" && rawLink.status ? rawLink.status : "Running",
+      status: typeof rawLink.status === "string" && rawLink.status ? rawLink.status : "Active",
       toolId: String(rawLink.tool_id ?? ""),
       trialExpiryDate: typeof rawLink.trial_expiry_date === "string" ? rawLink.trial_expiry_date : "",
     };
@@ -230,6 +232,8 @@ export async function updateToolLinkDetails(
   details: {
     amount?: string;
     billingType?: string;
+    currency?: string;
+    nextChargeDate?: string;
     plan?: string;
     planName?: string;
     status?: string;
@@ -240,16 +244,22 @@ export async function updateToolLinkDetails(
   if (!account?.id) return;
 
   const supabase = createClient();
+  const payload: Record<string, unknown> = {};
+
+  if (details.amount !== undefined) payload.amount = details.amount || null;
+  if (details.billingType !== undefined) payload.billing_type = details.billingType || null;
+  if (details.currency !== undefined) payload.currency = details.currency || "USD";
+  if (details.nextChargeDate !== undefined) payload.next_charge_date = details.nextChargeDate || null;
+  if (details.plan !== undefined) payload.plan = details.plan;
+  if (details.planName !== undefined) payload.plan_name = details.planName || null;
+  if (details.status !== undefined) payload.status = details.status;
+  if (details.trialExpiryDate !== undefined) payload.trial_expiry_date = details.trialExpiryDate || null;
+
+  if (Object.keys(payload).length === 0) return;
+
   const { error } = await supabase
     .from("tool_email_links")
-    .update({
-      amount: details.amount ?? null,
-      billing_type: details.billingType ?? null,
-      plan: details.plan ?? "Free Tier",
-      plan_name: details.planName ?? null,
-      status: details.status ?? "Running",
-      trial_expiry_date: details.trialExpiryDate || null,
-    })
+    .update(payload)
     .eq("tool_id", toolId)
     .eq("email_account_id", account.id);
 

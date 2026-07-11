@@ -1,0 +1,10 @@
+{
+  "midjourney": {
+    "displayInitials": "MJ",
+    "allowedPlans": ["paid"],
+    "planLockedReason": "Midjourney does not offer a free or trial tier"
+  },
+  "n8n": {
+    "preserveNameCase": true
+  }
+}

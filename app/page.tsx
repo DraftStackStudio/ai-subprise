@@ -100,7 +100,7 @@ export default function Home() {
             </p>
             <div className="marketing-actions">
               <a className="btn-primary" href="/login">Get started</a>
-              <a className="btn-outline" href="/demo">View demo</a>
+              <a className="btn-outline" href="/dashboard?demo=1">Explore as guest</a>
             </div>
           </div>
 
@@ -192,7 +192,7 @@ export default function Home() {
           </p>
           <div className="marketing-actions">
             <a className="btn-primary" href="/login">Get started</a>
-            <a className="btn-outline" href="/demo">View demo</a>
+            <a className="btn-outline" href="/dashboard?demo=1">Explore as guest</a>
           </div>
         </section>
       </section>

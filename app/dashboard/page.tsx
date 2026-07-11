@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
+import toolCustomizationsData from "@/config/toolCustomizations.json";
 import {
   createAccountRecord,
   deleteAccountRecord,
@@ -37,13 +38,23 @@ import {
   useState,
 } from "react";
 
-type Section = "dashboard" | "tools" | "linked" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
+type Section = "dashboard" | "tools" | "linked" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
 type ToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "Custom";
+type PlanKey = "free" | "trial" | "paid";
+type ArchivedStatusKey = "active" | "trial" | "free" | "paused" | "watchlist" | "cancelled";
+type ToolCustomization = {
+  allowedPlans?: PlanKey[];
+  displayInitials?: string;
+  planLockedReason?: string;
+  preserveNameCase?: boolean;
+};
 type DropdownOption = {
+  description?: string;
   disabled?: boolean;
   label: string;
+  tag?: string;
   value: string;
 };
 type ToolItem = {
@@ -80,14 +91,32 @@ type ToolResetArchive = {
   createdAt: string;
   data: ToolResetBlob[];
 };
-type ManageStatus = "Running" | "On a break" | "On the watchlist" | "Goodbye it was a journey";
-type BillingType = "Monthly" | "Yearly" | "Lifetime" | "One-time" | "Credit-topup";
-type ToolAccountDetail = {
+type ManageStatus = "Active" | "On a Break" | "Goodbye";
+type BillingType = string;
+type BillingAmount = {
   amount: string;
   billingType: BillingType;
+  currency: string;
+};
+type ToolAccountDetail = {
+  amount: string;
+  billingAmounts?: BillingAmount[];
+  billingType: BillingType;
+  currency: string;
+  nextChargeDate: string;
   planName: string;
   status: ManageStatus;
   trialExpiryDate: string;
+};
+type BillingEditTarget = {
+  accountLabel: string;
+  toolId: string;
+};
+type LinkToolAccountBlock = {
+  accountLabel: string;
+  id: string;
+  plan: ToolStatus;
+  planName: string;
 };
 
 const navItems: Array<{ id: Section; icon: string; label: string; badge?: number }> = [
@@ -95,6 +124,8 @@ const navItems: Array<{ id: Section; icon: string; label: string; badge?: number
   { id: "account", icon: "user", label: "My Account", badge: 3 },
   { id: "tools", icon: "list", label: "AI Toolbox", badge: 12 },
   { id: "linked", icon: "link", label: "Linked" },
+  { id: "billing", icon: "billing", label: "Billing" },
+  { id: "watchlist", icon: "eye", label: "Watchlist" },
   { id: "favorites", icon: "star", label: "Favourites", badge: 4 },
   { id: "archive", icon: "box", label: "Archived", badge: 2 },
   { id: "recovery", icon: "recovery", label: "Recently Deleted" },
@@ -102,9 +133,10 @@ const navItems: Array<{ id: Section; icon: string; label: string; badge?: number
 ];
 
 const initialAccounts: Account[] = [];
+const toolCustomizations = toolCustomizationsData as Record<string, ToolCustomization>;
 
 const defaultProviders = ["Gmail", "iCloud", "Outlook", "Yahoo", "Github"];
-const customProviderOption = "+ New";
+const customProviderOption = "+ new provider";
 const defaultToolCategories = [
   "AI Assistant",
   "Visual & Audio",
@@ -125,7 +157,7 @@ const categoryDescriptions: Record<string, string> = {
   Meetings: "Notes & transcription",
   Niche: "Industry-specific tools",
 };
-const customCategoryOption = "+ New";
+const customCategoryOption = "+ new category";
 const roleOptions: RoleOption[] = ["Creator", "Designer", "Developer", "Business", "Researcher", "Custom"];
 const roleCategoryMap: Record<RoleOption, string[]> = {
   Creator: ["AI Assistant", "Visual & Audio", "AI Agents", "Automation"],
@@ -134,6 +166,19 @@ const roleCategoryMap: Record<RoleOption, string[]> = {
   Business: ["AI Assistant", "Automation", "Research", "Meetings", "AI Agents", "Niche"],
   Researcher: ["AI Assistant", "Research", "Meetings", "Niche"],
   Custom: ["AI Assistant"],
+};
+const legacyCategoryMap: Record<string, string> = {
+  Audio: "Visual & Audio",
+  "Chat & AI": "AI Assistant",
+  "Chat & Reasoning": "AI Assistant",
+  "Image Gen": "Visual & Audio",
+  "Image Generation": "Visual & Audio",
+  LLM: "AI Assistant",
+  "Media Generation": "Visual & Audio",
+  Other: "Niche",
+  Productivity: "Automation",
+  "Video Gen": "Visual & Audio",
+  "Video Generation": "Visual & Audio",
 };
 const toolSortOptions: Array<{ label: string; value: ToolSortRange; start: string; end: string }> = [
   { label: "By Category", value: "Category", start: "A", end: "Z" },
@@ -235,6 +280,19 @@ function SidebarIcon({ name }: { name: string }) {
           <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" {...common} />
         </>
       )}
+      {name === "billing" && (
+        <>
+          <rect x="4.7" y="6.1" width="14.6" height="11.8" rx="2.2" {...common} />
+          <path d="M4.7 9.6h14.6" {...common} />
+          <path d="M8 14.3h3.1" {...common} />
+        </>
+      )}
+      {name === "eye" && (
+        <>
+          <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" {...common} />
+          <circle cx="12" cy="12" r="2.2" {...common} />
+        </>
+      )}
       {name === "star" && (
         <path d="M12 4.3 14.35 9l5.2.76-3.78 3.68.9 5.2L12 16.2l-4.66 2.45.9-5.2-3.78-3.68L9.65 9 12 4.3Z" fill="currentColor" />
       )}
@@ -317,19 +375,71 @@ function statusDisplayLabel(status: ToolStatus) {
   return labels[status] ?? status;
 }
 
+function normaliseManageStatus(status: string): ManageStatus {
+  if (status === "On a break" || status === "On a Break") return "On a Break";
+  if (status === "Goodbye it was a journey" || status === "Goodbye, it was a journey" || status === "Goodbye") return "Goodbye";
+  return "Active";
+}
+
+function normaliseBillingType(value: string): BillingType {
+  if (value === "Yearly" || value === "Annual") return "Annual";
+  if (value === "One-time" || value === "Top-up Credit") return value;
+  if (value.includes(",")) return value;
+  return "Monthly";
+}
+
+const currencyOptions: DropdownOption[] = ["USD", "SGD", "EUR", "GBP", "AUD"].map((currency) => ({
+  label: currency,
+  value: currency,
+}));
+
+const currencySymbols: Record<string, string> = {
+  AUD: "A$",
+  EUR: "€",
+  GBP: "£",
+  SGD: "S$",
+  USD: "$",
+};
+const accountNicknameMaxLength = 15;
+
+function normaliseCurrency(value?: string) {
+  const nextValue = value?.trim().toUpperCase();
+  return nextValue && currencySymbols[nextValue] ? nextValue : "USD";
+}
+
+function archivedStatusKey(status: ToolStatus): ArchivedStatusKey {
+  if (status === "Trial") return "trial";
+  if (status === "Free" || status === "Free Tier") return "free";
+  if (status === "Paused") return "paused";
+  if (status === "Considering") return "watchlist";
+  if (status === "Cancelled") return "cancelled";
+  return "active";
+}
+
 function archivedStatusLabel(status: ToolStatus) {
-  const labels: Record<ToolStatus, string> = {
-    Active: "Was running",
-    Paid: "Was running",
-    Trial: "Was on trial",
-    "Free Tier": "Was free",
-    Free: "Was free",
-    Paused: "Was on a break",
-    Considering: "Was on the watchlist",
-    Cancelled: "Was cancelled",
+  const labels: Record<ArchivedStatusKey, string> = {
+    active: "Active",
+    trial: "Trial",
+    free: "Free",
+    paused: "Paused",
+    watchlist: "Watchlist",
+    cancelled: "Cancelled",
   };
 
-  return labels[status] ?? `Was ${status.toLowerCase()}`;
+  return labels[archivedStatusKey(status)];
+}
+
+function archivedStatusTone(status: ToolStatus) {
+  const tones: Record<ArchivedStatusKey, string> = {
+    active: "status-running",
+    trial: "status-trial",
+    free: "status-free",
+    paused: "status-muted",
+    watchlist: "status-watch",
+    cancelled: "status-cancelled",
+  };
+
+  return tones[archivedStatusKey(status)];
 }
 
 function statusTone(status: ToolStatus) {
@@ -361,6 +471,13 @@ function formatShortDate(value: string) {
   });
 }
 
+function formatBillingDate(value: string) {
+  if (!value) return "Select date";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "Select date";
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 function daysUntilDate(value: string) {
   const targetDate = new Date(`${value}T00:00:00`);
   if (Number.isNaN(targetDate.getTime())) return null;
@@ -377,17 +494,48 @@ function formatNickname(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function toolCustomizationKey(value: string) {
+  const key = value.trim().toLowerCase();
+  if (key === "n8n") return "n8n";
+  return key;
+}
+
+function toolCustomizationFor(value: string) {
+  return toolCustomizations[toolCustomizationKey(value)];
+}
+
+function displayToolName(value: string) {
+  const customization = toolCustomizationFor(value);
+  if (customization?.preserveNameCase) return toolCustomizationKey(value);
+  return formatNickname(value);
+}
+
 function toolInitials(value: string) {
+  const customization = toolCustomizationFor(value);
+  if (customization?.displayInitials) return customization.displayInitials;
+
   const words = value.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return "AI";
-  return words
-    .slice(0, 2)
-    .map((word) => word.charAt(0).toUpperCase())
-    .join("");
+  return words[0].charAt(0).toUpperCase();
 }
 
 function createToolId(value: string) {
   return `${value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${Date.now().toString(36)}`;
+}
+
+function normaliseToolCategory(category: string) {
+  const trimmedCategory = category?.trim() || "Uncategorized";
+  return legacyCategoryMap[trimmedCategory] ?? trimmedCategory;
+}
+
+function normaliseCategoryList(categories: string[]) {
+  return Array.from(
+    new Set(
+      categories
+        .map((category) => normaliseToolCategory(category))
+        .filter(Boolean),
+    ),
+  );
 }
 
 function toolFromRecord(record: ToolRecord): ToolItem {
@@ -397,7 +545,7 @@ function toolFromRecord(record: ToolRecord): ToolItem {
     archivedAt: record.archivedAt,
     archivedStatus: record.archivedStatus as ToolStatus | undefined,
     billing: record.billing,
-    category: record.category,
+    category: normaliseToolCategory(record.category),
     favorite: record.favorite,
     id: record.id,
     logo: record.logo,
@@ -416,7 +564,7 @@ function toolToInput(tool: ToolItem): ToolInput {
     archivedAt: tool.archivedAt,
     archivedStatus: tool.archivedStatus,
     billing: tool.billing,
-    category: tool.category,
+    category: normaliseToolCategory(tool.category),
     favorite: tool.favorite,
     id: tool.id,
     logo: tool.logo,
@@ -431,6 +579,7 @@ function toolToInput(tool: ToolItem): ToolInput {
 function withToolIds(items: ToolItem[]) {
   return items.map((item) => ({
     ...item,
+    category: normaliseToolCategory(item.category),
     id: item.id || createToolId(item.name),
   }));
 }
@@ -448,18 +597,19 @@ function archiveToolCount(archives: ToolResetArchive[]) {
 }
 
 function createResetBlob(items: ToolItem[]) {
-  const categoryNames = Array.from(new Set(items.map((tool) => tool.category || "Uncategorized")));
+  const categoryNames = Array.from(new Set(items.map((tool) => normaliseToolCategory(tool.category))));
 
   return categoryNames.map((category) => ({
     category,
     tools: items
-      .filter((tool) => (tool.category || "Uncategorized") === category)
+      .filter((tool) => normaliseToolCategory(tool.category) === category)
       .map((tool) => ({ ...tool, category })),
   }));
 }
 
 function restoreCategory(category: string, availableCategories: string[]) {
-  return availableCategories.includes(category) ? category : "Uncategorized";
+  const normalisedCategory = normaliseToolCategory(category);
+  return availableCategories.includes(normalisedCategory) ? normalisedCategory : "Uncategorized";
 }
 
 function sortCategoriesWithUncategorizedLast(categories: string[]) {
@@ -478,9 +628,24 @@ function validateLogin(provider: string, login: string) {
 
   if (!trimmedLogin) return null;
 
+  if (provider === "Github") {
+    if (/\s/.test(login)) {
+      return { message: "Username cannot contain spaces", type: "error" as const };
+    }
+
+    if (!/^[A-Za-z0-9-]+$/.test(trimmedLogin)) {
+      return {
+        message: "GitHub username: letters, numbers, hyphens (-) only",
+        type: "error" as const,
+      };
+    }
+
+    return { message: "Username format looks good", type: "success" as const };
+  }
+
   if (/\s/.test(login)) {
     return {
-      message: provider === "Github" ? "Username cannot contain spaces" : "Email address cannot contain spaces",
+      message: "Email address cannot contain spaces",
       type: "error" as const,
     };
   }
@@ -544,6 +709,9 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const isDemoMode = searchParams.get("demo") === "1";
   const shouldUseSupabase = isSupabaseConfigured && !isDemoMode;
+  const createAccountPromptStorageKey = isDemoMode
+    ? "ai-subprise-demo-create-account-prompt-seen"
+    : "ai-subprise-create-account-prompt-seen";
   const initialView = searchParams.get("view") === "account" ? "account" : "dashboard";
   const [activeSection, setActiveSection] = useState<Section>(initialView);
   const [activeCategory, setActiveCategory] = useState("");
@@ -571,19 +739,27 @@ function DashboardContent() {
     action: "unfavorite" | "unarchive";
     tool: ToolItem;
   } | null>(null);
+  const [watchlistMoveTool, setWatchlistMoveTool] = useState<ToolItem | null>(null);
   const [expandedToolIds, setExpandedToolIds] = useState<string[]>([]);
-  const [linkingTool, setLinkingTool] = useState<ToolItem | null>(null);
-  const [linkAccountLabels, setLinkAccountLabels] = useState<string[]>([]);
-  const [linkAccountStatus, setLinkAccountStatus] = useState<ToolStatus>("Active");
+  const [isLinkToolLocked, setIsLinkToolLocked] = useState(false);
+  const [linkToolActivateToolId, setLinkToolActivateToolId] = useState("");
   const [managingLink, setManagingLink] = useState<{ accountLabel: string; toolId: string } | null>(null);
-  const [isSwitchingManagedAccount, setIsSwitchingManagedAccount] = useState(false);
   const [managedAccountLabel, setManagedAccountLabel] = useState("");
   const [managedPlan, setManagedPlan] = useState<ToolStatus>("Free Tier");
   const [managedPlanName, setManagedPlanName] = useState("");
   const [managedBillingType, setManagedBillingType] = useState<BillingType>("Monthly");
-  const [managedAmount, setManagedAmount] = useState("");
+  const [managedBillingAmounts, setManagedBillingAmounts] = useState<BillingAmount[]>([
+    { amount: "", billingType: "Monthly", currency: "USD" },
+  ]);
+  const [managedNextChargeDate, setManagedNextChargeDate] = useState("");
   const [managedTrialExpiryDate, setManagedTrialExpiryDate] = useState("");
-  const [managedStatus, setManagedStatus] = useState<ManageStatus>("Running");
+  const [managedStatus, setManagedStatus] = useState<ManageStatus>("Active");
+  const [editingBillingLink, setEditingBillingLink] = useState<BillingEditTarget | null>(null);
+  const [billingPlanName, setBillingPlanName] = useState("");
+  const [billingBillingType, setBillingBillingType] = useState<BillingType>("Monthly");
+  const [billingCurrency, setBillingCurrency] = useState("USD");
+  const [billingAmount, setBillingAmount] = useState("");
+  const [billingNextChargeDate, setBillingNextChargeDate] = useState("");
   const [toolAccountStatuses, setToolAccountStatuses] = useState<Record<string, Record<string, ToolStatus>>>({});
   const [toolAccountPlanNames, setToolAccountPlanNames] = useState<Record<string, Record<string, string>>>({});
   const [toolAccountDetails, setToolAccountDetails] = useState<Record<string, Record<string, ToolAccountDetail>>>({});
@@ -598,8 +774,20 @@ function DashboardContent() {
   const [isLoadingTools, setIsLoadingTools] = useState(false);
   const [isSavingTool, setIsSavingTool] = useState(false);
   const [toolDataError, setToolDataError] = useState("");
+  const validAccountLabels = useMemo(() => new Set(accountList.map((account) => account.label)), [accountList]);
+  const toolsWithValidAccountLinks = useMemo(
+    () =>
+      toolList.map((tool) => ({
+        ...tool,
+        accounts: tool.accounts.filter((accountLabel) => validAccountLabels.has(accountLabel)),
+      })),
+    [toolList, validAccountLabels],
+  );
   const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [defaultCurrency, setDefaultCurrency] = useState("USD");
+  const [remindersEnabled, setRemindersEnabled] = useState(true);
+  const [reminderDays, setReminderDays] = useState("7");
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -612,16 +800,17 @@ function DashboardContent() {
   const [isCustomProviderMode, setIsCustomProviderMode] = useState(false);
   const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
   const [nickname, setNickname] = useState("");
+  const [hasAttemptedNicknameOverflow, setHasAttemptedNicknameOverflow] = useState(false);
   const [provider, setProvider] = useState("");
   const providerRef = useRef("");
   const [login, setLogin] = useState("");
   const [toolName, setToolName] = useState("");
   const [toolCategory, setToolCategory] = useState("");
-  const [toolLinkedAccounts, setToolLinkedAccounts] = useState<string[]>([]);
+  const [toolUrl, setToolUrl] = useState("");
   const [linkToolId, setLinkToolId] = useState("");
-  const [linkToolAccountLabel, setLinkToolAccountLabel] = useState("");
-  const [linkToolPlan, setLinkToolPlan] = useState<ToolStatus>("Free Tier");
-  const [linkToolPlanName, setLinkToolPlanName] = useState("");
+  const [linkToolAccountBlocks, setLinkToolAccountBlocks] = useState<LinkToolAccountBlock[]>([
+    { accountLabel: "", id: "link-account-1", plan: "Free Tier", planName: "" },
+  ]);
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
   const [toolSearchQuery, setToolSearchQuery] = useState("");
@@ -641,6 +830,7 @@ function DashboardContent() {
   const [isColourMenuOpen, setIsColourMenuOpen] = useState(false);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [selectedToolSort, setSelectedToolSort] = useState<ToolSortRange>("Category");
+  const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Month">("All");
   const [hasCustomToolOrder, setHasCustomToolOrder] = useState(false);
   const [selectedRole, setSelectedRole] = useState<RoleOption>("Creator");
   const [roleQuestionChoice, setRoleQuestionChoice] = useState<RoleOption | "">("");
@@ -658,6 +848,12 @@ function DashboardContent() {
   const [hasSubmittedToolForm, setHasSubmittedToolForm] = useState(false);
   const hasConfirmedCategories = workspaceCategories.length > 0;
 
+  useEffect(() => {
+    if (activeSection === "watchlist" && selectedToolSort !== "Category" && selectedToolSort !== "All") {
+      setSelectedToolSort("Category");
+    }
+  }, [activeSection, selectedToolSort]);
+
   const updateAccountProvider = (nextProvider: string) => {
     providerRef.current = nextProvider;
     setProvider(nextProvider);
@@ -671,6 +867,7 @@ function DashboardContent() {
     onClose,
     options,
     placeholder,
+    selectedLabel,
     value,
   }: {
     ariaLabel?: string;
@@ -680,11 +877,12 @@ function DashboardContent() {
     onClose?: () => void;
     options: DropdownOption[];
     placeholder?: string;
+    selectedLabel?: string;
     value: string;
   }) => {
     const isOpen = openDropdownId === id;
     const selectedOption = options.find((option) => option.value === value);
-    const displayLabel = selectedOption?.label ?? placeholder ?? "Select";
+    const displayLabel = selectedLabel ?? selectedOption?.label ?? placeholder ?? "Select";
 
     return (
       <div
@@ -707,7 +905,10 @@ function DashboardContent() {
           }}
           type="button"
         >
-          <span>{displayLabel}</span>
+          <span className="dropdown-option-label">
+            {selectedOption?.tag ? <span className={`tag-dot ${selectedOption.tag}`} /> : null}
+            <span>{displayLabel}</span>
+          </span>
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="m6 9 6 6 6-6" />
           </svg>
@@ -729,7 +930,13 @@ function DashboardContent() {
                 }}
                 type="button"
               >
-                <span>{option.label}</span>
+                <span className="dropdown-option-label">
+                  {option.tag ? <span className={`tag-dot ${option.tag}`} /> : null}
+                  <span className="dropdown-option-text">
+                    <span>{option.label}</span>
+                    {option.description ? <small>{option.description}</small> : null}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
@@ -761,7 +968,7 @@ function DashboardContent() {
       .map((option) => option.label);
     const displayLabel = selectedLabels.length > 0
       ? selectedLabels.join(", ")
-      : "No account linked yet";
+      : placeholder;
 
     return (
       <div
@@ -828,11 +1035,11 @@ function DashboardContent() {
   };
 
   useEffect(() => {
-    if (searchParams.get("welcome") !== "1") return;
+    if (!isDemoMode && searchParams.get("welcome") !== "1") return;
 
     let hasSeenCreateAccountPrompt = false;
     try {
-      hasSeenCreateAccountPrompt = window.localStorage.getItem("ai-subprise-create-account-prompt-seen") === "true";
+      hasSeenCreateAccountPrompt = window.localStorage.getItem(createAccountPromptStorageKey) === "true";
     } catch {
       hasSeenCreateAccountPrompt = false;
     }
@@ -840,7 +1047,7 @@ function DashboardContent() {
     if (!hasSeenCreateAccountPrompt) {
       setShowCreateAccountModal(true);
     }
-  }, [searchParams]);
+  }, [createAccountPromptStorageKey, isDemoMode, searchParams]);
 
   useEffect(() => {
     try {
@@ -852,6 +1059,13 @@ function DashboardContent() {
       const storedToolAccountStatuses = window.localStorage.getItem(toolAccountStatusStorageKey);
       const storedToolAccountPlanNames = window.localStorage.getItem(toolAccountPlanNameStorageKey);
       const storedToolAccountDetails = window.localStorage.getItem(toolAccountDetailStorageKey);
+      const storedDefaultCurrency = window.localStorage.getItem("ai-subprise-default-currency");
+      const storedRemindersEnabled = window.localStorage.getItem("ai-subprise-reminders-enabled");
+      const storedReminderDays = window.localStorage.getItem("ai-subprise-reminder-days");
+
+      if (storedDefaultCurrency) setDefaultCurrency(normaliseCurrency(storedDefaultCurrency));
+      if (storedRemindersEnabled !== null) setRemindersEnabled(storedRemindersEnabled === "true");
+      if (["3", "7", "14"].includes(storedReminderDays ?? "")) setReminderDays(storedReminderDays ?? "7");
 
       setHasCustomToolOrder(storedToolOrderPreference === "custom");
       if (storedToolAccountStatuses) {
@@ -861,7 +1075,34 @@ function DashboardContent() {
         setToolAccountPlanNames(JSON.parse(storedToolAccountPlanNames));
       }
       if (storedToolAccountDetails) {
-        setToolAccountDetails(JSON.parse(storedToolAccountDetails));
+        const parsedDetails = JSON.parse(storedToolAccountDetails) as Record<string, Record<string, Partial<ToolAccountDetail>>>;
+        const normalisedDetails = Object.entries(parsedDetails).reduce<Record<string, Record<string, ToolAccountDetail>>>(
+          (nextDetails, [toolId, accountDetails]) => ({
+            ...nextDetails,
+            [toolId]: Object.entries(accountDetails).reduce<Record<string, ToolAccountDetail>>(
+              (nextToolDetails, [accountLabel, detail]) => ({
+                ...nextToolDetails,
+                [accountLabel]: {
+                  amount: detail.amount ?? "",
+                  billingAmounts: detail.billingAmounts?.map((entry) => ({
+                    amount: entry.amount ?? "",
+                    billingType: normaliseBillingType(entry.billingType),
+                    currency: normaliseCurrency(entry.currency),
+                  })),
+                  billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
+                  currency: normaliseCurrency(detail.currency),
+                  nextChargeDate: detail.nextChargeDate ?? "",
+                  planName: detail.planName ?? "",
+                  status: normaliseManageStatus(detail.status ?? "Active"),
+                  trialExpiryDate: detail.trialExpiryDate ?? "",
+                },
+              }),
+              {},
+            ),
+          }),
+          {},
+        );
+        setToolAccountDetails(normalisedDetails);
       }
 
       if (storedOpenState) {
@@ -871,16 +1112,20 @@ function DashboardContent() {
       if (storedCategories) {
         const parsedCategories = JSON.parse(storedCategories);
         if (Array.isArray(parsedCategories)) {
-          setWorkspaceCategories(
+          const nextCategories = normaliseCategoryList(
             parsedCategories.filter((category): category is string => typeof category === "string"),
           );
+          setWorkspaceCategories(nextCategories);
+          window.localStorage.setItem("ai-subprise-workspace-categories", JSON.stringify(nextCategories));
         }
       }
 
       if (storedTools) {
         const parsedTools = JSON.parse(storedTools);
         if (Array.isArray(parsedTools)) {
-          setToolList(withToolIds(parsedTools as ToolItem[]));
+          const nextTools = withToolIds(parsedTools as ToolItem[]);
+          setToolList(nextTools);
+          window.localStorage.setItem(toolsStorageKey, JSON.stringify(nextTools));
         }
       }
 
@@ -921,6 +1166,31 @@ function DashboardContent() {
       setHasLoadedStoredTools(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (shouldUseSupabase || !hasLoadedStoredTools) return;
+
+    setToolList((currentTools) => {
+      let hasRemovedStaleLinks = false;
+      const nextTools = currentTools.map((tool) => {
+        const nextAccounts = tool.accounts.filter((accountLabel) => validAccountLabels.has(accountLabel));
+        if (nextAccounts.length === tool.accounts.length) return tool;
+
+        hasRemovedStaleLinks = true;
+        return { ...tool, accounts: nextAccounts };
+      });
+
+      if (!hasRemovedStaleLinks) return currentTools;
+
+      try {
+        window.localStorage.setItem(toolsStorageKey, JSON.stringify(nextTools));
+      } catch {
+        // Local storage can be unavailable in private or embedded browser contexts.
+      }
+
+      return nextTools;
+    });
+  }, [hasLoadedStoredTools, shouldUseSupabase, validAccountLabels]);
 
   useEffect(() => {
     if (!shouldUseSupabase) return;
@@ -1000,9 +1270,11 @@ function DashboardContent() {
             ...(nextDetails[detail.toolId] ?? {}),
             [detail.accountLabel]: {
               amount: detail.amount,
-              billingType: detail.billingType as BillingType,
+              billingType: normaliseBillingType(detail.billingType),
+              currency: normaliseCurrency(detail.currency),
+              nextChargeDate: detail.nextChargeDate,
               planName: detail.planName,
-              status: detail.status as ManageStatus,
+              status: normaliseManageStatus(detail.status),
               trialExpiryDate: detail.trialExpiryDate,
             },
           };
@@ -1120,6 +1392,15 @@ function DashboardContent() {
     }, 2200);
   };
 
+  const copyAccountLogin = async (loginValue: string) => {
+    try {
+      await navigator.clipboard.writeText(loginValue);
+      showToast("Copied.");
+    } catch {
+      showToast("Could not copy.");
+    }
+  };
+
   const toggleToolsNav = () => {
     setIsToolsNavOpen((isOpen) => {
       const nextOpenState = !isOpen;
@@ -1134,7 +1415,7 @@ function DashboardContent() {
 
   const dismissCreateAccountModal = () => {
     try {
-      window.localStorage.setItem("ai-subprise-create-account-prompt-seen", "true");
+      window.localStorage.setItem(createAccountPromptStorageKey, "true");
     } catch {
       // Storage can be unavailable in private or embedded browser contexts.
     }
@@ -1143,7 +1424,7 @@ function DashboardContent() {
 
   const openAccountSetup = () => {
     try {
-      window.localStorage.setItem("ai-subprise-create-account-prompt-seen", "true");
+      window.localStorage.setItem(createAccountPromptStorageKey, "true");
     } catch {
       // Storage can be unavailable in private or embedded browser contexts.
     }
@@ -1153,6 +1434,7 @@ function DashboardContent() {
 
   const openAddAccountModal = () => {
     setNickname("");
+    setHasAttemptedNicknameOverflow(false);
     updateAccountProvider("");
     setIsCustomProviderMode(false);
     setLogin("");
@@ -1169,6 +1451,7 @@ function DashboardContent() {
     const isKnownProvider = defaultProviders.includes(account.provider) || customProviders.includes(account.provider);
 
     setNickname(account.label);
+    setHasAttemptedNicknameOverflow(false);
     updateAccountProvider(account.provider);
     setIsCustomProviderMode(!isKnownProvider);
     setLogin(account.login);
@@ -1183,7 +1466,7 @@ function DashboardContent() {
   const openAddToolModal = () => {
     setToolName("");
     setToolCategory("");
-    setToolLinkedAccounts([]);
+    setToolUrl("");
     setIsCustomCategoryMode(false);
     setEditingTool(null);
     setHasSubmittedToolForm(false);
@@ -1193,13 +1476,7 @@ function DashboardContent() {
 
   const handleAddToolClick = () => {
     if (activeSection === "linked") {
-      setLinkToolId("");
-      setLinkToolAccountLabel("");
-      setLinkToolPlan("Free Tier");
-      setLinkToolPlanName("");
-      setLinkToolSearchQuery("");
-      setIsLinkToolPickerOpen(false);
-      setShowLinkToolModal(true);
+      openLinkToolModal();
       return;
     }
 
@@ -1220,7 +1497,7 @@ function DashboardContent() {
 
     setToolName(tool.name);
     setToolCategory(tool.category);
-    setToolLinkedAccounts(tool.accounts);
+    setToolUrl(tool.pricingUrl === "#" ? "" : tool.pricingUrl);
     setIsCustomCategoryMode(!isKnownCategory);
     setEditingTool(tool);
     setHasSubmittedToolForm(false);
@@ -1244,7 +1521,7 @@ function DashboardContent() {
   const persistCategoryDrafts = (draftCategories: string[], options?: { closeModal?: boolean }) => {
     const previousCategories = workspaceCategories.length > 0 ? workspaceCategories : defaultToolCategories;
     const nextCategories = draftCategories
-      .map((category) => category.trim())
+      .map((category) => normaliseToolCategory(category))
       .filter((category, index, categories) => category && categories.indexOf(category) === index);
 
     if (nextCategories.length === 0) return;
@@ -1291,7 +1568,7 @@ function DashboardContent() {
   };
 
   const addCategoryDraft = () => {
-    const trimmedCategory = newCategoryName.trim();
+    const trimmedCategory = normaliseToolCategory(newCategoryName);
     if (!trimmedCategory) return;
 
     const nextCategories = categoryDrafts.includes(trimmedCategory)
@@ -1710,7 +1987,17 @@ function DashboardContent() {
         account.login.trim().toLowerCase() === trimmedLogin.toLowerCase(),
     );
 
-    if (!trimmedNickname || !trimmedProvider || !trimmedLogin || loginFeedback?.type === "error" || isDuplicateNickname || isDuplicateLogin) return;
+    const isNicknameTooLong = trimmedNickname.length > accountNicknameMaxLength;
+
+    if (
+      !trimmedNickname ||
+      !trimmedProvider ||
+      !trimmedLogin ||
+      loginFeedback?.type === "error" ||
+      isDuplicateNickname ||
+      isDuplicateLogin ||
+      isNicknameTooLong
+    ) return;
 
     const accountDetails: Account = {
       id: editingAccount?.id,
@@ -1774,6 +2061,7 @@ function DashboardContent() {
 
     if (options?.addAnother && !editingAccount) {
       setNickname("");
+      setHasAttemptedNicknameOverflow(false);
       setLogin("");
       setSelectedColour(colourOptions[0]);
       updateAccountProvider(trimmedProvider);
@@ -1820,7 +2108,7 @@ function DashboardContent() {
     setToolDataError("");
 
     const trimmedToolName = toolName.trim();
-    const trimmedCategory = toolCategory.trim();
+    const trimmedCategory = normaliseToolCategory(toolCategory);
     const isDuplicateToolName = toolList.some(
       (tool) =>
         tool.id !== editingTool?.id &&
@@ -1855,13 +2143,13 @@ function DashboardContent() {
       name: trimmedToolName,
       category: trimmedCategory,
       status: editingTool?.status ?? "Free",
-      accounts: Array.from(new Set(toolLinkedAccounts)),
+      accounts: editingTool?.accounts ?? [],
       billing: editingTool?.billing ?? "None",
       notes: editingTool?.notes ?? "",
       favorite: editingTool?.favorite ?? false,
       archived: editingTool?.archived ?? false,
-      pricingUrl: editingTool?.pricingUrl ?? "#",
-      logo: editingTool?.logo ?? toolInitials(trimmedToolName),
+      pricingUrl: toolUrl.trim() || "#",
+      logo: toolInitials(trimmedToolName),
       logoBg: editingTool?.logoBg ?? "#F0F4FF",
     };
 
@@ -1899,7 +2187,7 @@ function DashboardContent() {
     if (options?.addAnother && !editingTool) {
       setToolName("");
       setToolCategory(trimmedCategory);
-      setToolLinkedAccounts([]);
+      setToolUrl("");
       window.setTimeout(() => toolNameInputRef.current?.focus(), 0);
       return;
     }
@@ -2053,6 +2341,33 @@ function DashboardContent() {
     }
   };
 
+  const toggleToolWatchlist = async (toolId: string) => {
+    const targetTool = toolList.find((tool) => tool.id === toolId);
+    if (!targetTool) return;
+
+    const nextStatus: ToolStatus = targetTool.status === "Considering" ? "Active" : "Considering";
+    setToolDataError("");
+    setToolList((currentTools) =>
+      currentTools.map((tool) =>
+        tool.id === toolId ? { ...tool, status: nextStatus } : tool,
+      ),
+    );
+
+    if (!shouldUseSupabase) return;
+
+    try {
+      await patchToolRecord(targetTool.id, { status: nextStatus });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update watchlist.";
+      setToolDataError(message);
+      setToolList((currentTools) =>
+        currentTools.map((tool) =>
+          tool.id === targetTool.id ? { ...tool, status: targetTool.status } : tool,
+        ),
+      );
+    }
+  };
+
   const confirmPendingToolStateChange = async () => {
     if (!confirmToolStateChange) return;
 
@@ -2071,6 +2386,15 @@ function DashboardContent() {
     }
 
     setConfirmToolStateChange(null);
+  };
+
+  const confirmMoveWatchlistToolToLinked = () => {
+    if (!watchlistMoveTool) return;
+
+    setActiveSection("linked");
+    setActiveCategory("");
+    openLinkToolModal(watchlistMoveTool, { activateToolOnSave: true });
+    setWatchlistMoveTool(null);
   };
 
   const toggleToolSelection = (toolId: string) => {
@@ -2119,77 +2443,88 @@ function DashboardContent() {
     }
   };
 
-  const renderPlanSelector = (value: ToolStatus, onChange: (nextPlan: ToolStatus) => void) => (
-    <div className="plan-selector" role="group" aria-label="Plan">
-      {[
-        { label: "Free", value: "Free Tier" as ToolStatus },
-        { label: "Trial", value: "Trial" as ToolStatus },
-        { label: "Paid", value: "Active" as ToolStatus },
-      ].map((plan) => (
-        <button
-          className={
-            value === plan.value
-              ? `plan-selector-pill plan-${plan.label.toLowerCase()} is-selected`
-              : `plan-selector-pill plan-${plan.label.toLowerCase()}`
-          }
-          key={plan.value}
-          onClick={() => onChange(plan.value)}
-          type="button"
-        >
-          {plan.label}
-        </button>
-      ))}
-    </div>
-  );
-
-  const openLinkAccountModal = (tool: ToolItem) => {
-    const firstAvailableAccount = accountList.find((account) => !tool.accounts.includes(account.label));
-    setLinkingTool(tool);
-    setLinkAccountLabels(firstAvailableAccount ? [firstAvailableAccount.label] : []);
-    setLinkAccountStatus("Active");
+  const planKeyForStatus = (status: ToolStatus): PlanKey => {
+    if (status === "Trial") return "trial";
+    if (status === "Active" || status === "Paid") return "paid";
+    return "free";
   };
 
-  const saveLinkedAccount = async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
-    if (!linkingTool || linkAccountLabels.length === 0) return;
+  const statusForPlanKey = (planKey: PlanKey): ToolStatus => {
+    if (planKey === "trial") return "Trial";
+    if (planKey === "paid") return "Active";
+    return "Free Tier";
+  };
 
-    const previousTools = toolList;
-    const nextAccounts = Array.from(new Set([...linkingTool.accounts, ...linkAccountLabels]));
-    setToolList((currentTools) =>
-      currentTools.map((tool) =>
-        tool.id === linkingTool.id
-          ? { ...tool, accounts: Array.from(new Set([...tool.accounts, ...linkAccountLabels])) }
-          : tool,
-      ),
+  const isPlanAllowedForTool = (tool: ToolItem | undefined, status: ToolStatus) => {
+    const allowedPlans = tool ? toolCustomizationFor(tool.name)?.allowedPlans : undefined;
+    return !allowedPlans?.length || allowedPlans.includes(planKeyForStatus(status));
+  };
+
+  const renderPlanSelector = (value: ToolStatus, onChange: (nextPlan: ToolStatus) => void, tool?: ToolItem) => {
+    const customization = tool ? toolCustomizationFor(tool.name) : undefined;
+    const allowedPlans = customization?.allowedPlans;
+    const planOptions = [
+      { key: "free" as PlanKey, label: "Free", value: "Free Tier" as ToolStatus },
+      { key: "trial" as PlanKey, label: "Trial", value: "Trial" as ToolStatus },
+      { key: "paid" as PlanKey, label: "Paid", value: "Active" as ToolStatus },
+    ];
+    const hasLockedPlans = Boolean(allowedPlans?.length);
+
+    return (
+      <>
+        <div className="plan-selector" role="group" aria-label="Plan">
+          {planOptions.map((plan) => {
+            const isDisabled = Boolean(allowedPlans && !allowedPlans.includes(plan.key));
+
+            return (
+              <button
+                aria-disabled={isDisabled}
+                className={
+                  value === plan.value
+                    ? `plan-selector-pill plan-${plan.label.toLowerCase()} is-selected`
+                    : `plan-selector-pill plan-${plan.label.toLowerCase()}`
+                }
+                disabled={isDisabled}
+                key={plan.value}
+                onClick={() => onChange(plan.value)}
+                title={isDisabled ? customization?.planLockedReason : undefined}
+                type="button"
+              >
+                {plan.label}
+              </button>
+            );
+          })}
+        </div>
+        {hasLockedPlans && customization?.planLockedReason ? (
+          <small className="field-feedback neutral">{customization.planLockedReason}</small>
+        ) : null}
+      </>
     );
-    setToolAccountStatuses((currentStatuses) => ({
-      ...currentStatuses,
-      [linkingTool.id]: linkAccountLabels.reduce(
-        (nextStatuses, accountLabel) => ({
-          ...nextStatuses,
-          [accountLabel]: linkAccountStatus,
-        }),
-        { ...(currentStatuses[linkingTool.id] ?? {}) },
-      ),
-    }));
-    if (shouldUseSupabase) {
-      try {
-        await replaceToolLinks(linkingTool.id, nextAccounts, accountList);
-        await Promise.all(
-          linkAccountLabels.map((accountLabel) =>
-            updateToolLinkDetails(linkingTool.id, accountLabel, accountList, { plan: linkAccountStatus }),
-          ),
-        );
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not link account.";
-        setToolDataError(message);
-        setToolList(previousTools);
-        return;
-      }
-    }
-    setLinkingTool(null);
-    setLinkAccountLabels([]);
-    setLinkAccountStatus("Active");
+  };
+
+  const resetLinkToolBlocks = () => {
+    setLinkToolAccountBlocks([{ accountLabel: "", id: "link-account-1", plan: "Free Tier", planName: "" }]);
+  };
+
+  const closeLinkToolModal = () => {
+    setShowLinkToolModal(false);
+    setLinkToolId("");
+    resetLinkToolBlocks();
+    setLinkToolSearchQuery("");
+    setIsLinkToolPickerOpen(false);
+    setIsLinkToolLocked(false);
+    setLinkToolActivateToolId("");
+  };
+
+  const openLinkToolModal = (tool?: ToolItem, options?: { activateToolOnSave?: boolean }) => {
+    setLinkToolId(tool?.id ?? "");
+    resetLinkToolBlocks();
+    setLinkToolSearchQuery(tool?.name ?? "");
+    setIsLinkToolPickerOpen(false);
+    setOpenDropdownId(null);
+    setIsLinkToolLocked(Boolean(tool));
+    setLinkToolActivateToolId(options?.activateToolOnSave && tool ? tool.id : "");
+    setShowLinkToolModal(true);
   };
 
   const openManageAccountModal = (tool: ToolItem, accountLabel: string) => {
@@ -2199,11 +2534,20 @@ function DashboardContent() {
     setManagedAccountLabel(accountLabel);
     setManagedPlan(relationPlanStatusValue(tool, accountLabel));
     setManagedPlanName(details?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "");
-    setManagedBillingType(details?.billingType ?? "Monthly");
-    setManagedAmount(details?.amount ?? "");
+    setManagedBillingType(normaliseBillingType(details?.billingType ?? "Monthly"));
+    const selectedBillingTypes = normaliseBillingType(details?.billingType ?? "Monthly").split(", ").filter(Boolean);
+    setManagedBillingAmounts(
+      details?.billingAmounts?.length
+        ? details.billingAmounts
+        : selectedBillingTypes.map((billingType, index) => ({
+            amount: index === 0 ? details?.amount ?? "" : "",
+            billingType,
+            currency: normaliseCurrency(details?.currency ?? defaultCurrency),
+          })),
+    );
+    setManagedNextChargeDate(details?.nextChargeDate ?? "");
     setManagedTrialExpiryDate(details?.trialExpiryDate ?? "");
-    setManagedStatus(details?.status ?? "Running");
-    setIsSwitchingManagedAccount(false);
+    setManagedStatus(details?.status ?? "Active");
   };
 
   const closeManageAccountModal = () => {
@@ -2212,10 +2556,10 @@ function DashboardContent() {
     setManagedPlan("Free Tier");
     setManagedPlanName("");
     setManagedBillingType("Monthly");
-    setManagedAmount("");
+    setManagedBillingAmounts([{ amount: "", billingType: "Monthly", currency: defaultCurrency }]);
+    setManagedNextChargeDate("");
     setManagedTrialExpiryDate("");
-    setManagedStatus("Running");
-    setIsSwitchingManagedAccount(false);
+    setManagedStatus("Active");
   };
 
   const saveManagedAccount = async (event?: FormEvent<HTMLFormElement>) => {
@@ -2276,8 +2620,11 @@ function DashboardContent() {
         delete nextToolDetails[previousAccountLabel];
       }
       nextToolDetails[managedAccountLabel] = {
-        amount: managedPlan === "Active" ? managedAmount.trim() : "",
+        amount: managedPlan === "Active" ? managedBillingAmounts[0]?.amount.trim() ?? "" : "",
+        billingAmounts: managedPlan === "Active" ? managedBillingAmounts : [],
         billingType: managedBillingType,
+        currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
+        nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
         planName: managedPlan === "Active" ? managedPlanName.trim() : "",
         status: managedStatus,
         trialExpiryDate: managedPlan === "Trial" ? managedTrialExpiryDate : "",
@@ -2290,8 +2637,10 @@ function DashboardContent() {
       try {
         await replaceToolLinks(toolId, nextAccounts, accountList);
         await updateToolLinkDetails(toolId, managedAccountLabel, accountList, {
-          amount: managedPlan === "Active" ? managedAmount.trim() : "",
+          amount: managedPlan === "Active" ? managedBillingAmounts[0]?.amount.trim() ?? "" : "",
           billingType: managedBillingType,
+          currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
+          nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
           plan: managedPlan,
           planName: managedPlan === "Active" ? managedPlanName.trim() : "",
           status: managedStatus,
@@ -2308,42 +2657,215 @@ function DashboardContent() {
     closeManageAccountModal();
   };
 
+  const openBillingEditModal = (toolId: string, accountLabel: string) => {
+    const detail = toolAccountDetails[toolId]?.[accountLabel];
+
+    setEditingBillingLink({ accountLabel, toolId });
+    setBillingPlanName(detail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "");
+    setBillingBillingType(normaliseBillingType(detail?.billingType ?? "Monthly"));
+    setBillingCurrency(normaliseCurrency(detail?.currency ?? defaultCurrency));
+    setBillingAmount(detail?.amount ?? "");
+    setBillingNextChargeDate(detail?.nextChargeDate ?? "");
+  };
+
+  const closeBillingEditModal = () => {
+    setEditingBillingLink(null);
+    setBillingPlanName("");
+    setBillingBillingType("Monthly");
+    setBillingCurrency("USD");
+    setBillingAmount("");
+    setBillingNextChargeDate("");
+  };
+
+  const saveBillingDetails = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    if (!editingBillingLink) return;
+
+    const { accountLabel, toolId } = editingBillingLink;
+    const previousDetails = toolAccountDetails;
+    const nextDetail: ToolAccountDetail = {
+      amount: billingAmount.trim(),
+      billingType: billingBillingType,
+      currency: normaliseCurrency(billingCurrency),
+      nextChargeDate: billingNextChargeDate,
+      planName: billingPlanName.trim(),
+      status: toolAccountDetails[toolId]?.[accountLabel]?.status ?? "Active",
+      trialExpiryDate: toolAccountDetails[toolId]?.[accountLabel]?.trialExpiryDate ?? "",
+    };
+
+    setToolAccountDetails((currentDetails) => ({
+      ...currentDetails,
+      [toolId]: {
+        ...(currentDetails[toolId] ?? {}),
+        [accountLabel]: nextDetail,
+      },
+    }));
+    setToolAccountPlanNames((currentPlanNames) => ({
+      ...currentPlanNames,
+      [toolId]: {
+        ...(currentPlanNames[toolId] ?? {}),
+        [accountLabel]: billingPlanName.trim(),
+      },
+    }));
+
+    if (shouldUseSupabase) {
+      try {
+        await updateToolLinkDetails(toolId, accountLabel, accountList, {
+          amount: nextDetail.amount,
+          billingType: nextDetail.billingType,
+          currency: nextDetail.currency,
+          nextChargeDate: nextDetail.nextChargeDate,
+          plan: "Active",
+          planName: nextDetail.planName,
+          status: nextDetail.status,
+          trialExpiryDate: "",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not update billing details.";
+        setToolDataError(message);
+        setToolAccountDetails(previousDetails);
+        return;
+      }
+    }
+
+    closeBillingEditModal();
+  };
+
+  const updateBillingField = async (
+    toolId: string,
+    accountLabel: string,
+    patch: Partial<Pick<ToolAccountDetail, "amount" | "billingType" | "currency" | "nextChargeDate" | "planName">>,
+  ) => {
+    const currentDetail = toolAccountDetails[toolId]?.[accountLabel];
+    const nextDetail: ToolAccountDetail = {
+      amount: patch.amount ?? currentDetail?.amount ?? "",
+      billingAmounts: currentDetail?.billingAmounts,
+      billingType: normaliseBillingType(patch.billingType ?? currentDetail?.billingType ?? "Monthly"),
+      currency: normaliseCurrency(patch.currency ?? currentDetail?.currency),
+      nextChargeDate: patch.nextChargeDate ?? currentDetail?.nextChargeDate ?? "",
+      planName: patch.planName ?? currentDetail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "",
+      status: currentDetail?.status ?? "Active",
+      trialExpiryDate: currentDetail?.trialExpiryDate ?? "",
+    };
+    const previousDetails = toolAccountDetails;
+    const previousPlanNames = toolAccountPlanNames;
+
+    setToolAccountDetails((currentDetails) => ({
+      ...currentDetails,
+      [toolId]: {
+        ...(currentDetails[toolId] ?? {}),
+        [accountLabel]: nextDetail,
+      },
+    }));
+
+    if (patch.planName !== undefined) {
+      setToolAccountPlanNames((currentPlanNames) => ({
+        ...currentPlanNames,
+        [toolId]: {
+          ...(currentPlanNames[toolId] ?? {}),
+          [accountLabel]: nextDetail.planName,
+        },
+      }));
+    }
+
+    if (shouldUseSupabase) {
+      try {
+        await updateToolLinkDetails(toolId, accountLabel, accountList, {
+          amount: nextDetail.amount,
+          billingType: nextDetail.billingType,
+          currency: nextDetail.currency,
+          nextChargeDate: nextDetail.nextChargeDate,
+          plan: "Active",
+          planName: nextDetail.planName,
+          status: nextDetail.status,
+          trialExpiryDate: "",
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not update billing details.";
+        setToolDataError(message);
+        setToolAccountDetails(previousDetails);
+        setToolAccountPlanNames(previousPlanNames);
+      }
+    }
+  };
+
   const saveToolLink = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const selectedTool = toolList.find((tool) => tool.id === linkToolId);
 
-    if (!selectedTool || !linkToolAccountLabel || selectedTool.accounts.includes(linkToolAccountLabel)) return;
+    const filledBlocks = linkToolAccountBlocks.filter((block) => block.accountLabel && block.plan);
+    const selectedAccountLabels = filledBlocks.map((block) => block.accountLabel);
+    const hasDuplicateSelection = new Set(selectedAccountLabels).size !== selectedAccountLabels.length;
+    const hasExistingLink = selectedAccountLabels.some((accountLabel) => selectedTool?.accounts.includes(accountLabel));
+
+    if (!selectedTool || filledBlocks.length !== linkToolAccountBlocks.length || hasDuplicateSelection || hasExistingLink) return;
 
     const previousTools = toolList;
-    const nextAccounts = [...selectedTool.accounts, linkToolAccountLabel];
+    const nextAccounts = Array.from(new Set([...selectedTool.accounts, ...selectedAccountLabels]));
+    const shouldActivateTool = linkToolActivateToolId === selectedTool.id;
     setToolList((currentTools) =>
       currentTools.map((tool) =>
         tool.id === selectedTool.id
-          ? { ...tool, accounts: nextAccounts }
+          ? { ...tool, accounts: nextAccounts, status: shouldActivateTool ? "Active" : tool.status }
           : tool,
       ),
     );
     setToolAccountStatuses((currentStatuses) => ({
       ...currentStatuses,
-      [selectedTool.id]: {
-        ...(currentStatuses[selectedTool.id] ?? {}),
-        [linkToolAccountLabel]: linkToolPlan,
-      },
+      [selectedTool.id]: filledBlocks.reduce(
+        (nextStatuses, block) => ({
+          ...nextStatuses,
+          [block.accountLabel]: block.plan,
+        }),
+        { ...(currentStatuses[selectedTool.id] ?? {}) },
+      ),
     }));
     setToolAccountPlanNames((currentPlanNames) => ({
       ...currentPlanNames,
-      [selectedTool.id]: {
-        ...(currentPlanNames[selectedTool.id] ?? {}),
-        [linkToolAccountLabel]: linkToolPlan === "Active" ? linkToolPlanName.trim() : "",
-      },
+      [selectedTool.id]: filledBlocks.reduce(
+        (nextPlanNames, block) => ({
+          ...nextPlanNames,
+          [block.accountLabel]: block.plan === "Active" ? block.planName.trim() : "",
+        }),
+        { ...(currentPlanNames[selectedTool.id] ?? {}) },
+      ),
+    }));
+    setToolAccountDetails((currentDetails) => ({
+      ...currentDetails,
+      [selectedTool.id]: filledBlocks.reduce(
+        (nextDetails, block) => ({
+          ...nextDetails,
+          [block.accountLabel]: {
+            amount: "",
+            billingType: "Monthly",
+            currency: "USD",
+            nextChargeDate: "",
+            planName: block.plan === "Active" ? block.planName.trim() : "",
+            status: "Active",
+            trialExpiryDate: "",
+          },
+        }),
+        { ...(currentDetails[selectedTool.id] ?? {}) },
+      ),
     }));
     if (shouldUseSupabase) {
       try {
         await replaceToolLinks(selectedTool.id, nextAccounts, accountList);
-        await updateToolLinkDetails(selectedTool.id, linkToolAccountLabel, accountList, {
-          plan: linkToolPlan,
-          planName: linkToolPlan === "Active" ? linkToolPlanName.trim() : "",
-        });
+        await Promise.all(
+          filledBlocks.map((block) =>
+            updateToolLinkDetails(selectedTool.id, block.accountLabel, accountList, {
+              billingType: "Monthly",
+              currency: "USD",
+              nextChargeDate: "",
+              plan: block.plan,
+              planName: block.plan === "Active" ? block.planName.trim() : "",
+              status: "Active",
+            }),
+          ),
+        );
+        if (shouldActivateTool) {
+          await patchToolRecord(selectedTool.id, { status: "Active" });
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not link AI tool.";
         setToolDataError(message);
@@ -2351,13 +2873,7 @@ function DashboardContent() {
         return;
       }
     }
-    setShowLinkToolModal(false);
-    setLinkToolId("");
-    setLinkToolAccountLabel("");
-    setLinkToolPlan("Free Tier");
-    setLinkToolPlanName("");
-    setLinkToolSearchQuery("");
-    setIsLinkToolPickerOpen(false);
+    closeLinkToolModal();
   };
 
   const removeLinkedAccount = async (toolId: string, accountLabel: string) => {
@@ -2752,13 +3268,14 @@ function DashboardContent() {
       return firstLetter >= selectedRange.start && firstLetter <= selectedRange.end;
     };
     const filterBySection = () => {
-      if (activeSection === "favorites") return toolList.filter((tool) => tool.favorite && !tool.archived);
-      if (activeSection === "archive") return toolList.filter((tool) => tool.archived);
-      if (activeSection === "linked") return toolList.filter((tool) => tool.accounts.length > 0 && !tool.archived);
+      if (activeSection === "favorites") return toolsWithValidAccountLinks.filter((tool) => tool.favorite && !tool.archived);
+      if (activeSection === "archive") return toolsWithValidAccountLinks.filter((tool) => tool.archived);
+      if (activeSection === "linked") return toolsWithValidAccountLinks.filter((tool) => tool.accounts.length > 0 && !tool.archived);
+      if (activeSection === "watchlist") return toolsWithValidAccountLinks.filter((tool) => tool.status === "Considering" && !tool.archived);
       if (activeSection === "tools" && activeCategory) {
-        return toolList.filter((tool) => !tool.archived && tool.category === activeCategory);
+        return toolsWithValidAccountLinks.filter((tool) => !tool.archived && tool.category === activeCategory);
       }
-      return toolList.filter((tool) => !tool.archived);
+      return toolsWithValidAccountLinks.filter((tool) => !tool.archived);
     };
 
     const query = toolSearchQuery.trim().toLowerCase();
@@ -2772,12 +3289,21 @@ function DashboardContent() {
         );
       });
 
-    if ((activeSection === "tools" && !hasCustomToolOrder) || activeSection === "favorites" || activeSection === "archive") {
+    if ((activeSection === "tools" && !hasCustomToolOrder) || activeSection === "favorites" || activeSection === "archive" || activeSection === "watchlist") {
       return [...nextTools].sort((firstTool, secondTool) => firstTool.name.localeCompare(secondTool.name));
     }
 
     return nextTools;
-  }, [activeCategory, activeSection, hasCustomToolOrder, selectedToolSort, toolList, toolSearchQuery]);
+  }, [activeCategory, activeSection, hasCustomToolOrder, selectedToolSort, toolsWithValidAccountLinks, toolSearchQuery]);
+  const totalToolboxCount = useMemo(
+    () => toolsWithValidAccountLinks.filter((tool) => !tool.archived).length,
+    [toolsWithValidAccountLinks],
+  );
+  const totalLinkedToolCount = useMemo(
+    () => toolsWithValidAccountLinks.filter((tool) => tool.accounts.length > 0 && !tool.archived).length,
+    [toolsWithValidAccountLinks],
+  );
+  const toolSearchTerm = toolSearchQuery.trim();
   const visibleToolIds = useMemo(() => visibleTools.map((tool) => tool.id), [visibleTools]);
   const selectedVisibleToolIds = useMemo(
     () => selectedToolIds.filter((toolId) => visibleToolIds.includes(toolId)),
@@ -2801,8 +3327,8 @@ function DashboardContent() {
     [workspaceCategories],
   );
   const hasUncategorizedTools = useMemo(
-    () => toolList.some((tool) => !tool.archived && tool.category === "Uncategorized"),
-    [toolList],
+    () => toolsWithValidAccountLinks.some((tool) => !tool.archived && tool.category === "Uncategorized"),
+    [toolsWithValidAccountLinks],
   );
   const visibleWorkspaceCategories = useMemo(
     () => sortedWorkspaceCategories.filter((category) => category !== "Uncategorized" || hasUncategorizedTools),
@@ -2821,6 +3347,18 @@ function DashboardContent() {
         .filter((group) => group.accounts.length > 0);
     },
     [accountList, customProviders],
+  );
+  const orderedAccountOptions = useMemo(
+    () =>
+      groupedAccounts.flatMap((group) =>
+        group.accounts.map((account) => ({
+          description: account.login,
+          label: account.label,
+          tag: account.tag,
+          value: account.label,
+        })),
+      ),
+    [groupedAccounts],
   );
   const groupedToolCategories = useMemo(
     () => {
@@ -2843,13 +3381,11 @@ function DashboardContent() {
   const providerOptions = useMemo(() => [...defaultProviders, ...customProviders], [customProviders]);
   const toolCategoryOptions = useMemo(
     () => {
-      const categoryOptions = Array.from(
-        new Set([
+      const categoryOptions = normaliseCategoryList([
           ...(sortedWorkspaceCategories.length > 0 ? sortedWorkspaceCategories : defaultToolCategories),
           ...customToolCategories,
           ...(toolCategory ? [toolCategory] : []),
-        ]),
-      );
+        ]);
 
       if (editingTool?.category === "Uncategorized" || hasUncategorizedTools) {
         return categoryOptions;
@@ -2861,10 +3397,32 @@ function DashboardContent() {
   );
   const loginFeedback = useMemo(() => validateLogin(provider, login), [login, provider]);
   const visibleLoginFeedback = hasSubmittedAccountForm ? loginFeedback : null;
+  const accountLinkCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    toolsWithValidAccountLinks
+      .filter((tool) => !tool.archived)
+      .forEach((tool) => {
+        Array.from(new Set(tool.accounts)).forEach((accountLabel) => {
+          counts.set(accountLabel, (counts.get(accountLabel) ?? 0) + 1);
+        });
+      });
+
+    return counts;
+  }, [toolsWithValidAccountLinks]);
   const visibleSidebarAccounts = useMemo(
-    () => [...accountList].sort((a, b) => b.linked - a.linked).slice(0, 3),
-    [accountList],
+    () =>
+      accountList
+        .map((account, index) => ({
+          ...account,
+          linked: accountLinkCounts.get(account.label) ?? 0,
+          sidebarOrder: index,
+        }))
+        .sort((a, b) => b.linked - a.linked || a.sidebarOrder - b.sidebarOrder)
+        .slice(0, 2),
+    [accountLinkCounts, accountList],
   );
+  const accountViewUrl = isDemoMode ? "/dashboard?demo=1&view=account" : "/dashboard?view=account";
   const visibleRecoveryArchives = useMemo(() => {
     const query = recoverySearch.trim().toLowerCase();
     if (!query) return toolResetArchives;
@@ -2939,6 +3497,69 @@ function DashboardContent() {
   const resetArchiveDaysRemaining = oldestRecoveryArchive
     ? Math.max(1, Math.ceil((resetArchiveMs - (Date.now() - new Date(oldestRecoveryArchive.createdAt).getTime())) / (24 * 60 * 60 * 1000)))
     : 0;
+  const toolboxEmptyState =
+    totalToolboxCount === 0
+      ? {
+          body: (
+            <>
+              <span>
+                <button className="inline-text-link" onClick={openRoleQuestionModal} type="button">
+                  Pick a template
+                </button>{" "}
+                that best describes you.
+              </span>
+              <span>AI Subprise will suggest the right categories to get you started.</span>
+            </>
+          ),
+          title: "Your toolbox is empty",
+        }
+      : toolSearchTerm
+        ? {
+            body: <span>Try another search term.</span>,
+            title: `No tools match '${toolSearchTerm}'`,
+          }
+        : selectedToolSort !== "All" && selectedToolSort !== "Category"
+          ? {
+              body: <span>Add a tool in this range when you are ready.</span>,
+              title: `No tools starting with ${selectedToolSort} yet.`,
+            }
+          : activeCategory
+            ? {
+                body: <span>Add or move tools into this category when you are ready.</span>,
+                title: `No tools in ${activeCategory} yet`,
+              }
+            : {
+                body: <span>Add or move tools into this view when you are ready.</span>,
+                title: "No tools yet",
+              };
+  const linkedEmptyState =
+    totalLinkedToolCount === 0
+      ? {
+          body: (
+            <span>
+              Connect a tool to an account, or{" "}
+              <button className="inline-text-link" onClick={() => openLinkToolModal()} type="button">
+                Link AI Tool
+              </button>{" "}
+              to get started.
+            </span>
+          ),
+          title: "Nothing linked yet",
+        }
+      : toolSearchTerm
+        ? {
+            body: null,
+            title: `No linked tools match '${toolSearchTerm}'.`,
+          }
+        : selectedToolSort !== "All" && selectedToolSort !== "Category"
+          ? {
+              body: null,
+              title: `No linked tools starting with ${selectedToolSort}.`,
+            }
+          : {
+              body: null,
+              title: "No linked tools here yet.",
+            };
 
   const title =
     activeSection === "account"
@@ -2955,6 +3576,8 @@ function DashboardContent() {
     account: "All the accounts you sign up with. Add them once, use them everywhere.",
     tools: "Every tool you use, paid or free. Nothing forgotten.",
     linked: "See which account belongs to which tool. No more guessing.",
+    billing: "Paid subscriptions by tool and account.",
+    watchlist: "Tools you are considering. Keep them close before you link an account.",
     favorites: "The tools you reach for every day. Right here.",
     archive: "Tools on pause. Still here if you need them back.",
     settings: "Your preferences. Your way.",
@@ -2967,21 +3590,36 @@ function DashboardContent() {
         : activeSection === "tools" && activeCategory
           ? `AI tools in ${activeCategory}`
       : sectionSubtitles[activeSection] ?? "Everything at a glance. Your tools, spend, and trials all in one place.";
+  const availableToolSortOptions =
+    activeSection === "watchlist"
+      ? toolSortOptions.filter((option) => option.value === "Category" || option.value === "All")
+      : toolSortOptions;
   const navBadgeCounts: Partial<Record<Section, number>> = {
     account: accountList.length,
-    tools: toolList.filter((tool) => !tool.archived).length,
-    linked: toolList.filter((tool) => tool.accounts.length > 0 && !tool.archived).length,
-    favorites: toolList.filter((tool) => tool.favorite && !tool.archived).length,
-    archive: toolList.filter((tool) => tool.archived).length,
+    tools: toolsWithValidAccountLinks.filter((tool) => !tool.archived).length,
+    linked: toolsWithValidAccountLinks.filter((tool) => tool.accounts.length > 0 && !tool.archived).length,
+    billing: toolsWithValidAccountLinks.reduce(
+      (count, tool) =>
+        tool.archived
+          ? count
+          : count + tool.accounts.filter((accountLabel) => {
+              const status = toolAccountStatuses[tool.id]?.[accountLabel] ?? tool.status;
+              return status === "Active" || status === "Paid";
+            }).length,
+      0,
+    ),
+    watchlist: toolsWithValidAccountLinks.filter((tool) => tool.status === "Considering" && !tool.archived).length,
+    favorites: toolsWithValidAccountLinks.filter((tool) => tool.favorite && !tool.archived).length,
+    archive: toolsWithValidAccountLinks.filter((tool) => tool.archived).length,
     recovery: archiveToolCount(toolResetArchives),
   };
-  const paidToolCount = toolList.filter((tool) =>
+  const paidToolCount = toolsWithValidAccountLinks.filter((tool) =>
     !tool.archived && (tool.status === "Paid" || tool.status === "Active" || Object.values(toolAccountStatuses[tool.id] ?? {}).includes("Active")),
   ).length;
-  const trialToolCount = toolList.filter((tool) =>
+  const trialToolCount = toolsWithValidAccountLinks.filter((tool) =>
     !tool.archived && (tool.status === "Trial" || Object.values(toolAccountStatuses[tool.id] ?? {}).includes("Trial")),
   ).length;
-  const trialsEndingSoon = toolList
+  const trialsEndingSoon = remindersEnabled ? toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
     .flatMap((tool) =>
       tool.accounts.flatMap((accountLabel) => {
@@ -2989,7 +3627,7 @@ function DashboardContent() {
         const relationPlan = relationStatus(tool, accountLabel);
         const daysRemaining = detail?.trialExpiryDate ? daysUntilDate(detail.trialExpiryDate) : null;
 
-        if (relationPlan !== "Trial" || !detail?.trialExpiryDate || daysRemaining === null || daysRemaining < 0 || daysRemaining > 7) {
+        if (relationPlan !== "Trial" || !detail?.trialExpiryDate || daysRemaining === null || daysRemaining < 0 || daysRemaining > Number(reminderDays)) {
           return [];
         }
 
@@ -3001,10 +3639,10 @@ function DashboardContent() {
         }];
       }),
     )
-    .sort((a, b) => a.daysRemaining - b.daysRemaining);
+    .sort((a, b) => a.daysRemaining - b.daysRemaining) : [];
   const renderToolNameCell = (tool: ToolItem) => (
     <div className="tool-name-cell">
-      <div className="tool-logo" style={{ background: tool.logoBg }}>{tool.logo}</div>
+      <div className="tool-logo" style={{ background: tool.logoBg }}>{toolInitials(tool.name)}</div>
       <div>
         {editingToolName === tool.name ? (
           <input
@@ -3012,7 +3650,7 @@ function DashboardContent() {
             autoFocus
             className="tool-name-input"
             onBlur={saveInlineToolName}
-            onChange={(event) => setToolNameDraft(formatNickname(event.target.value))}
+            onChange={(event) => setToolNameDraft(event.target.value)}
             onKeyDown={handleInlineToolNameKeyDown}
             type="text"
             value={toolNameDraft}
@@ -3023,7 +3661,7 @@ function DashboardContent() {
             onDoubleClick={() => startEditingToolName(tool)}
             type="button"
           >
-            {tool.name}
+            {displayToolName(tool.name)}
           </button>
         )}
       </div>
@@ -3057,9 +3695,10 @@ function DashboardContent() {
       target="_blank"
     >
       <svg aria-hidden="true" viewBox="0 0 24 24">
-        <path d="M9.5 14.5 14.5 9.5" />
-        <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
-        <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
+        <circle cx="12" cy="12" r="8.25" />
+        <path d="M3.75 12h16.5" />
+        <path d="M12 3.75c2.05 2.2 3.15 5.05 3.15 8.25S14.05 18.05 12 20.25" />
+        <path d="M12 3.75C9.95 5.95 8.85 8.8 8.85 12s1.1 6.05 3.15 8.25" />
       </svg>
     </a>
   );
@@ -3083,6 +3722,74 @@ function DashboardContent() {
     { label: "Trial", value: "Trial" },
     { label: "Paid", value: "Active" },
   ];
+  const billingTypeOptions: DropdownOption[] = ["Monthly", "Annual", "One-time", "Top-up Credit"].map((billingType) => ({
+    label: billingType,
+    value: billingType,
+  }));
+
+  const linkedAccountPlanRank = (tool: ToolItem, accountLabel: string) => {
+    const plan = relationPlan(tool, accountLabel);
+    if (plan === "Paid") return 0;
+    if (plan === "Trial") return 1;
+    return 2;
+  };
+
+  const orderedLinkedAccountLabels = (tool: ToolItem) =>
+    tool.accounts
+      .map((accountLabel, index) => ({ accountLabel, index }))
+      .sort(
+        (firstAccount, secondAccount) =>
+          linkedAccountPlanRank(tool, firstAccount.accountLabel) -
+            linkedAccountPlanRank(tool, secondAccount.accountLabel) ||
+          firstAccount.index - secondAccount.index,
+      )
+      .map((account) => account.accountLabel);
+
+  const billingRows = toolsWithValidAccountLinks
+    .filter((tool) => !tool.archived)
+    .flatMap((tool) =>
+      tool.accounts.flatMap((accountLabel) => {
+        if (relationPlan(tool, accountLabel) !== "Paid") return [];
+
+        const detail = toolAccountDetails[tool.id]?.[accountLabel];
+        const billingAmounts = detail?.billingAmounts?.length
+          ? detail.billingAmounts
+          : normaliseBillingType(detail?.billingType ?? "Monthly").split(", ").filter(Boolean).map((billingType, index) => ({
+              amount: index === 0 ? detail?.amount ?? "" : "",
+              billingType,
+              currency: normaliseCurrency(detail?.currency),
+            }));
+        return billingAmounts.map((billingAmount) => ({
+            accountLabel,
+            amount: billingAmount.amount,
+            billingType: billingAmount.billingType,
+            currency: normaliseCurrency(billingAmount.currency),
+            nextChargeDate: detail?.nextChargeDate ?? "",
+            planName: detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
+            tool,
+          }));
+      }),
+    )
+    .filter((row) => {
+      const query = toolSearchQuery.trim().toLowerCase();
+      if (!query) return true;
+
+      return [
+        row.tool.name,
+        row.accountLabel,
+        row.planName,
+        row.billingType,
+        row.currency,
+        row.amount,
+      ].some((value) => value.toLowerCase().includes(query));
+    })
+    .sort((firstRow, secondRow) =>
+      (selectedBillingView === "Month"
+        ? (firstRow.nextChargeDate || "9999-12-31").localeCompare(secondRow.nextChargeDate || "9999-12-31")
+        : 0) ||
+      firstRow.tool.name.localeCompare(secondRow.tool.name) ||
+      firstRow.accountLabel.localeCompare(secondRow.accountLabel),
+    );
 
   const renderLinkedAccountCell = (accountLabel: string) => {
     const accountDetails = accountList.find((account) => account.label === accountLabel);
@@ -3099,9 +3806,135 @@ function DashboardContent() {
     );
   };
 
+  const renderBillingAccountCell = (accountLabel: string) => {
+    const tagClass = accountTag(accountLabel, accountList);
+
+    return (
+      <span className={`billing-account-cell ${tagClass}`}>
+        <span className={`tag-dot ${tagClass}`} />
+        <strong>{accountLabel}</strong>
+      </span>
+    );
+  };
+
+  const renderBillingRow = (row: (typeof billingRows)[number], isContinuation = false) => (
+    <article className={isContinuation ? "account-table-row tool-table-row billing-tool-row is-continuation" : "account-table-row tool-table-row billing-tool-row"} key={`${row.tool.id}-${row.accountLabel}-${row.billingType}`}>
+      <div data-label="Tool Name">{isContinuation ? null : renderToolNameCell(row.tool)}</div>
+      <div data-label="Account">{isContinuation ? null : renderBillingAccountCell(row.accountLabel)}</div>
+      <span className="billing-plan-name" data-label="Plan Name">{row.planName || "Not set"}</span>
+      <span data-label="Billing Type">
+        {renderDropdown({
+          ariaLabel: `${row.tool.name} ${row.accountLabel} billing type`,
+          className: "billing-type-dropdown",
+          id: `billing-type-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
+          onChange: (nextBillingType) =>
+            updateBillingField(row.tool.id, row.accountLabel, { billingType: normaliseBillingType(nextBillingType) }),
+          options: billingTypeOptions,
+          selectedLabel: row.billingType === "Top-up Credit" ? "Top-up" : undefined,
+          value: row.billingType,
+        })}
+      </span>
+      <span data-label="Amount">
+        <span className="billing-amount-field">
+          {renderDropdown({
+            ariaLabel: `${row.tool.name} ${row.accountLabel} currency`,
+            className: "billing-currency-dropdown",
+            id: `billing-currency-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
+            onChange: (nextCurrency) => {
+              const currency = normaliseCurrency(nextCurrency);
+              setToolAccountDetails((currentDetails) => {
+                const detail = currentDetails[row.tool.id]?.[row.accountLabel];
+                if (!detail) return currentDetails;
+                return {
+                  ...currentDetails,
+                  [row.tool.id]: {
+                    ...(currentDetails[row.tool.id] ?? {}),
+                    [row.accountLabel]: {
+                      ...detail,
+                      billingAmounts: (detail.billingAmounts?.length ? detail.billingAmounts : [{
+                        amount: detail.amount,
+                        billingType: row.billingType,
+                        currency: detail.currency,
+                      }]).map((entry) =>
+                        entry.billingType === row.billingType ? { ...entry, currency } : entry),
+                    },
+                  },
+                };
+              });
+            },
+            options: currencyOptions,
+            value: row.currency,
+          })}
+          <input
+            aria-label={`${row.tool.name} ${row.accountLabel} amount`}
+            className="billing-inline-field"
+            defaultValue={row.amount}
+            inputMode="decimal"
+            onBlur={(event) => {
+              const nextValue = event.currentTarget.value.trim();
+              if (nextValue !== row.amount) {
+                setToolAccountDetails((currentDetails) => {
+                  const detail = currentDetails[row.tool.id]?.[row.accountLabel];
+                  if (!detail) return currentDetails;
+                  return {
+                    ...currentDetails,
+                    [row.tool.id]: {
+                      ...(currentDetails[row.tool.id] ?? {}),
+                      [row.accountLabel]: {
+                        ...detail,
+                        billingAmounts: (detail.billingAmounts?.length ? detail.billingAmounts : [{
+                          amount: detail.amount,
+                          billingType: row.billingType,
+                          currency: detail.currency,
+                        }]).map((entry) =>
+                          entry.billingType === row.billingType ? { ...entry, amount: nextValue } : entry),
+                      },
+                    },
+                  };
+                });
+              }
+            }}
+            placeholder="0.00"
+            step="0.01"
+            type="number"
+          />
+        </span>
+      </span>
+      <span data-label="Next Charge">
+        <label className="billing-date-picker">
+          <span>{formatBillingDate(row.nextChargeDate)}</span>
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <rect x="4" y="5.5" width="16" height="14" rx="2" />
+            <path d="M8 3.5v4M16 3.5v4M4 9.5h16" />
+          </svg>
+          <input
+            aria-label={`${row.tool.name} ${row.accountLabel} next charge`}
+            onChange={(event) => updateBillingField(row.tool.id, row.accountLabel, { nextChargeDate: event.target.value })}
+            type="date"
+            value={row.nextChargeDate}
+          />
+        </label>
+      </span>
+      <span className="row-actions" data-label="Action">
+        <button
+          aria-label={`Edit billing for ${row.tool.name} ${row.accountLabel}`}
+          className="row-icon-action tooltip-target"
+          data-tooltip="Edit billing"
+          onClick={() => openBillingEditModal(row.tool.id, row.accountLabel)}
+          type="button"
+        >
+          <svg aria-hidden="true" viewBox="0 0 24 24">
+            <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
+            <path d="m13.8 7.2 3 3" />
+          </svg>
+        </button>
+      </span>
+    </article>
+  );
+
   const renderLinkedAccounts = (tool: ToolItem, options?: { removable?: boolean }) => (
     <div className={options?.removable ? "linked-accordion-panel" : "tool-accordion-panel"}>
-      {tool.accounts.map((accountLabel) => {
+      {orderedLinkedAccountLabels(tool).map((accountLabel) => {
         const plan = relationPlan(tool, accountLabel);
 
         if (options?.removable) {
@@ -3111,31 +3944,40 @@ function DashboardContent() {
               <span />
               <span />
               {renderLinkedAccountCell(accountLabel)}
-              {renderDropdown({
-                ariaLabel: `Change ${accountLabel} plan`,
-                className: `plan-pill-dropdown plan-pill-${plan.toLowerCase()}`,
-                id: `relation-plan-${tool.id}-${accountLabel}`,
-                onChange: (nextStatus) => updateRelationStatus(tool.id, accountLabel, nextStatus as ToolStatus),
-                options: planStatusOptions,
-                value: relationPlanStatusValue(tool, accountLabel),
-              })}
+              <span className="linked-expanded-plan-cell" data-label="Plan">
+                {renderDropdown({
+                  ariaLabel: `Change ${accountLabel} plan`,
+                  className: `plan-pill-dropdown plan-pill-${plan.toLowerCase()}`,
+                  id: `relation-plan-${tool.id}-${accountLabel}`,
+                  onChange: (nextStatus) => updateRelationStatus(tool.id, accountLabel, nextStatus as ToolStatus),
+                  options: planStatusOptions,
+                  value: relationPlanStatusValue(tool, accountLabel),
+                })}
+              </span>
               <span className="linked-row-actions">
                 <button
-                  className="text-action-link linked-manage-link"
-                  onClick={() => openManageAccountModal(tool, accountLabel)}
-                  type="button"
-                >
-                  Manage
-                </button>
-                <button
-                  aria-label={`Remove ${accountLabel}`}
-                  className="row-icon-action linked-remove-action"
-                  onClick={() => removeLinkedAccount(tool.id, accountLabel)}
+                  aria-label={`Link another account to ${tool.name}`}
+                  className="row-icon-action tooltip-target"
+                  data-tooltip="Link another account"
+                  onClick={() => openLinkToolModal(tool)}
                   type="button"
                 >
                   <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="m6 6 12 12" />
-                    <path d="m18 6-12 12" />
+                    <path d="M9.5 14.5 14.5 9.5" />
+                    <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
+                    <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
+                  </svg>
+                </button>
+                <button
+                  aria-label={`Edit ${accountLabel}`}
+                  className="row-icon-action linked-manage-link tooltip-target"
+                  data-tooltip="Edit"
+                  onClick={() => openManageAccountModal(tool, accountLabel)}
+                  type="button"
+                >
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
+                    <path d="m13.8 7.2 3 3" />
                   </svg>
                 </button>
               </span>
@@ -3164,11 +4006,22 @@ function DashboardContent() {
           </div>
         );
       })}
-      {options?.removable ? (
-        <button className="text-action-link linked-add-account-link" onClick={() => openLinkAccountModal(tool)} type="button">
-          + Link another account
-        </button>
-      ) : null}
+    </div>
+  );
+
+  const renderFavouriteLinkedAccounts = (tool: ToolItem) => (
+    <div className="linked-accordion-panel favourite-accordion-panel">
+      {tool.accounts.map((accountLabel) => (
+        <div className="tool-account-subrow favourite-account-row" key={`${tool.id}-${accountLabel}`}>
+          <span />
+          <span />
+          <span />
+          <span />
+          {renderLinkedAccountCell(accountLabel)}
+          <span />
+          <span />
+        </div>
+      ))}
     </div>
   );
 
@@ -3217,27 +4070,11 @@ function DashboardContent() {
             </button>
             <div className="linked-tool-name-cell" data-label="Tool Name">
               {renderToolNameCell(tool)}
-              {hasManyAccounts ? (
-                <span className="linked-tool-account-count">{tool.accounts.length} accounts</span>
-              ) : null}
             </div>
-            <div data-label="Account">
-              {!hasManyAccounts && accountLabel ? renderLinkedAccountCell(accountLabel) : null}
-            </div>
-            <span data-label="Plan">
-              {!hasManyAccounts && accountLabel ? renderDropdown({
-                ariaLabel: `Change ${accountLabel} plan`,
-                className: `plan-pill-dropdown plan-pill-${plan.toLowerCase()}`,
-                id: `relation-plan-${tool.id}-${accountLabel}`,
-                onChange: (nextStatus) => updateRelationStatus(tool.id, accountLabel, nextStatus as ToolStatus),
-                options: planStatusOptions,
-                value: relationPlanStatusValue(tool, accountLabel),
-              }) : null}
-            </span>
-            <span className="linked-tool-action-cell" data-label="Action">
+            <div className={hasManyAccounts ? "linked-account-summary-cell" : undefined} data-label="Account">
               {hasManyAccounts ? (
-                <span className="linked-row-actions">
-                  <span aria-hidden="true" />
+                <>
+                  <span className="linked-account-count-pill">{tool.accounts.length} accounts</span>
                   <button
                     aria-label={isExpanded ? `Collapse ${tool.name}` : `Expand ${tool.name}`}
                     aria-expanded={isExpanded}
@@ -3255,31 +4092,55 @@ function DashboardContent() {
                   >
                     <span />
                   </button>
-                </span>
+                </>
+              ) : accountLabel ? (
+                renderLinkedAccountCell(accountLabel)
+              ) : null}
+            </div>
+            <span data-label="Plan">
+              {!hasManyAccounts && accountLabel ? renderDropdown({
+                ariaLabel: `Change ${accountLabel} plan`,
+                className: `plan-pill-dropdown plan-pill-${plan.toLowerCase()}`,
+                id: `relation-plan-${tool.id}-${accountLabel}`,
+                onChange: (nextStatus) => updateRelationStatus(tool.id, accountLabel, nextStatus as ToolStatus),
+                options: planStatusOptions,
+                value: relationPlanStatusValue(tool, accountLabel),
+              }) : null}
+            </span>
+            <span className="linked-tool-action-cell" data-label="Action">
+              {hasManyAccounts ? (
+                null
               ) : accountLabel ? (
                 <span className="linked-row-actions">
                   <button
-                    className="text-action-link linked-manage-link"
+                    aria-label={`Link another account to ${tool.name}`}
+                    className="row-icon-action tooltip-target"
+                    data-tooltip="Link another account"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openLinkToolModal(tool);
+                    }}
+                    type="button"
+                  >
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="M9.5 14.5 14.5 9.5" />
+                      <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
+                      <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
+                    </svg>
+                  </button>
+                  <button
+                    aria-label={`Edit ${accountLabel}`}
+                    className="row-icon-action linked-manage-link tooltip-target"
+                    data-tooltip="Edit"
                     onClick={(event) => {
                       event.stopPropagation();
                       openManageAccountModal(tool, accountLabel);
                     }}
                     type="button"
                   >
-                    Manage
-                  </button>
-                  <button
-                    aria-label={`Remove ${accountLabel}`}
-                    className="row-icon-action linked-remove-action"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      removeLinkedAccount(tool.id, accountLabel);
-                    }}
-                    type="button"
-                  >
                     <svg aria-hidden="true" viewBox="0 0 24 24">
-                      <path d="m6 6 12 12" />
-                      <path d="m18 6-12 12" />
+                      <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
+                      <path d="m13.8 7.2 3 3" />
                     </svg>
                   </button>
                 </span>
@@ -3300,23 +4161,7 @@ function DashboardContent() {
               if (hasManyAccounts) toggleToolExpanded(tool.id);
             }}
           >
-            {hasManyAccounts ? (
-              <button
-                aria-label={isExpanded ? `Collapse ${tool.name}` : `Expand ${tool.name}`}
-                aria-expanded={isExpanded}
-                className={isExpanded ? "row-toggle-control tooltip-target is-open" : "row-toggle-control tooltip-target"}
-                data-tooltip={isExpanded ? "Collapse accounts" : "Expand accounts"}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  toggleToolExpanded(tool.id);
-                }}
-                type="button"
-              >
-                <span />
-              </button>
-            ) : (
-              <span />
-            )}
+            <span />
             <button
               aria-label={`Remove ${tool.name} from favourites`}
               aria-pressed="true"
@@ -3335,19 +4180,67 @@ function DashboardContent() {
             </button>
             <div data-label="Tool Name">{renderToolNameCell(tool)}</div>
             <div className="category-cell" data-label="Category">{renderCategoryCell(tool)}</div>
-            <div className="account-used-cell" data-label="Account Used">
+            <div className={hasManyAccounts ? "account-used-cell linked-account-summary-cell" : "account-used-cell"} data-label="Account Used">
               {primaryAccount ? (
-                <>
-                  <span className={`tag-dot ${accountTag(primaryAccount, accountList)}`} />
-                  <span>{primaryAccount}</span>
-                  {hasManyAccounts ? <span className="count-pill">{tool.accounts.length} accounts</span> : null}
-                </>
+                hasManyAccounts ? (
+                  <>
+                    <span className="linked-account-count-pill">{tool.accounts.length} accounts</span>
+                    <button
+                      aria-label={isExpanded ? `Collapse ${tool.name}` : `Expand ${tool.name}`}
+                      aria-expanded={isExpanded}
+                      className={
+                        isExpanded
+                          ? "row-toggle-control linked-row-toggle tooltip-target is-open"
+                          : "row-toggle-control linked-row-toggle tooltip-target"
+                      }
+                      data-tooltip={isExpanded ? "Collapse accounts" : "Expand accounts"}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        toggleToolExpanded(tool.id);
+                      }}
+                      type="button"
+                    >
+                      <span />
+                    </button>
+                  </>
+                ) : (
+                  <span className={`email-tag ${accountTag(primaryAccount, accountList)}`}>
+                    <span className="tag-dot" />
+                    {primaryAccount}
+                  </span>
+                )
               ) : (
                 <span className="muted-cell">No account linked</span>
               )}
             </div>
             <span data-label="URL">{renderUrlIcon(tool)}</span>
             <span className="row-actions" data-label="Action">
+              <button
+                aria-label={tool.accounts.length > 0 ? `${tool.name} already has linked accounts` : `Link account to ${tool.name}`}
+                className={
+                  tool.accounts.length > 0
+                    ? "row-icon-action link-state-action is-linked tooltip-target"
+                    : "row-icon-action link-state-action tooltip-target"
+                }
+                data-tooltip={tool.accounts.length > 0 ? "Already linked" : "Link account"}
+                disabled={tool.accounts.length > 0}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  if (tool.accounts.length > 0) {
+                    return;
+                  }
+
+                  openLinkToolModal(tool);
+                }}
+                type="button"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24">
+                  <path d="M9.5 14.5 14.5 9.5" />
+                  <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
+                  <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
+                  {tool.accounts.length === 0 ? <path d="m4.5 4.5 15 15" /> : null}
+                </svg>
+              </button>
               <button aria-label={`Edit ${tool.name}`} className="row-icon-action" onClick={() => openEditToolModal(tool)} type="button">
                 <svg aria-hidden="true" viewBox="0 0 24 24">
                   <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
@@ -3356,7 +4249,7 @@ function DashboardContent() {
               </button>
             </span>
           </article>
-          {isExpanded && hasManyAccounts ? renderLinkedAccounts(tool) : null}
+          {isExpanded && hasManyAccounts ? renderFavouriteLinkedAccounts(tool) : null}
         </Fragment>
       );
     }
@@ -3375,9 +4268,11 @@ function DashboardContent() {
           </span>
           <div data-label="Tool Name">{renderToolNameCell(tool)}</div>
           <div className="category-cell" data-label="Category">{renderCategoryCell(tool)}</div>
-          <span className={`tool-status-chip ${statusTone(tool.archivedStatus ?? tool.status)}`} data-label="Status">
-            {archivedStatusLabel(tool.archivedStatus ?? tool.status)}
-          </span>
+          <div className="status-cell" data-label="Last Status">
+            <span className={`tool-status-chip ${archivedStatusTone(tool.archivedStatus ?? tool.status)}`}>
+              {archivedStatusLabel(tool.archivedStatus ?? tool.status)}
+            </span>
+          </div>
           <span className="muted-cell small-date" data-label="Archived On">{formatArchiveDate(tool.archivedAt)}</span>
           <span className="row-actions" data-label="Action">
             <button className="text-action-link" onClick={() => setConfirmToolStateChange({ action: "unarchive", tool })} type="button">
@@ -3427,21 +4322,63 @@ function DashboardContent() {
         <div data-label="Tool Name">{renderToolNameCell(tool)}</div>
         <div className="category-cell" data-label="Category">{renderCategoryCell(tool)}</div>
         <span data-label="URL">{renderUrlIcon(tool)}</span>
+        <span className="watchlist-cell" data-label="Watchlist">
+          <button
+            aria-label={tool.status === "Considering" ? `Remove ${tool.name} from Watchlist` : `Add ${tool.name} to Watchlist`}
+            aria-pressed={tool.status === "Considering"}
+            className={tool.status === "Considering" ? "row-icon-action watchlist-action is-active tooltip-target" : "row-icon-action watchlist-action tooltip-target"}
+            data-tooltip={tool.status === "Considering" ? "Remove from Watchlist" : "Add to Watchlist"}
+            onClick={() => toggleToolWatchlist(tool.id)}
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              {tool.status === "Considering" ? (
+                <>
+                  <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
+                  <circle cx="12" cy="12" r="2.45" />
+                </>
+              ) : (
+                <>
+                  <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
+                  <circle cx="12" cy="12" r="2.2" />
+                  <path d="m4.5 4.5 15 15" />
+                </>
+              )}
+            </svg>
+          </button>
+        </span>
         <span className="row-actions" data-label="Action">
+          <button
+            aria-label={tool.accounts.length > 0 ? `${tool.name} already has linked accounts` : `Link account to ${tool.name}`}
+            className={
+              tool.accounts.length > 0
+                ? "row-icon-action link-state-action is-linked tooltip-target"
+                : "row-icon-action link-state-action tooltip-target"
+            }
+            data-tooltip={tool.accounts.length > 0 ? "Already linked" : "Link account"}
+            disabled={tool.accounts.length > 0}
+            onClick={() => {
+              if (tool.accounts.length > 0) {
+                return;
+              }
+
+              activeSection === "watchlist"
+                ? openLinkToolModal(tool, { activateToolOnSave: true })
+                : openLinkToolModal(tool);
+            }}
+            type="button"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <path d="M9.5 14.5 14.5 9.5" />
+              <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
+              <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
+              {tool.accounts.length === 0 ? <path d="m4.5 4.5 15 15" /> : null}
+            </svg>
+          </button>
           <button aria-label={`Edit ${tool.name}`} className="row-icon-action" onClick={() => openEditToolModal(tool)} type="button">
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
               <path d="m13.8 7.2 3 3" />
-            </svg>
-          </button>
-          <button aria-label={`Archive ${tool.name}`} className="row-icon-action" onClick={() => archiveToolIds([tool.id])} type="button">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <ArchiveBoxIconPaths />
-            </svg>
-          </button>
-          <button aria-label={`Delete ${tool.name}`} className="row-icon-action danger" onClick={() => deleteToolIds([tool.id])} type="button">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <TrashIconPaths />
             </svg>
           </button>
         </span>
@@ -3449,34 +4386,56 @@ function DashboardContent() {
     );
   };
 
-  const linkAccountOptions = linkingTool
-    ? accountList
-        .filter((account) => !linkingTool.accounts.includes(account.label))
-        .map((account) => ({
-          label: account.label,
-          value: account.label,
-        }))
-    : [];
   const managedTool = managingLink ? toolList.find((tool) => tool.id === managingLink.toolId) : null;
   const managedAccount = accountList.find((account) => account.label === managedAccountLabel);
   const managedAccountOptions = managingLink
-    ? accountList.map((account) => ({
-        disabled: account.label !== managingLink.accountLabel && Boolean(managedTool?.accounts.includes(account.label)),
-        label: account.label,
-        value: account.label,
+    ? orderedAccountOptions.map((accountOption) => ({
+        ...accountOption,
+        disabled: accountOption.value !== managingLink.accountLabel && Boolean(managedTool?.accounts.includes(accountOption.value)),
       }))
     : [];
   const isDuplicateManagedAccount =
     Boolean(managingLink && managedTool && managedAccountLabel !== managingLink.accountLabel && managedTool.accounts.includes(managedAccountLabel));
   const activeToolOptions = toolList.filter((tool) => !tool.archived);
-  const unlinkedToolOptions = activeToolOptions.filter((tool) => tool.accounts.length === 0);
-  const filteredLinkToolOptions = unlinkedToolOptions.filter((tool) =>
+  const linkToolSearchOptions = isLinkToolLocked
+    ? activeToolOptions
+    : activeToolOptions.filter((tool) => tool.accounts.length === 0);
+  const filteredLinkToolOptions = linkToolSearchOptions.filter((tool) =>
     tool.name.toLowerCase().includes(linkToolSearchQuery.trim().toLowerCase()),
   );
   const selectedLinkTool = toolList.find((tool) => tool.id === linkToolId);
-  const isDuplicateToolAccountLink = Boolean(
-    selectedLinkTool && linkToolAccountLabel && selectedLinkTool.accounts.includes(linkToolAccountLabel),
+  const selectedLinkToolAllowedPlans = selectedLinkTool ? toolCustomizationFor(selectedLinkTool.name)?.allowedPlans : undefined;
+  const selectedLinkAccountLabels = linkToolAccountBlocks.map((block) => block.accountLabel).filter(Boolean);
+  const existingLinkAccountLabels = selectedLinkTool?.accounts ?? [];
+  const remainingLinkAccountOptions = orderedAccountOptions.filter(
+    (accountOption) =>
+      !existingLinkAccountLabels.includes(accountOption.value) &&
+      !selectedLinkAccountLabels.includes(accountOption.value),
   );
+  const duplicateLinkAccountLabels = selectedLinkAccountLabels.filter(
+    (accountLabel, index) => selectedLinkAccountLabels.indexOf(accountLabel) !== index,
+  );
+  const isLinkToolSubmitBlocked =
+    !linkToolId ||
+    linkToolAccountBlocks.some((block) => !block.accountLabel || !block.plan) ||
+    linkToolAccountBlocks.some((block) => !isPlanAllowedForTool(selectedLinkTool, block.plan)) ||
+    linkToolAccountBlocks.some((block) => Boolean(block.accountLabel && selectedLinkTool?.accounts.includes(block.accountLabel))) ||
+    duplicateLinkAccountLabels.length > 0;
+
+  useEffect(() => {
+    if (!selectedLinkToolAllowedPlans?.length) return;
+
+    const firstAllowedStatus = statusForPlanKey(selectedLinkToolAllowedPlans[0]);
+    setLinkToolAccountBlocks((currentBlocks) => {
+      const nextBlocks = currentBlocks.map((block) =>
+        selectedLinkToolAllowedPlans.includes(planKeyForStatus(block.plan))
+          ? block
+          : { ...block, plan: firstAllowedStatus },
+      );
+
+      return nextBlocks.some((block, index) => block.plan !== currentBlocks[index].plan) ? nextBlocks : currentBlocks;
+    });
+  }, [selectedLinkToolAllowedPlans]);
 
   return (
     <main className="app-shell" data-theme="dark" data-dark-variant="cool">
@@ -3530,7 +4489,7 @@ function DashboardContent() {
 
           <nav className="sidebar-nav" aria-label="Workspace">
             <div className="nav-label">Workspace</div>
-            {navItems.slice(0, 6).map((item) => (
+            {navItems.slice(0, 8).map((item) => (
               item.id === "tools" ? (
                 <div className="nav-tree" key={item.id}>
                   <button
@@ -3618,7 +4577,7 @@ function DashboardContent() {
           </nav>
 
           <nav className="sidebar-utility" aria-label="Utilities">
-            {navItems.slice(6).map((item) => (
+            {navItems.slice(8).map((item) => (
               <button
                 aria-current={item.id === "recovery" ? undefined : activeSection === item.id ? "page" : undefined}
                 className={
@@ -3661,7 +4620,7 @@ function DashboardContent() {
                 className="email-account-item"
                 key={account.login}
                 onClick={() => {
-                  window.history.pushState(null, "", "/dashboard?view=account");
+                  window.history.pushState(null, "", accountViewUrl);
                   setActiveSection("account");
                   setShowRecoveryPanel(false);
                   setIsSidebarOpen(false);
@@ -3682,7 +4641,7 @@ function DashboardContent() {
               <button
                 className="email-account-item email-view-all"
                 onClick={() => {
-                  window.history.pushState(null, "", "/dashboard?view=account");
+                  window.history.pushState(null, "", accountViewUrl);
                   setActiveSection("account");
                   setShowRecoveryPanel(false);
                   setIsSidebarOpen(false);
@@ -3835,7 +4794,19 @@ function DashboardContent() {
                 ) : null}
                 <span>{title}</span>
               </h1>
-              <p className="main-subtitle">{subtitle}</p>
+              <p className="main-subtitle">
+                {activeSection === "linked" ? (
+                  <>
+                    Connect a tool to an account, or{" "}
+                    <button className="inline-text-link" onClick={() => openLinkToolModal()} type="button">
+                      Link AI Tool
+                    </button>{" "}
+                    to get started
+                  </>
+                ) : (
+                  subtitle
+                )}
+              </p>
             </div>
             <div className="header-actions">
               {activeSection === "account" ? (
@@ -3853,7 +4824,7 @@ function DashboardContent() {
                   </button>
                 </>
               ) : null}
-              {activeSection !== "dashboard" ? (
+              {activeSection !== "dashboard" && activeSection !== "billing" ? (
                 <button
                   className="btn-sm btn-sm-primary"
                   onClick={activeSection === "account" || activeSection === "providers" ? openAddAccountModal : handleAddToolClick}
@@ -3946,12 +4917,20 @@ function DashboardContent() {
                                   {account.label}
                                 </span>
                               </div>
-                              <span data-label="Login">
-                                {account.login.includes("@") ? (
-                                  <a href={`mailto:${account.login}`}>{account.login}</a>
-                                ) : (
-                                  <span className="account-login-value">{account.login}</span>
-                                )}
+                              <span className="account-login-cell" data-label="Login">
+                                <button
+                                  aria-label={`Copy ${account.login}`}
+                                  className="copy-login-button tooltip-target"
+                                  data-tooltip="Copy"
+                                  onClick={() => copyAccountLogin(account.login)}
+                                  type="button"
+                                >
+                                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                                    <rect x="8" y="8" width="10" height="10" rx="2" />
+                                    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
+                                  </svg>
+                                </button>
+                                <span className="account-login-value">{account.login}</span>
                               </span>
                               <span data-label="Action">
                                 <button className="action-btn" onClick={() => openEditAccountModal(account)} type="button">
@@ -4033,18 +5012,18 @@ function DashboardContent() {
               </article>
             </section>
           ) : activeSection === "settings" ? (
-            <section className="account-page">
-              <article className="form-card settings-card">
-                <div className="settings-profile">
-                  <div>
+            <section className="account-page settings-page">
+              <div className="settings-profile">
+                <section className="settings-section">
+                  <header>
                     <h2>Profile</h2>
                     <p>Manage your AI Subprise login.</p>
-                  </div>
-                  <div className="settings-profile-row">
-                    <span>Email</span>
-                    <strong>{currentUserEmail || "Not signed in"}</strong>
-                  </div>
+                  </header>
                   <form className="modal-form" onSubmit={saveNewPassword}>
+                    <label className="form-field">
+                      <span>Email</span>
+                      <input readOnly type="email" value={currentUserEmail || "Not signed in"} />
+                    </label>
                     <label className="form-field">
                       <span>New password</span>
                       <input
@@ -4074,8 +5053,63 @@ function DashboardContent() {
                       </button>
                     </div>
                   </form>
-                </div>
-              </article>
+                </section>
+
+                <section className="settings-section">
+                  <header>
+                    <h2>Preferences</h2>
+                    <p>App-wide defaults.</p>
+                  </header>
+                  <label className="form-field settings-compact-field">
+                    <span>Default currency</span>
+                    {renderDropdown({
+                      id: "settings-default-currency",
+                      onChange: (currency) => {
+                        const nextCurrency = normaliseCurrency(currency);
+                        setDefaultCurrency(nextCurrency);
+                        window.localStorage.setItem("ai-subprise-default-currency", nextCurrency);
+                      },
+                      options: currencyOptions,
+                      value: defaultCurrency,
+                    })}
+                  </label>
+                </section>
+
+                <section className="settings-section">
+                  <header>
+                    <h2>Notifications</h2>
+                    <p>Stay ahead of renewals and trials.</p>
+                  </header>
+                  <div className="settings-toggle-row">
+                    <span>Trial &amp; renewal reminders</span>
+                    <button
+                      aria-pressed={remindersEnabled}
+                      className={remindersEnabled ? "settings-toggle is-on" : "settings-toggle"}
+                      onClick={() => {
+                        const nextValue = !remindersEnabled;
+                        setRemindersEnabled(nextValue);
+                        window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
+                      }}
+                      type="button"
+                    >
+                      <span />
+                      {remindersEnabled ? "On" : "Off"}
+                    </button>
+                  </div>
+                  <label className="form-field settings-compact-field">
+                    <span>Remind me</span>
+                    {renderDropdown({
+                      id: "settings-reminder-days",
+                      onChange: (days) => {
+                        setReminderDays(days);
+                        window.localStorage.setItem("ai-subprise-reminder-days", days);
+                      },
+                      options: [3, 7, 14].map((days) => ({ label: `${days} days before`, value: String(days) })),
+                      value: reminderDays,
+                    })}
+                  </label>
+                </section>
+              </div>
             </section>
           ) : activeSection === "dashboard" ? (
             <section className="dashboard-overview" aria-label="Dashboard summary">
@@ -4083,7 +5117,7 @@ function DashboardContent() {
                 <aside className="trial-alert-banner" aria-label="Trials ending soon">
                   <div>
                     <strong>{trialsEndingSoon.length} {trialsEndingSoon.length === 1 ? "trial" : "trials"} ending soon</strong>
-                    <span>Review trial accounts that expire within 7 days.</span>
+                    <span>Review trial accounts that expire within {reminderDays} days.</span>
                   </div>
                   <div className="trial-alert-list">
                     {trialsEndingSoon.slice(0, 3).map((trial) => (
@@ -4097,7 +5131,7 @@ function DashboardContent() {
               <div className="stats-grid">
                 <article className="stat-card accent">
                   <div className="stat-icon">A</div>
-                  <div className="stat-value">{toolList.length}</div>
+                  <div className="stat-value">{toolsWithValidAccountLinks.length}</div>
                   <div className="stat-label">Total AI tools</div>
                 </article>
                 <article className="stat-card">
@@ -4120,21 +5154,41 @@ function DashboardContent() {
           ) : (
             <>
               <section className="table-section">
-                {activeSection === "tools" || activeSection === "linked" ? (
+                {activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist" || activeSection === "billing" ? (
                   <div className="table-controls">
                     <div
                       className={activeSection === "tools" && activeCategory ? "category-view-tabs subcategory-view-tabs" : "category-view-tabs"}
-                      aria-label="Category views"
+                      aria-label={activeSection === "billing" ? "Billing views" : "Category views"}
                     >
                       <span className="category-view-helper" aria-hidden={activeSection === "tools" && Boolean(activeCategory)}>
-                        {activeSection === "tools" && activeCategory ? "\u00a0" : "Browse by type."}
+                        {activeSection === "tools" && activeCategory
+                          ? "\u00a0"
+                          : activeSection === "billing"
+                            ? "Browse by billing."
+                            : "Browse by type."}
                       </span>
                       <div className="category-view-action-row">
-                        {activeSection === "tools" && activeCategory ? (
+                        {activeSection === "billing" ? (
+                          <div className="category-view-tab-list">
+                            {[
+                              { label: "All", value: "All" as const },
+                              { label: "By Month", value: "Month" as const },
+                            ].map((option) => (
+                              <button
+                                className={selectedBillingView === option.value ? "category-view-tab active" : "category-view-tab"}
+                                key={option.value}
+                                onClick={() => setSelectedBillingView(option.value)}
+                                type="button"
+                              >
+                                {option.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : activeSection === "tools" && activeCategory ? (
                           <span className="category-view-tab-spacer" aria-hidden="true" />
                         ) : (
                           <div className="category-view-tab-list">
-                            {toolSortOptions.map((option) => (
+                            {availableToolSortOptions.map((option) => (
                               <button
                                 className={selectedToolSort === option.value ? "category-view-tab active" : "category-view-tab"}
                                 key={option.value}
@@ -4171,7 +5225,7 @@ function DashboardContent() {
                   </div>
                 ) : null}
 
-                {(activeSection === "tools" || activeSection === "archive") && selectedVisibleToolIds.length > 0 ? (
+                {(activeSection === "tools" || activeSection === "watchlist" || activeSection === "archive") && selectedVisibleToolIds.length > 0 ? (
                   <div className="bulk-action-bar" role="status">
                     <span>{selectedVisibleToolIds.length} selected</span>
                     {activeSection !== "archive" ? (
@@ -4205,61 +5259,132 @@ function DashboardContent() {
                       "account-table",
                       "tool-database",
                       `tool-database-${activeSection}`,
-                      activeSection !== "tools" || activeCategory || selectedToolSort !== "Category" ? "tool-database-flat" : "",
+                      !(["tools", "linked", "watchlist"] as Section[]).includes(activeSection) || activeCategory || selectedToolSort !== "Category" ? "tool-database-flat" : "",
                       activeSection === "tools" && (activeCategory || selectedToolSort !== "Category") ? "tool-database-tools-flat-view" : "",
                     ].filter(Boolean).join(" ")
                   }
                 >
-                  {activeSection === "tools" && workspaceCategories.length > 0 && !activeCategory && selectedToolSort === "Category" ? (
+                  {activeSection === "billing" ? (
                     <>
                       <div className="account-table-head tool-table-head">
-                        <span />
-                        <span aria-label="Favourite" className="tool-head-icon">
-                          <svg aria-hidden="true" viewBox="0 0 24 24">
-                            <FavoriteStarIconPaths />
-                          </svg>
-                        </span>
                         <span>Tool Name</span>
-                        <span>Category</span>
-                        <span>URL</span>
+                        <span>Account</span>
+                        <span>Plan Name</span>
+                        <span>Billing Type</span>
+                        <span>Amount</span>
+                        <span>Next Charge</span>
                         <span>Action</span>
                       </div>
-                      {groupedToolCategories.map((group) => (
-                        <Fragment key={group.category}>
-                          <div className="tool-category-row-header">
-                            <span className="category-row-label">
-                              <span>{group.category}</span>
-                              <span>{group.tools.length}</span>
+                      {isLoadingTools ? (
+                        <div className="empty-state tool-onboarding-empty">
+                          <strong>Loading billing</strong>
+                          <span>Getting your paid subscriptions ready.</span>
+                        </div>
+                      ) : billingRows.length > 0 ? (
+                        billingRows.map((row, rowIndex) => {
+                          const previousRow = billingRows[rowIndex - 1];
+                          const isContinuation = Boolean(
+                            previousRow &&
+                            previousRow.tool.id === row.tool.id &&
+                            previousRow.accountLabel === row.accountLabel,
+                          );
+                          return renderBillingRow(row, isContinuation);
+                        })
+                      ) : (
+                        <div className="empty-state tool-onboarding-empty">
+                          <strong>No paid subscriptions yet</strong>
+                          <span>
+                            <button className="inline-text-link" onClick={() => openLinkToolModal()} type="button">
+                              Link an account
+                            </button>{" "}
+                            with a Paid plan to see it here.
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  ) : (activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist") &&
+                    workspaceCategories.length > 0 &&
+                    !activeCategory &&
+                    selectedToolSort === "Category" &&
+                    (activeSection === "tools"
+                      ? totalToolboxCount > 0
+                      : activeSection === "linked"
+                        ? totalLinkedToolCount > 0
+                        : visibleTools.length > 0) ? (
+                    <>
+                      <div className="account-table-head tool-table-head">
+                        {activeSection === "linked" ? (
+                          <>
+                            <span />
+                            <span aria-label="Favourite" className="tool-head-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><FavoriteStarIconPaths /></svg></span>
+                            <span>Tool Name</span>
+                            <span>Account</span>
+                            <span>Plan</span>
+                            <span>Action</span>
+                          </>
+                        ) : (
+                          <>
+                            <span />
+                            <span aria-label="Favourite" className="tool-head-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><FavoriteStarIconPaths /></svg></span>
+                            <span>Tool Name</span>
+                            <span>Category</span>
+                            <span>URL</span>
+                            <span aria-label="Watchlist" className="tool-head-icon">
+                              <svg aria-hidden="true" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8"><path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" /><circle cx="12" cy="12" r="2.2" /></g></svg>
                             </span>
-                            {group.tools.length > 0 ? (
-                              <button
-                                onClick={() => {
-                                  const groupToolIds = group.tools.map((tool) => tool.id);
-                                  const areAllGroupToolsSelected = groupToolIds.every((toolId) => selectedToolIds.includes(toolId));
-                                  setSelectedToolIds((currentIds) => {
-                                    const groupIds = new Set(groupToolIds);
-                                    if (areAllGroupToolsSelected) {
-                                      return currentIds.filter((toolId) => !groupIds.has(toolId));
-                                    }
+                            <span>Action</span>
+                          </>
+                        )}
+                      </div>
+                      {groupedToolCategories.length > 0 ? (
+                        groupedToolCategories.map((group) => (
+                          <Fragment key={group.category}>
+                            <div className="tool-category-row-header">
+                              <span className="category-row-label">
+                                <span>{group.category}</span>
+                                <span>{group.tools.length}</span>
+                              </span>
+                              {group.tools.length > 0 ? (
+                                <button
+                                  onClick={() => {
+                                    const groupToolIds = group.tools.map((tool) => tool.id);
+                                    const areAllGroupToolsSelected = groupToolIds.every((toolId) => selectedToolIds.includes(toolId));
+                                    setSelectedToolIds((currentIds) => {
+                                      const groupIds = new Set(groupToolIds);
+                                      if (areAllGroupToolsSelected) {
+                                        return currentIds.filter((toolId) => !groupIds.has(toolId));
+                                      }
 
-                                    return Array.from(new Set([...currentIds, ...groupToolIds]));
-                                  });
-                                }}
-                                type="button"
-                              >
-                                Select all
-                              </button>
-                            ) : null}
-                          </div>
-                          {group.tools.length > 0 ? (
-                            group.tools.map((tool) => renderToolRow(tool))
-                          ) : (
-                            <div className="empty-state compact-empty category-empty-state">
-                              <strong>No tools yet</strong>
+                                      return Array.from(new Set([...currentIds, ...groupToolIds]));
+                                    });
+                                  }}
+                                  type="button"
+                                >
+                                  Select all
+                                </button>
+                              ) : null}
                             </div>
-                          )}
-                        </Fragment>
-                      ))}
+                            {group.tools.length > 0 ? (
+                              group.tools.map((tool) => renderToolRow(tool))
+                            ) : (
+                              <div className="empty-state compact-empty category-empty-state">
+                                <span className="plain-empty-copy">
+                                  {activeSection === "watchlist"
+                                    ? `Nothing on your ${group.category} radar yet`
+                                    : activeSection === "linked"
+                                      ? "No linked tools yet"
+                                      : `No tools on your ${group.category} yet`}
+                                </span>
+                              </div>
+                            )}
+                          </Fragment>
+                        ))
+                      ) : (
+                        <div className="empty-state tool-onboarding-empty">
+                          <strong>{toolboxEmptyState.title}</strong>
+                          {toolboxEmptyState.body}
+                        </div>
+                      )}
                     </>
                   ) : (
                     <>
@@ -4312,7 +5437,7 @@ function DashboardContent() {
                             </span>
                             <span>Tool Name</span>
                             <span>Category</span>
-                            <span>Status</span>
+                            <span>Last Status</span>
                             <span>Archived On</span>
                             <span>Action</span>
                           </>
@@ -4334,8 +5459,16 @@ function DashboardContent() {
                             </span>
                             <span>Tool Name</span>
                             <span>Category</span>
-                            <span>URL</span>
-                            <span>Action</span>
+                          <span>URL</span>
+                          <span aria-label="Watchlist" className="tool-head-icon">
+                            <svg aria-hidden="true" viewBox="0 0 24 24">
+                              <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
+                                <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
+                                <circle cx="12" cy="12" r="2.2" />
+                              </g>
+                            </svg>
+                          </span>
+                          <span>Action</span>
                           </>
                         )}
                       </div>
@@ -4348,29 +5481,33 @@ function DashboardContent() {
                         visibleTools.map((tool) => renderToolRow(tool))
                       ) : (
                         <div className="empty-state tool-onboarding-empty">
-                          <strong>
-                            {activeSection === "tools" && !activeCategory
-                              ? "Your toolbox is empty"
-                              : activeSection === "linked"
-                                ? "Nothing linked yet"
-                                : activeSection === "favorites"
-                                  ? "No favourites yet"
-                                  : activeSection === "archive"
-                                    ? "Nothing archived yet"
-                                    : "No tools yet"}
-                          </strong>
-                          {activeSection === "tools" && !activeCategory ? (
-                            <>
-                              <span>
-                                <button className="inline-text-link" onClick={openRoleQuestionModal} type="button">
-                                  Pick a template
-                                </button>{" "}
-                                that best describes you.
-                              </span>
-                              <span>AI Subprise will suggest the right categories to get you started.</span>
-                            </>
+                          {activeSection === "watchlist" && activeCategory ? (
+                            <span className="plain-empty-copy">{`Nothing on your ${activeCategory} radar yet`}</span>
+                          ) : (
+                            <strong>
+                              {activeSection === "tools"
+                                ? toolboxEmptyState.title
+                                : activeSection === "linked"
+                                  ? linkedEmptyState.title
+                                  : activeSection === "watchlist"
+                                    ? "No watchlist yet"
+                                    : activeSection === "favorites"
+                                      ? "No favourites yet"
+                                      : activeSection === "archive"
+                                        ? "Nothing archived yet"
+                                        : "No tools yet"}
+                            </strong>
+                          )}
+                          {activeSection === "tools" ? (
+                            toolboxEmptyState.body
                           ) : activeSection === "linked" ? (
-                            <span>Tools you connect to an account will show up here.</span>
+                            linkedEmptyState.body
+                          ) : activeSection === "watchlist" ? (
+                            <span>
+                              {activeCategory
+                                ? `Nothing on your ${activeCategory} radar yet.`
+                                : "Nothing on your radar yet."}
+                            </span>
                           ) : activeSection === "favorites" ? (
                             <span>Star any tool in your toolbox to save it here for quick access.</span>
                           ) : activeSection === "archive" ? (
@@ -4810,6 +5947,38 @@ function DashboardContent() {
         </div>
       ) : null}
 
+      {watchlistMoveTool ? (
+        <div className="welcome-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="watchlist-move-modal-title"
+            aria-modal="true"
+            className="welcome-modal"
+            role="dialog"
+          >
+            <button
+              aria-label="Close move to Linked modal"
+              className="modal-close-button"
+              onClick={() => setWatchlistMoveTool(null)}
+              type="button"
+            >
+              x
+            </button>
+            <h2 id="watchlist-move-modal-title">Move to Linked?</h2>
+            <p>
+              Link <strong>{watchlistMoveTool.name}</strong> to an account so it appears on the Linked page.
+            </p>
+            <div className="welcome-modal-actions">
+              <button className="btn-sm btn-sm-ghost" onClick={() => setWatchlistMoveTool(null)} type="button">
+                Cancel
+              </button>
+              <button className="btn-sm btn-sm-primary" onClick={confirmMoveWatchlistToolToLinked} type="button">
+                Continue
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {showAddAccountModal && (
         <div className="welcome-modal-overlay" role="presentation">
           <section aria-labelledby="add-account-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
@@ -4851,16 +6020,28 @@ function DashboardContent() {
                 <span>Nickname</span>
                 <input
                   ref={nicknameInputRef}
-                  onChange={(event) => setNickname(formatNickname(event.target.value))}
-                  placeholder="Personal, Work, Dev..."
+                  onChange={(event) => {
+                    const nextNickname = event.target.value;
+                    const isOverflowing = nextNickname.length > accountNicknameMaxLength;
+                    setHasAttemptedNicknameOverflow(isOverflowing || (
+                      hasAttemptedNicknameOverflow && nextNickname.length === accountNicknameMaxLength
+                    ));
+                    setNickname(formatNickname(nextNickname.slice(0, accountNicknameMaxLength)));
+                  }}
+                  placeholder="Personal, Work, Dev, Burner, Client..."
                   type="text"
                   value={nickname}
                 />
-                {nicknameRequiredError ? (
-                  <small className="field-feedback error">{nicknameRequiredError}</small>
-                ) : nicknameDuplicateError ? (
-                  <small className="field-feedback error">{nicknameDuplicateError}</small>
-                ) : null}
+                <span className="nickname-feedback-row">
+                  {nicknameRequiredError || nicknameDuplicateError || hasAttemptedNicknameOverflow ? (
+                    <small className="field-feedback error">
+                      {nicknameRequiredError || nicknameDuplicateError || `Max ${accountNicknameMaxLength} characters`}
+                    </small>
+                  ) : <span />}
+                  <small aria-live="polite" className="nickname-character-count">
+                    {nickname.length}/{accountNicknameMaxLength}
+                  </small>
+                </span>
               </label>
               <div className="form-field">
                 <span>Colour</span>
@@ -4963,7 +6144,7 @@ function DashboardContent() {
                     onClick={() => saveAccount(undefined, { addAnother: true })}
                     type="button"
                   >
-                    + Another
+                    + Add next
                   </button>
                 ) : null}
                 <button className="btn-sm btn-sm-primary" disabled={isSavingAccount} type="submit">
@@ -5003,10 +6184,7 @@ function DashboardContent() {
                   type="button"
                 >
                   <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M5 8h14" />
-                    <path d="M7 8v10a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V8" />
-                    <path d="M8 4h8l1 4H7l1-4Z" />
-                    <path d="M10 12h4" />
+                    <ArchiveBoxIconPaths />
                   </svg>
                 </button>
               </>
@@ -5033,7 +6211,7 @@ function DashboardContent() {
                 <span>AI Tool Name</span>
                 <input
                   ref={toolNameInputRef}
-                  onChange={(event) => setToolName(formatNickname(event.target.value))}
+                  onChange={(event) => setToolName(displayToolName(event.target.value))}
                   placeholder="ChatGPT, Claude, Midjourney..."
                   type="text"
                   value={toolName}
@@ -5079,19 +6257,13 @@ function DashboardContent() {
                 {toolCategoryRequiredError ? <small className="field-feedback error">{toolCategoryRequiredError}</small> : null}
               </label>
               <label className="form-field">
-                <span>Linked Account</span>
-                {renderMultiSelectDropdown({
-                  id: "tool-linked-account",
-                  onChange: setToolLinkedAccounts,
-                  options: [
-                    { label: "No account linked yet", value: "" },
-                    ...accountList.map((account) => ({
-                      label: account.label,
-                      value: account.label,
-                    })),
-                  ],
-                  values: toolLinkedAccounts,
-                })}
+                <span>URL (optional)</span>
+                <input
+                  onChange={(event) => setToolUrl(event.target.value)}
+                  placeholder="https://example.com"
+                  type="url"
+                  value={toolUrl}
+                />
               </label>
               <div className="welcome-modal-actions account-modal-actions">
                 {!editingTool ? (
@@ -5101,7 +6273,7 @@ function DashboardContent() {
                     onClick={() => saveTool(undefined, { addAnother: true })}
                     type="button"
                   >
-                    + Another
+                    + Add next
                   </button>
                 ) : null}
                 <button className="btn-sm btn-sm-primary" disabled={isSavingTool} type="submit">
@@ -5115,19 +6287,11 @@ function DashboardContent() {
 
       {showLinkToolModal ? (
         <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="link-tool-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
+          <section aria-labelledby="link-tool-modal-title" aria-modal="true" className="welcome-modal link-tool-modal" role="dialog">
             <button
               aria-label="Close link AI tool modal"
               className="modal-close-button"
-              onClick={() => {
-                setShowLinkToolModal(false);
-                setLinkToolId("");
-                setLinkToolAccountLabel("");
-                setLinkToolPlan("Free Tier");
-                setLinkToolPlanName("");
-                setLinkToolSearchQuery("");
-                setIsLinkToolPickerOpen(false);
-              }}
+              onClick={closeLinkToolModal}
               type="button"
             >
               x
@@ -5136,121 +6300,222 @@ function DashboardContent() {
             <form className="modal-form" onSubmit={saveToolLink}>
               <label className="form-field">
                 <span>Tool</span>
-                <div
-                  className="link-tool-combobox"
-                  onBlur={(event) => {
-                    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                      setIsLinkToolPickerOpen(false);
-                    }
-                  }}
-                >
-                  <div className="link-tool-combobox-field">
-                    {selectedLinkTool ? (
-                      <span className="tool-avatar" style={{ background: selectedLinkTool.logoBg }}>
-                        {selectedLinkTool.logo}
-                      </span>
-                    ) : null}
-                    <input
-                      onChange={(event) => {
-                        setOpenDropdownId(null);
-                        setLinkToolSearchQuery(event.target.value);
-                        setLinkToolId("");
-                        setIsLinkToolPickerOpen(true);
-                      }}
-                      onFocus={() => {
-                        setOpenDropdownId(null);
-                        setIsLinkToolPickerOpen(true);
-                      }}
-                      placeholder="Search existing tools"
-                      type="search"
-                      value={selectedLinkTool ? selectedLinkTool.name : linkToolSearchQuery}
-                    />
+                {isLinkToolLocked && selectedLinkTool ? (
+                  <div className="link-tool-locked-field">
+                    <span className="tool-avatar" style={{ background: selectedLinkTool.logoBg }}>
+                      {toolInitials(selectedLinkTool.name)}
+                    </span>
+                    <span>{displayToolName(selectedLinkTool.name)}</span>
                   </div>
-                  {isLinkToolPickerOpen ? (
-                    <div className="link-tool-search-results">
-                      {filteredLinkToolOptions.length > 0 ? (
-                        filteredLinkToolOptions.slice(0, 6).map((tool) => (
-                          <button
-                            className={linkToolId === tool.id ? "link-tool-result is-selected" : "link-tool-result"}
-                            key={tool.id}
-                            onClick={() => {
-                              setLinkToolId(tool.id);
-                              setLinkToolSearchQuery(tool.name);
-                              setIsLinkToolPickerOpen(false);
-                            }}
-                            type="button"
-                          >
-                            <span className="tool-avatar" style={{ background: tool.logoBg }}>{tool.logo}</span>
-                            <span>{tool.name}</span>
-                          </button>
-                        ))
-                      ) : (
-                        <span className="link-tool-empty">No existing tools found</span>
-                      )}
-                      <button
-                        className="link-tool-result link-tool-create-row"
-                        onClick={() => {
-                          setShowLinkToolModal(false);
-                          setIsLinkToolPickerOpen(false);
-                          openAddToolModal();
+                ) : (
+                  <div
+                    className="link-tool-combobox"
+                    onBlur={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                        setIsLinkToolPickerOpen(false);
+                      }
+                    }}
+                  >
+                    <div className="link-tool-combobox-field">
+                      {selectedLinkTool ? (
+                        <span className="tool-avatar" style={{ background: selectedLinkTool.logoBg }}>
+                          {toolInitials(selectedLinkTool.name)}
+                        </span>
+                      ) : null}
+                      <input
+                        onChange={(event) => {
+                          setOpenDropdownId(null);
+                          setLinkToolSearchQuery(event.target.value);
+                          setLinkToolId("");
+                          setIsLinkToolPickerOpen(true);
                         }}
-                        type="button"
-                      >
-                        <span>Can&apos;t find it? + Create new tool</span>
-                      </button>
+                        onFocus={() => {
+                          setOpenDropdownId(null);
+                          setIsLinkToolPickerOpen(true);
+                        }}
+                        placeholder="Search existing tools"
+                        type="search"
+                        value={selectedLinkTool ? displayToolName(selectedLinkTool.name) : linkToolSearchQuery}
+                      />
                     </div>
-                  ) : null}
-                </div>
+                    {isLinkToolPickerOpen ? (
+                      <div className="link-tool-search-results">
+                        {filteredLinkToolOptions.length > 0 ? (
+                          filteredLinkToolOptions.slice(0, 6).map((tool) => (
+                            <button
+                              className={linkToolId === tool.id ? "link-tool-result is-selected" : "link-tool-result"}
+                              key={tool.id}
+                              onClick={() => {
+                                setLinkToolId(tool.id);
+                                setLinkToolSearchQuery(tool.name);
+                                setIsLinkToolPickerOpen(false);
+                              }}
+                              type="button"
+                            >
+                              <span className="tool-avatar" style={{ background: tool.logoBg }}>{toolInitials(tool.name)}</span>
+                              <span>{displayToolName(tool.name)}</span>
+                            </button>
+                          ))
+                        ) : (
+                          <span className="link-tool-empty">No existing tools found</span>
+                        )}
+                        <button
+                          className="link-tool-result link-tool-create-row"
+                          onClick={() => {
+                            closeLinkToolModal();
+                            openAddToolModal();
+                          }}
+                          type="button"
+                        >
+                          <span>
+                            Can&apos;t find it? <span className="inline-accent-text">+ Create new tool</span>
+                          </span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
                 {selectedLinkTool?.accounts.length ? (
                   <small className="field-feedback neutral">
                     Already linked to: {selectedLinkTool.accounts.join(", ")}
                   </small>
                 ) : null}
               </label>
-              <label className="form-field">
-                <span>Account</span>
-                {renderDropdown({
-                  className: "modal-dropdown",
-                  id: "link-tool-account",
-                  onChange: setLinkToolAccountLabel,
-                  options: accountList.length > 0
-                    ? [
-                        { disabled: true, label: "No account linked yet", value: "" },
-                        ...accountList.map((account) => ({
-                          label: account.label,
-                          value: account.label,
-                        })),
-                      ]
-                    : [{ disabled: true, label: "No account linked yet", value: "" }],
-                  placeholder: "Select account",
-                  value: linkToolAccountLabel,
+              <div className="link-account-blocks">
+                {linkToolAccountBlocks.map((block, blockIndex) => {
+                  const otherSelectedAccountLabels = linkToolAccountBlocks
+                    .filter((otherBlock) => otherBlock.id !== block.id)
+                    .map((otherBlock) => otherBlock.accountLabel)
+                    .filter(Boolean);
+                  const accountOptionsForBlock = orderedAccountOptions.filter(
+                    (accountOption) =>
+                      accountOption.value === block.accountLabel ||
+                      (!selectedLinkTool?.accounts.includes(accountOption.value) &&
+                        !otherSelectedAccountLabels.includes(accountOption.value)),
+                  );
+                  const isAlreadyLinked = Boolean(block.accountLabel && selectedLinkTool?.accounts.includes(block.accountLabel));
+                  const isDuplicateInSubmission = Boolean(
+                    block.accountLabel &&
+                    linkToolAccountBlocks.some(
+                      (otherBlock, otherIndex) => otherIndex !== blockIndex && otherBlock.accountLabel === block.accountLabel,
+                    ),
+                  );
+
+                  return (
+                    <div className="link-account-block" key={block.id}>
+                      <div className="link-account-block-head">
+                        <span>Account {blockIndex + 1}</span>
+                        {linkToolAccountBlocks.length > 1 ? (
+                          <button
+                            aria-label={`Remove account ${blockIndex + 1}`}
+                            className="row-icon-action linked-remove-action"
+                            onClick={() =>
+                              setLinkToolAccountBlocks((currentBlocks) =>
+                                currentBlocks.filter((currentBlock) => currentBlock.id !== block.id),
+                              )
+                            }
+                            type="button"
+                          >
+                            <svg aria-hidden="true" viewBox="0 0 24 24">
+                              <path d="m6 6 12 12" />
+                              <path d="m18 6-12 12" />
+                            </svg>
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="link-account-row">
+                        <div className="form-field link-account-field">
+                          {renderDropdown({
+                            className: "modal-dropdown",
+                            id: `link-tool-account-${block.id}`,
+                            onChange: (nextAccountLabel) =>
+                              setLinkToolAccountBlocks((currentBlocks) =>
+                                currentBlocks.map((currentBlock) =>
+                                  currentBlock.id === block.id
+                                    ? { ...currentBlock, accountLabel: nextAccountLabel }
+                                    : currentBlock,
+                                ),
+                              ),
+                            options: accountOptionsForBlock.length > 0
+                              ? [
+                                  { disabled: true, label: "No account linked yet", value: "" },
+                                  ...accountOptionsForBlock,
+                                ]
+                              : [{ disabled: true, label: "No accounts available", value: "" }],
+                            placeholder: "Select account",
+                            value: block.accountLabel,
+                          })}
+                          {isAlreadyLinked ? (
+                            <small className="field-feedback error">Already linked to this account</small>
+                          ) : isDuplicateInSubmission ? (
+                            <small className="field-feedback error">This account is already selected above</small>
+                          ) : null}
+                        </div>
+                        <div className="form-field link-plan-field">
+                          {blockIndex === 0 ? <span>Plan</span> : null}
+                          {renderPlanSelector(
+                            block.plan,
+                            (nextPlan) =>
+                              setLinkToolAccountBlocks((currentBlocks) =>
+                                currentBlocks.map((currentBlock) =>
+                                  currentBlock.id === block.id
+                                    ? { ...currentBlock, plan: nextPlan }
+                                    : currentBlock,
+                                ),
+                              ),
+                            selectedLinkTool,
+                          )}
+                        </div>
+                      </div>
+                      {block.plan === "Active" ? (
+                        <label className="form-field">
+                          <span>Plan Name</span>
+                          <input
+                            onChange={(event) =>
+                              setLinkToolAccountBlocks((currentBlocks) =>
+                                currentBlocks.map((currentBlock) =>
+                                  currentBlock.id === block.id
+                                    ? { ...currentBlock, planName: formatNickname(event.target.value) }
+                                    : currentBlock,
+                                ),
+                              )
+                            }
+                            placeholder="Basic, Plus, Pro, Team, Business, Enterprise, Pay as you go..."
+                            type="text"
+                            value={block.planName}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  );
                 })}
-                {isDuplicateToolAccountLink ? (
-                  <small className="field-feedback error">Already linked to this account</small>
-                ) : null}
-              </label>
-              <label className="form-field">
-                <span>Plan</span>
-                {renderPlanSelector(linkToolPlan, setLinkToolPlan)}
-              </label>
-              {linkToolPlan === "Active" ? (
-                <label className="form-field">
-                  <span>Plan Name</span>
-                  <input
-                    onChange={(event) => setLinkToolPlanName(event.target.value)}
-                    placeholder="Team, Pro, Studio..."
-                    type="text"
-                    value={linkToolPlanName}
-                  />
-                </label>
+              </div>
+              {remainingLinkAccountOptions.length > 0 ? (
+                <button
+                  className="inline-text-link link-add-account-block"
+                  onClick={() =>
+                    setLinkToolAccountBlocks((currentBlocks) => [
+                      ...currentBlocks,
+                      {
+                        accountLabel: "",
+                        id: `link-account-${Date.now().toString(36)}-${currentBlocks.length + 1}`,
+                        plan: "Free Tier",
+                        planName: "",
+                      },
+                    ])
+                  }
+                  type="button"
+                >
+                  + Add another account
+                </button>
               ) : null}
               <div className="welcome-modal-actions">
                 <button
                   className="btn-sm btn-sm-primary"
-                  disabled={!linkToolId || !linkToolAccountLabel || isDuplicateToolAccountLink}
+                  disabled={isLinkToolSubmitBlocked}
                   type="submit"
                 >
-                  Link AI Tool
+                  Save
                 </button>
               </div>
             </form>
@@ -5269,34 +6534,19 @@ function DashboardContent() {
             >
               x
             </button>
-            <h2 id="manage-account-modal-title">Manage Account</h2>
-            <p>{managedTool.name} · {managingLink.accountLabel}</p>
+            <h2 id="manage-account-modal-title">Edit Link</h2>
+            <p>{managedTool.name}</p>
             <form className="modal-form" onSubmit={saveManagedAccount}>
               <label className="form-field manage-account-field">
                 <span>Account</span>
-                <div className="manage-account-field-heading">
-                  {!isSwitchingManagedAccount ? (
-                    <div className="manage-account-readonly">
-                      {renderLinkedAccountCell(managedAccountLabel)}
-                    </div>
-                  ) : (
-                    renderDropdown({
-                      className: "modal-dropdown",
-                      id: "manage-account-switch",
-                      onChange: setManagedAccountLabel,
-                      options: managedAccountOptions,
-                      placeholder: "Select account",
-                      value: managedAccountLabel,
-                    })
-                  )}
-                  <button
-                    className="quiet-danger-link neutral"
-                    onClick={() => setIsSwitchingManagedAccount((isSwitching) => !isSwitching)}
-                    type="button"
-                  >
-                    {isSwitchingManagedAccount ? "Keep current" : "Switch account"}
-                  </button>
-                </div>
+                {renderDropdown({
+                  className: "modal-dropdown",
+                  id: "manage-account-switch",
+                  onChange: setManagedAccountLabel,
+                  options: managedAccountOptions,
+                  placeholder: "Select account",
+                  value: managedAccountLabel,
+                })}
                 {isDuplicateManagedAccount ? (
                   <small className="field-feedback error">Already linked to this account</small>
                 ) : null}
@@ -5319,31 +6569,67 @@ function DashboardContent() {
                     <span>Plan name</span>
                     <input
                       onChange={(event) => setManagedPlanName(event.target.value)}
-                      placeholder="Pro, Team..."
+                      placeholder="Basic, Plus, Pro, Team, Business, Enterprise, Pay as you go..."
                       type="text"
                       value={managedPlanName}
                     />
                   </label>
                   <label className="form-field">
                     <span>Billing type</span>
-                    {renderDropdown({
+                    {renderMultiSelectDropdown({
                       className: "modal-dropdown",
                       id: "manage-billing-type",
-                      onChange: (nextBillingType) => setManagedBillingType(nextBillingType as BillingType),
-                      options: (["Monthly", "Yearly", "Lifetime", "One-time", "Credit-topup"] as BillingType[]).map((billingType) => ({
-                        label: billingType,
-                        value: billingType,
-                      })),
-                      value: managedBillingType,
+                      onChange: (nextBillingTypes) => {
+                        setManagedBillingType(nextBillingTypes.join(", "));
+                        setManagedBillingAmounts((currentAmounts) =>
+                          nextBillingTypes.map((billingType) =>
+                            currentAmounts.find((entry) => entry.billingType === billingType) ?? {
+                              amount: "",
+                              billingType,
+                              currency: defaultCurrency,
+                            },
+                          ),
+                        );
+                      },
+                      options: billingTypeOptions,
+                      placeholder: "Select billing type",
+                      values: managedBillingType ? managedBillingType.split(", ") : [],
                     })}
                   </label>
+                  {managedBillingAmounts.map((billingAmount) => (
+                    <label className="form-field" key={billingAmount.billingType}>
+                      <span>Amount - {billingAmount.billingType}</span>
+                      <span className="billing-amount-field modal-amount-field managed-amount-field">
+                        {renderDropdown({
+                          ariaLabel: `${billingAmount.billingType} currency`,
+                          className: "billing-currency-dropdown",
+                          id: `manage-currency-${billingAmount.billingType}`,
+                          onChange: (nextCurrency) => setManagedBillingAmounts((currentAmounts) =>
+                            currentAmounts.map((entry) => entry.billingType === billingAmount.billingType
+                              ? { ...entry, currency: normaliseCurrency(nextCurrency) }
+                              : entry)),
+                          options: currencyOptions,
+                          value: billingAmount.currency,
+                        })}
+                        <input
+                          inputMode="decimal"
+                          onChange={(event) => setManagedBillingAmounts((currentAmounts) =>
+                            currentAmounts.map((entry) => entry.billingType === billingAmount.billingType
+                              ? { ...entry, amount: event.target.value }
+                              : entry))}
+                          placeholder="0.00"
+                          type="number"
+                          value={billingAmount.amount}
+                        />
+                      </span>
+                    </label>
+                  ))}
                   <label className="form-field">
-                    <span>Amount</span>
+                    <span>Next charge</span>
                     <input
-                      onChange={(event) => setManagedAmount(event.target.value)}
-                      placeholder="29"
-                      type="text"
-                      value={managedAmount}
+                      onChange={(event) => setManagedNextChargeDate(event.target.value)}
+                      type="date"
+                      value={managedNextChargeDate}
                     />
                   </label>
                 </div>
@@ -5368,7 +6654,7 @@ function DashboardContent() {
                   className: "modal-dropdown",
                   id: "manage-status",
                   onChange: (nextStatus) => setManagedStatus(nextStatus as ManageStatus),
-                  options: (["Running", "On a break", "On the watchlist", "Goodbye it was a journey"] as ManageStatus[]).map((status) => ({
+                  options: (["Active", "On a Break", "Goodbye"] as ManageStatus[]).map((status) => ({
                     label: status,
                     value: status,
                   })),
@@ -5396,53 +6682,77 @@ function DashboardContent() {
         </div>
       ) : null}
 
-      {linkingTool ? (
+      {editingBillingLink ? (
         <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="link-account-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
+          <section aria-labelledby="billing-edit-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
             <button
-              aria-label="Close link account modal"
+              aria-label="Close billing modal"
               className="modal-close-button"
-              onClick={() => setLinkingTool(null)}
+              onClick={closeBillingEditModal}
               type="button"
             >
               x
             </button>
-            <h2 id="link-account-modal-title">Link another account</h2>
-            <p>Select an account and set the plan for this tool.</p>
-            <form className="modal-form" onSubmit={saveLinkedAccount}>
+            <h2 id="billing-edit-modal-title">Edit Billing</h2>
+            <form className="modal-form" onSubmit={saveBillingDetails}>
               <label className="form-field">
-                <span>Account</span>
+                <span>Plan name</span>
+                <input
+                  onChange={(event) => setBillingPlanName(formatNickname(event.target.value))}
+                  placeholder="Basic, Plus, Pro, Team, Business, Enterprise, Pay as you go..."
+                  type="text"
+                  value={billingPlanName}
+                />
+              </label>
+              <label className="form-field">
+                <span>Billing type</span>
                 {renderMultiSelectDropdown({
                   className: "modal-dropdown",
-                  id: "link-account-label",
-                  onChange: setLinkAccountLabels,
-                  options: linkAccountOptions.length > 0
-                    ? linkAccountOptions
-                    : [{ disabled: true, label: "No accounts available", value: "" }],
-                  placeholder: "Select account",
-                  values: linkAccountLabels,
+                  id: "billing-edit-type",
+                  onChange: (nextBillingTypes) => setBillingBillingType(nextBillingTypes.join(", ")),
+                  options: billingTypeOptions,
+                  placeholder: "Select billing type",
+                  values: billingBillingType ? billingBillingType.split(", ") : [],
                 })}
               </label>
               <label className="form-field">
-                <span>Plan</span>
-                {renderDropdown({
-                  className: "modal-dropdown",
-                  id: "link-account-status",
-                  onChange: (nextStatus) => setLinkAccountStatus(nextStatus as ToolStatus),
-                  options: [
-                    { label: "Free", value: "Free Tier" },
-                    { label: "Trial", value: "Trial" },
-                    { label: "Paid", value: "Active" },
-                  ],
-                  value: linkAccountStatus,
-                })}
+                <span>Amount</span>
+                <span className="billing-amount-field modal-amount-field">
+                  {renderDropdown({
+                    ariaLabel: "Billing currency",
+                    className: "billing-currency-dropdown",
+                    id: "billing-edit-currency",
+                    onChange: (nextCurrency) => setBillingCurrency(normaliseCurrency(nextCurrency)),
+                    options: currencyOptions,
+                    value: billingCurrency,
+                  })}
+                  <input
+                    onChange={(event) => setBillingAmount(event.target.value)}
+                    placeholder="29"
+                    type="text"
+                    value={billingAmount}
+                  />
+                </span>
+              </label>
+              <label className="form-field">
+                <span>Next charge</span>
+                <span className="billing-date-picker billing-date-picker-modal">
+                  <span>{formatBillingDate(billingNextChargeDate)}</span>
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <rect x="4" y="5.5" width="16" height="14" rx="2" />
+                    <path d="M8 3.5v4M16 3.5v4M4 9.5h16" />
+                  </svg>
+                  <input
+                    aria-label="Next charge date"
+                    onChange={(event) => setBillingNextChargeDate(event.target.value)}
+                    type="date"
+                    value={billingNextChargeDate}
+                  />
+                </span>
               </label>
               <div className="welcome-modal-actions">
-                <button className="btn-sm btn-sm-ghost" onClick={() => setLinkingTool(null)} type="button">
-                  Cancel
-                </button>
-                <button className="btn-sm btn-sm-primary" disabled={linkAccountLabels.length === 0} type="submit">
-                  Link Account
+                <button className="btn-sm btn-sm-primary" type="submit">
+                  Save
                 </button>
               </div>
             </form>
