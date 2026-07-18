@@ -6,6 +6,7 @@ import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import LinkAIToolModal from "@/components/LinkAIToolModal";
 import ToolDetailModal from "@/components/ToolDetailModal";
 import {
   toggleBillingTypeSelection,
@@ -45,6 +46,7 @@ import type {
   ToolDetailAccountDraft,
   ToolStatus,
 } from "@/types/toolDetail";
+import type { LinkToolAccountBlock } from "@/types/linkTool";
 import {
   createToolRecord,
   getToolLinkDetailRecords,
@@ -161,14 +163,6 @@ type ToolAccountDetail = {
   nextChargeDate: string;
   planName: string;
   status: ManageStatus;
-  trialExpiryDate: string;
-};
-type LinkToolAccountBlock = {
-  accountLabel: string;
-  billingType: BillingType;
-  id: string;
-  plan: ToolStatus | "";
-  planName: string;
   trialExpiryDate: string;
 };
 
@@ -7645,294 +7639,38 @@ function DashboardContent() {
       )}
 
       {showLinkToolModal ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="link-tool-modal-title" aria-modal="true" className="welcome-modal link-tool-modal" role="dialog">
-            <button
-              aria-label="Close link AI tool modal"
-              className="modal-close-button"
-              onClick={closeLinkToolModal}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="link-tool-modal-title">Link AI Tool</h2>
-            <form className="modal-form" onSubmit={saveToolLink}>
-              <label className="form-field">
-                <span>Tool</span>
-                {isLinkToolLocked && selectedLinkTool ? (
-                  <div className="link-tool-locked-field modal-tool-identity">
-                    <span className="tool-avatar" style={{ background: selectedLinkTool.logoBg }}>
-                      {toolInitials(selectedLinkTool.name)}
-                    </span>
-                    <span className="modal-tool-name">{displayToolName(selectedLinkTool.name)}</span>
-                  </div>
-                ) : (
-                  <div
-                    className="link-tool-combobox"
-                    onBlur={(event) => {
-                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                        setIsLinkToolPickerOpen(false);
-                      }
-                    }}
-                  >
-                    <div className="link-tool-combobox-field">
-                      {selectedLinkTool ? (
-                        <span className="tool-avatar" style={{ background: selectedLinkTool.logoBg }}>
-                          {toolInitials(selectedLinkTool.name)}
-                        </span>
-                      ) : null}
-                      <input
-                        onChange={(event) => {
-                          setOpenDropdownId(null);
-                          setLinkToolSearchQuery(event.target.value);
-                          setLinkToolId("");
-                          setIsLinkToolPickerOpen(true);
-                        }}
-                        onFocus={() => {
-                          setOpenDropdownId(null);
-                          setIsLinkToolPickerOpen(true);
-                        }}
-                        placeholder="Search existing tools"
-                        type="search"
-                        value={selectedLinkTool ? displayToolName(selectedLinkTool.name) : linkToolSearchQuery}
-                      />
-                    </div>
-                    {isLinkToolPickerOpen ? (
-                      <div className="link-tool-search-results">
-                        {filteredLinkToolOptions.length > 0 ? (
-                          filteredLinkToolOptions.slice(0, 6).map((tool) => (
-                            <button
-                              className={linkToolId === tool.id ? "link-tool-result is-selected" : "link-tool-result"}
-                              key={tool.id}
-                              onClick={() => {
-                                setLinkToolId(tool.id);
-                                setLinkToolSearchQuery(tool.name);
-                                setIsLinkToolPickerOpen(false);
-                              }}
-                              type="button"
-                            >
-                              <span className="tool-avatar" style={{ background: tool.logoBg }}>{toolInitials(tool.name)}</span>
-                              <span>{displayToolName(tool.name)}</span>
-                            </button>
-                          ))
-                        ) : (
-                          <span className="link-tool-empty">No existing tools found</span>
-                        )}
-                        <button
-                          className="link-tool-result link-tool-create-row"
-                          onClick={() => {
-                            closeLinkToolModal();
-                            openAddToolModal();
-                          }}
-                          type="button"
-                        >
-                          <span>
-                            Can&apos;t find it? <span className="inline-accent-text">+ Create new tool</span>
-                          </span>
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-                {selectedLinkTool?.accounts.length ? (
-                  <small className="field-feedback neutral">
-                    Already linked to: {selectedLinkTool.accounts.join(", ")}
-                  </small>
-                ) : null}
-              </label>
-              <div className="link-account-blocks">
-                {linkToolAccountBlocks.map((block, blockIndex) => {
-                  const otherSelectedAccountLabels = linkToolAccountBlocks
-                    .filter((otherBlock) => otherBlock.id !== block.id)
-                    .map((otherBlock) => otherBlock.accountLabel)
-                    .filter(Boolean);
-                  const accountOptionsForBlock = orderedAccountOptions.filter(
-                    (accountOption) =>
-                      accountOption.value === block.accountLabel ||
-                      (!selectedLinkTool?.accounts.includes(accountOption.value) &&
-                        !otherSelectedAccountLabels.includes(accountOption.value)),
-                  );
-                  const isAlreadyLinked = Boolean(block.accountLabel && selectedLinkTool?.accounts.includes(block.accountLabel));
-                  const isDuplicateInSubmission = Boolean(
-                    block.accountLabel &&
-                    linkToolAccountBlocks.some(
-                      (otherBlock, otherIndex) => otherIndex !== blockIndex && otherBlock.accountLabel === block.accountLabel,
-                    ),
-                  );
-
-                  return (
-                    <div className="link-account-block" key={block.id}>
-                      <div className="link-account-block-head">
-                        <span>Account {blockIndex + 1}</span>
-                        {linkToolAccountBlocks.length > 1 ? (
-                          <button
-                            aria-label={`Remove account ${blockIndex + 1}`}
-                            className="row-icon-action linked-remove-action"
-                            onClick={() =>
-                              setLinkToolAccountBlocks((currentBlocks) =>
-                                currentBlocks.filter((currentBlock) => currentBlock.id !== block.id),
-                              )
-                            }
-                            type="button"
-                          >
-                            <svg aria-hidden="true" viewBox="0 0 24 24">
-                              <path d="m6 6 12 12" />
-                              <path d="m18 6-12 12" />
-                            </svg>
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="link-account-layout">
-                        <div className="form-field link-account-field">
-                          {renderDropdown({
-                            className:
-                              hasSubmittedLinkToolForm && !block.accountLabel
-                                ? "modal-dropdown has-field-error"
-                                : "modal-dropdown",
-                            id: `link-tool-account-${block.id}`,
-                            onChange: (nextAccountLabel) =>
-                              setLinkToolAccountBlocks((currentBlocks) =>
-                                currentBlocks.map((currentBlock) =>
-                                  currentBlock.id === block.id
-                                    ? { ...currentBlock, accountLabel: nextAccountLabel }
-                                    : currentBlock,
-                                ),
-                              ),
-                            options: accountOptionsForBlock.length > 0
-                              ? [
-                                  { disabled: true, label: "No account linked yet", value: "" },
-                                  ...accountOptionsForBlock,
-                                ]
-                              : [{ disabled: true, label: "No accounts available", value: "" }],
-                            placeholder: "Select account",
-                            value: block.accountLabel,
-                          })}
-                          {isAlreadyLinked ? (
-                            <small className="field-feedback error">Already linked to this account</small>
-                          ) : isDuplicateInSubmission ? (
-                            <small className="field-feedback error">This account is already selected above</small>
-                          ) : hasSubmittedLinkToolForm && !block.accountLabel ? (
-                            <small className="field-feedback error">Select an account</small>
-                          ) : null}
-                        </div>
-                        <div className="link-account-plan-billing-row">
-                          <div className="form-field link-plan-field">
-                            <span>Plan</span>
-                            {renderPlanSelector(
-                              block.plan,
-                              (nextPlan) =>
-                                setLinkToolAccountBlocks((currentBlocks) =>
-                                  currentBlocks.map((currentBlock) =>
-                                    currentBlock.id === block.id
-                                      ? { ...currentBlock, plan: nextPlan }
-                                      : currentBlock,
-                                  ),
-                                ),
-                              selectedLinkTool,
-                            )}
-                          </div>
-                          {block.plan === "Active" ? (
-                            <label className="form-field link-account-paid-billing">
-                              <span>Billing type</span>
-                              {renderMultiSelectDropdown({
-                                className: "modal-dropdown",
-                                id: `link-tool-billing-type-${block.id}`,
-                                onChange: (nextBillingTypes) =>
-                                  setLinkToolAccountBlocks((currentBlocks) =>
-                                    currentBlocks.map((currentBlock) =>
-                                      currentBlock.id === block.id
-                                        ? { ...currentBlock, billingType: nextBillingTypes.join(", ") }
-                                        : currentBlock,
-                                    ),
-                                  ),
-                                options: linkBillingTypeOptions,
-                                placeholder: "Select billing type",
-                                toggleSelection: toggleBillingTypeSelection,
-                                values: block.billingType ? block.billingType.split(", ") : [],
-                              })}
-                            </label>
-                          ) : null}
-                          {block.plan === "Trial" ? (
-                            <label className="form-field link-account-trial-date">
-                              <span>Trial end date</span>
-                              <DateFieldControl
-                                ariaLabel="Trial end date"
-                                onChange={(trialExpiryDate) =>
-                                  setLinkToolAccountBlocks((currentBlocks) =>
-                                    currentBlocks.map((currentBlock) =>
-                                      currentBlock.id === block.id
-                                        ? { ...currentBlock, trialExpiryDate }
-                                        : currentBlock,
-                                    ),
-                                  )
-                                }
-                                value={block.trialExpiryDate}
-                              />
-                            </label>
-                          ) : null}
-                        </div>
-                        {block.plan === "Active" ? (
-                            <label className="form-field link-account-paid-plan-name">
-                              <span>Plan Name</span>
-                              <input
-                                onChange={(event) =>
-                                  setLinkToolAccountBlocks((currentBlocks) =>
-                                    currentBlocks.map((currentBlock) =>
-                                      currentBlock.id === block.id
-                                        ? { ...currentBlock, planName: formatNickname(event.target.value) }
-                                        : currentBlock,
-                                    ),
-                                  )
-                                }
-                                placeholder="Basic, Plus, Pro, Team, Business, Pay as you go..."
-                                type="text"
-                                value={block.planName}
-                              />
-                            </label>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              {remainingLinkAccountOptions.length > 0 ? (
-                <button
-                  className="inline-text-link link-add-account-block"
-                  onClick={() =>
-                    setLinkToolAccountBlocks((currentBlocks) => [
-                      ...currentBlocks,
-                      {
-                        accountLabel: "",
-                        billingType: "Monthly",
-                        id: `link-account-${Date.now().toString(36)}-${currentBlocks.length + 1}`,
-                        plan: defaultLinkPlanForTool(selectedLinkTool),
-                        planName: "",
-                        trialExpiryDate: "",
-                      },
-                    ])
-                  }
-                  type="button"
-                >
-                  + Add another account
-                </button>
-              ) : null}
-              <div className="welcome-modal-actions">
-                <button
-                  className="btn-sm btn-sm-primary"
-                  disabled={
-                    !linkToolId ||
-                    linkToolAccountBlocks.some((block) => !isPlanAllowedForTool(selectedLinkTool, block.plan)) ||
-                    linkToolAccountBlocks.some((block) => Boolean(block.accountLabel && selectedLinkTool?.accounts.includes(block.accountLabel))) ||
-                    duplicateLinkAccountLabels.length > 0
-                  }
-                  type="submit"
-                >
-                  Save
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+        <LinkAIToolModal
+          blocks={linkToolAccountBlocks}
+          closeModal={closeLinkToolModal}
+          DateFieldControl={DateFieldControl}
+          defaultPlanForTool={() => defaultLinkPlanForTool(selectedLinkTool)}
+          displayToolName={displayToolName}
+          duplicateAccountLabels={duplicateLinkAccountLabels}
+          filteredToolOptions={filteredLinkToolOptions}
+          formatPlanName={formatNickname}
+          hasSubmitted={hasSubmittedLinkToolForm}
+          isLocked={isLinkToolLocked}
+          isPickerOpen={isLinkToolPickerOpen}
+          isPlanAllowedForTool={(plan) => isPlanAllowedForTool(selectedLinkTool, plan)}
+          linkBillingTypeOptions={linkBillingTypeOptions}
+          linkToolId={linkToolId}
+          openAddToolModal={openAddToolModal}
+          orderedAccountOptions={orderedAccountOptions}
+          remainingAccountOptions={remainingLinkAccountOptions}
+          renderDropdown={renderDropdown}
+          renderMultiSelectDropdown={renderMultiSelectDropdown}
+          renderPlanSelector={(plan, onChange) => renderPlanSelector(plan, onChange, selectedLinkTool)}
+          searchQuery={linkToolSearchQuery}
+          selectedTool={selectedLinkTool}
+          setBlocks={setLinkToolAccountBlocks}
+          setIsPickerOpen={setIsLinkToolPickerOpen}
+          setLinkToolId={setLinkToolId}
+          setOpenDropdownId={setOpenDropdownId}
+          setSearchQuery={setLinkToolSearchQuery}
+          submit={saveToolLink}
+          toggleBillingTypeSelection={toggleBillingTypeSelection}
+          toolInitials={toolInitials}
+        />
       ) : null}
 
       {managingLink && managedTool ? (
