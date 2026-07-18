@@ -5,6 +5,8 @@ import { useSearchParams } from "next/navigation";
 import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
+import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import ToolDetailModal from "@/components/ToolDetailModal";
 import {
   toggleBillingTypeSelection,
   validateBillingTypeSelection,
@@ -24,6 +26,25 @@ import {
   type AccountRecord,
 } from "@/lib/supabase/accounts";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
+import {
+  billingHistoryDisplayDate,
+  createPendingResolutionEntry,
+  pendingResolutionOptions,
+  updateGeneratedBillingHistoryNote,
+  updateManualBillingHistoryNote,
+} from "@/lib/billingHistory";
+import type {
+  BillingHistoryEntry,
+  BillingHistoryEvent,
+  BillingHistorySection,
+  BillingHistoryTarget,
+} from "@/types/billingHistory";
+import type {
+  BillingAmount,
+  ManageStatus,
+  ToolDetailAccountDraft,
+  ToolStatus,
+} from "@/types/toolDetail";
 import {
   createToolRecord,
   getToolLinkDetailRecords,
@@ -51,7 +72,6 @@ import {
 } from "react";
 
 type Section = "dashboard" | "tools" | "linked" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
-type ToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 type LinkedPlanFilter = "All" | "Paid" | "Trial" | "Free";
 type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "AI Explorer" | "Custom";
@@ -132,50 +152,7 @@ type ToolResetArchive = {
   createdAt: string;
   data: ToolResetBlob[];
 };
-type ManageStatus = "Active" | "On a Break" | "Goodbye";
 type BillingType = string;
-type BillingAmount = {
-  amount: string;
-  billingType: BillingType;
-  currency: string;
-  id: string;
-};
-type BillingHistoryEvent =
-  | "Charged"
-  | "Trial Started"
-  | "Trial Converted to Paid"
-  | "Plan Changed"
-  | "Refunded"
-  | "Double Charged"
-  | "Cancelled";
-type BillingHistoryEntry = {
-  amount?: string;
-  billingType?: string;
-  currency?: string;
-  date: string;
-  event: BillingHistoryEvent;
-  id: string;
-  note?: string;
-  planName?: string;
-  resolvesEntryId?: string;
-  saved?: boolean;
-  source: "generated" | "manual";
-};
-type BillingHistorySection = {
-  accountLabel: string;
-  entries: BillingHistoryEntry[];
-  planName: string;
-};
-type ToolDetailAccountDraft = {
-  accountLabel: string;
-  billingAmounts: BillingAmount[];
-  billingType: BillingType;
-  nextChargeDate: string;
-  plan: ToolStatus;
-  planName: string;
-  status: ManageStatus;
-  trialExpiryDate: string;
-};
 type ToolAccountDetail = {
   amount: string;
   billingAmounts?: BillingAmount[];
@@ -207,26 +184,6 @@ const navItems: Array<{ id: Section; icon: string; label: string; badge?: number
   { id: "recovery", icon: "recovery", label: "Recently Deleted" },
   { id: "settings", icon: "gear", label: "Settings" },
 ];
-
-function billingHistoryDisplayDate(value: string) {
-  if (!value || value === "—") return "—";
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
-    ? new Date(`${value}T00:00:00`)
-    : new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  }).format(date);
-}
-
-function billingHistoryDisplayAmount(entry: BillingHistoryEntry) {
-  if (!entry.amount) return "—";
-  return entry.source === "manual"
-    ? `${normaliseCurrency(entry.currency)} ${entry.amount}`
-    : entry.amount;
-}
 
 const initialAccounts: Account[] = [];
 const toolCustomizations = toolCustomizationsData as Record<string, ToolCustomization>;
@@ -1064,7 +1021,7 @@ function DashboardContent() {
   const [selectedToolSort, setSelectedToolSort] = useState<ToolSortRange>("Category");
   const [linkedPlanFilter, setLinkedPlanFilter] = useState<LinkedPlanFilter>("All");
   const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Month">("All");
-  const [billingHistoryTarget, setBillingHistoryTarget] = useState<{ accountLabel: string; toolId: string } | null>(null);
+  const [billingHistoryTarget, setBillingHistoryTarget] = useState<BillingHistoryTarget | null>(null);
   const [billingHistoryNotes, setBillingHistoryNotes] = useState<Record<string, string>>({});
   const [manualBillingHistory, setManualBillingHistory] = useState<Record<string, BillingHistoryEntry[]>>({});
   const [isPendingActionsExpanded, setIsPendingActionsExpanded] = useState(false);
@@ -3038,6 +2995,7 @@ function DashboardContent() {
         const billingType = normaliseBillingType(details?.billingType ?? "Monthly");
         const selectedBillingTypes = billingType.split(", ").filter(Boolean);
         drafts[linkedAccountLabel] = {
+          draftId: linkedAccountLabel,
           accountLabel: linkedAccountLabel,
           billingAmounts: details?.billingAmounts?.length
             ? details.billingAmounts
@@ -3072,14 +3030,20 @@ function DashboardContent() {
     setManagedStatus("Active");
   };
 
-  const updateToolDetailDraft = (accountLabel: string, patch: Partial<ToolDetailAccountDraft>) => {
+  const updateToolDetailDraft = (draftId: string, patch: Partial<ToolDetailAccountDraft>) => {
     setToolDetailDrafts((currentDrafts) => ({
       ...currentDrafts,
-      [accountLabel]: { ...currentDrafts[accountLabel], ...patch },
+      [draftId]: { ...currentDrafts[draftId], ...patch },
     }));
   };
 
-  const saveToolDetailAccount = async (tool: ToolItem, draft: ToolDetailAccountDraft) => {
+  const saveToolDetailAccount = async (
+    tool: ToolItem,
+    draft: ToolDetailAccountDraft,
+    showConfirmation = true,
+  ) => {
+    if (!draft.accountLabel || !draft.plan) return false;
+    const selectedPlan: ToolStatus = draft.plan;
     const validatedBillingType = normaliseBillingType(draft.billingType);
     const validatedBillingTypes = validatedBillingType.split(", ");
     const nextDetail: ToolAccountDetail = {
@@ -3097,7 +3061,7 @@ function DashboardContent() {
 
     setToolAccountStatuses((current) => ({
       ...current,
-      [tool.id]: { ...(current[tool.id] ?? {}), [draft.accountLabel]: draft.plan },
+      [tool.id]: { ...(current[tool.id] ?? {}), [draft.accountLabel]: selectedPlan },
     }));
     setToolAccountPlanNames((current) => ({
       ...current,
@@ -3122,10 +3086,71 @@ function DashboardContent() {
         });
       } catch (error) {
         setToolDataError(error instanceof Error ? error.message : "Could not update linked account.");
+        return false;
+      }
+    }
+    if (showConfirmation) showToast(`${draft.accountLabel} saved.`);
+    return true;
+  };
+
+  const addToolDetailAccountDraft = () => {
+    const draftId = `new-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
+    setToolDetailDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [draftId]: {
+        draftId,
+        accountLabel: "",
+        billingAmounts: [{
+          amount: "",
+          billingType: "Monthly",
+          currency: defaultCurrency,
+          id: billingAmountId(),
+        }],
+        billingType: "Monthly",
+        nextChargeDate: "",
+        plan: "",
+        planName: "",
+        status: "Active",
+        trialExpiryDate: "",
+      },
+    }));
+  };
+
+  const saveAllToolDetailAccounts = async (
+    tool: ToolItem,
+    drafts: ToolDetailAccountDraft[],
+  ) => {
+    const accountLabels = drafts.map((draft) => draft.accountLabel).filter(Boolean);
+    const hasIncompleteDraft = drafts.some((draft) => !draft.accountLabel || !draft.plan);
+    const hasDuplicateAccount = new Set(accountLabels).size !== accountLabels.length;
+    if (hasIncompleteDraft || hasDuplicateAccount) {
+      showToast(hasDuplicateAccount
+        ? "Each account can only be linked once."
+        : "Select an account and plan for every account.");
+      return;
+    }
+
+    const previousTools = toolList;
+    setToolList((currentTools) => currentTools.map((currentTool) => (
+      currentTool.id === tool.id ? { ...currentTool, accounts: accountLabels } : currentTool
+    )));
+
+    if (shouldUseSupabase) {
+      try {
+        await replaceToolLinks(tool.id, accountLabels, accountList);
+      } catch (error) {
+        setToolList(previousTools);
+        setToolDataError(error instanceof Error ? error.message : "Could not update linked accounts.");
         return;
       }
     }
-    showToast(`${draft.accountLabel} saved.`);
+
+    for (const draft of drafts) {
+      const saved = await saveToolDetailAccount(tool, draft, false);
+      if (!saved) return;
+    }
+    showToast(`${tool.name} accounts saved.`);
+    closeManageAccountModal();
   };
 
   const archiveManagedLinkTool = async () => {
@@ -5240,9 +5265,14 @@ function DashboardContent() {
 
   const managedTool = managingLink ? toolList.find((tool) => tool.id === managingLink.toolId) : null;
   const orderedToolDetailDrafts = managedTool
-    ? orderedLinkedAccountLabels(managedTool)
-        .map((accountLabel) => toolDetailDrafts[accountLabel])
-        .filter((draft): draft is ToolDetailAccountDraft => Boolean(draft))
+    ? [
+        ...orderedLinkedAccountLabels(managedTool)
+          .map((accountLabel) => toolDetailDrafts[accountLabel])
+          .filter((draft): draft is ToolDetailAccountDraft => Boolean(draft)),
+        ...Object.entries(toolDetailDrafts)
+          .filter(([draftId]) => !managedTool.accounts.includes(draftId))
+          .map(([, draft]) => draft),
+      ]
     : [];
   useEffect(() => {
     if (!managingLink) return;
@@ -5349,18 +5379,14 @@ function DashboardContent() {
     : [];
   const updateBillingHistoryNote = (recordKey: string, entry: BillingHistoryEntry, note: string) => {
     if (entry.source === "generated") {
-      setBillingHistoryNotes((current) => ({
-        ...current,
-        [`${recordKey}::${entry.id}`]: note,
-      }));
+      setBillingHistoryNotes((current) => (
+        updateGeneratedBillingHistoryNote(current, recordKey, entry.id, note)
+      ));
       return;
     }
-    setManualBillingHistory((current) => ({
-      ...current,
-      [recordKey]: (current[recordKey] ?? []).map((item) => (
-        item.id === entry.id ? { ...item, note, saved: false } : item
-      )),
-    }));
+    setManualBillingHistory((current) => (
+      updateManualBillingHistoryNote(current, recordKey, entry.id, note)
+    ));
   };
 
   const pendingBillingActions = Object.entries(manualBillingHistory).flatMap(([recordKey, entries]) => {
@@ -5389,27 +5415,14 @@ function DashboardContent() {
     setPendingResolutionDate(todayInputValue());
   };
 
-  const pendingResolutionOptions = (entry: BillingHistoryEntry): BillingHistoryEvent[] => {
-    if (entry.event === "Double Charged") return ["Charged", "Refunded"];
-    return ["Charged", "Refunded", "Plan Changed", "Cancelled"];
-  };
-
   const confirmPendingActionResolution = (recordKey: string, entry: BillingHistoryEntry) => {
     if (!pendingResolutionDate) return;
 
-    const resolutionEntry: BillingHistoryEntry = {
-      amount: entry.amount,
-      billingType: entry.billingType,
-      currency: entry.currency,
-      date: pendingResolutionDate,
-      event: pendingResolutionOutcome,
-      id: `resolution-${entry.id}-${Date.now()}`,
-      note: `Resolved ${entry.event}`,
-      planName: entry.planName,
-      resolvesEntryId: entry.id,
-      saved: true,
-      source: "manual",
-    };
+    const resolutionEntry = createPendingResolutionEntry(
+      entry,
+      pendingResolutionOutcome,
+      pendingResolutionDate,
+    );
 
     setManualBillingHistory((current) => ({
       ...current,
@@ -6686,82 +6699,13 @@ function DashboardContent() {
       </div>
 
       {billingHistoryTarget ? (
-        <div
-          className="billing-history-backdrop"
-          onClick={() => setBillingHistoryTarget(null)}
-          role="presentation"
-        >
-          <aside
-            aria-label="Billing History"
-            className="billing-history-panel"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="billing-history-panel-actions">
-              <button
-                aria-label="Close billing history"
-                className="modal-close-button"
-                onClick={() => setBillingHistoryTarget(null)}
-                type="button"
-              >
-                x
-              </button>
-            </div>
-            <h2 className="billing-history-heading">Billing History</h2>
-            <h3 className="billing-history-tool-heading">{billingHistoryToolName}</h3>
-            <div className="billing-history-sections">
-              {billingHistorySections.map((section) => {
-                const recordKey = `${billingHistoryTarget.toolId}::${section.accountLabel}`;
-                return (
-                  <section className="billing-history-account-section" key={section.accountLabel}>
-                    <p className="billing-history-account-context">
-                      {section.accountLabel}{section.planName ? ` · ${section.planName}` : ""}
-                    </p>
-                    <div className="billing-history-table-wrap">
-                      <table className="billing-history-table">
-                        <thead>
-                          <tr>
-                            <th scope="col">Date</th>
-                            <th scope="col">Plan Name</th>
-                            <th scope="col">Billing Type</th>
-                            <th scope="col">Status</th>
-                            <th scope="col">Amount</th>
-                            <th scope="col">Note</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {section.entries.map((entry) => (
-                            <tr key={entry.id}>
-                              <td>{billingHistoryDisplayDate(entry.date)}</td>
-                              <td>{entry.planName || section.planName || "—"}</td>
-                              <td>{entry.billingType || "—"}</td>
-                              <td>{entry.event}</td>
-                              <td>{billingHistoryDisplayAmount(entry)}</td>
-                              <td>
-                                <span className="billing-history-note-editor">
-                                  <input
-                                    aria-label={`Note for ${entry.event}`}
-                                    className="billing-history-note-input"
-                                    onChange={(event) => updateBillingHistoryNote(recordKey, entry, event.target.value)}
-                                    placeholder="Add note"
-                                    type="text"
-                                    value={entry.note ?? ""}
-                                  />
-                                </span>
-                              </td>
-                            </tr>
-                          ))}
-                          {section.entries.length === 0 ? (
-                            <tr><td className="billing-history-empty" colSpan={6}>No billing history yet.</td></tr>
-                          ) : null}
-                        </tbody>
-                      </table>
-                    </div>
-                  </section>
-                );
-              })}
-            </div>
-          </aside>
-        </div>
+        <BillingHistoryPanel
+          historyEntries={billingHistorySections}
+          onClose={() => setBillingHistoryTarget(null)}
+          onUpdateNote={updateBillingHistoryNote}
+          selectedToolAccount={billingHistoryTarget}
+          toolName={billingHistoryToolName}
+        />
       ) : null}
 
       {showCreateAccountModal && (
@@ -7992,129 +7936,102 @@ function DashboardContent() {
       ) : null}
 
       {managingLink && managedTool ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="tool-detail-modal-title" aria-modal="true" className="welcome-modal tool-detail-modal" role="dialog">
-            <button
-              aria-label="Archive AI tool"
-              className="modal-tool-action-button modal-tool-archive-button"
-              onClick={archiveManagedLinkTool}
-              type="button"
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24"><ArchiveBoxIconPaths /></svg>
-            </button>
-            <button aria-label="Close tool detail modal" className="modal-close-button" onClick={closeManageAccountModal} type="button">x</button>
-            <h2 id="tool-detail-modal-title">Tool Detail</h2>
-            <div className="modal-tool-identity manage-modal-tool-identity">
-              <span className="tool-avatar" style={{ background: managedTool.logoBg }}>{toolInitials(managedTool.name)}</span>
-              <span className="modal-tool-name">{displayToolName(managedTool.name)}</span>
-            </div>
-            <div className="tool-detail-account-grid">
-              {orderedToolDetailDrafts.map((draft) => (
-                <form
-                  className="tool-detail-account-block"
-                  data-tool-detail-account={draft.accountLabel}
-                  key={draft.accountLabel}
-                  onSubmit={(event) => { event.preventDefault(); saveToolDetailAccount(managedTool, draft); }}
-                >
-                  <div className="tool-detail-account-heading">
-                    <span className={`email-tag ${accountTag(draft.accountLabel, accountList)}`}><span className="tag-dot" />{draft.accountLabel}</span>
-                  </div>
-                  <div className="form-field">
-                    <span>Plan</span>
-                    {renderPlanSelector(draft.plan, (nextPlan) => {
-                      if (!nextPlan) return;
-                      updateToolDetailDraft(draft.accountLabel, { plan: nextPlan });
-                    }, managedTool)}
-                  </div>
-
-                  {draft.plan === "Trial" ? (
-                    <label className="form-field">
-                      <span>Trial end date</span>
-                      <DateFieldControl ariaLabel="Trial end date" onChange={(trialExpiryDate) => updateToolDetailDraft(draft.accountLabel, { trialExpiryDate })} value={draft.trialExpiryDate} />
-                    </label>
-                  ) : null}
-
-                  {draft.plan === "Active" ? (
-                    <>
-                      <label className="form-field">
-                        <span>Plan Name</span>
-                        <input onChange={(event) => updateToolDetailDraft(draft.accountLabel, { planName: formatNickname(event.target.value) })} placeholder="Basic, Plus, Pro, Team, Business..." type="text" value={draft.planName} />
-                      </label>
-                      <label className="form-field">
-                        <span>Billing Type</span>
-                        {renderMultiSelectDropdown({
-                          className: "modal-dropdown",
-                          id: `detail-billing-${managedTool.id}-${draft.accountLabel}`,
-                          onChange: (nextBillingTypes) => updateToolDetailDraft(draft.accountLabel, {
-                            billingType: nextBillingTypes.join(", "),
-                            billingAmounts: nextBillingTypes.map((billingType) =>
-                              draft.billingAmounts.find((entry) => entry.billingType === billingType) ?? {
-                                amount: "",
-                                billingType,
-                                currency: defaultCurrency,
-                                id: billingAmountId(),
-                              }),
-                          }),
-                          options: billingTypeOptions,
-                          placeholder: "Select billing type",
-                          toggleSelection: toggleBillingTypeSelection,
-                          values: draft.billingType ? draft.billingType.split(", ") : [],
-                        })}
-                      </label>
-                      {draft.billingAmounts.map((billingAmount) => (
-                        <label className="form-field" key={billingAmount.billingType}>
-                          <span>Amount - {billingAmount.billingType}</span>
-                          <span className="billing-amount-field modal-amount-field managed-amount-field">
-                            {renderDropdown({
-                              ariaLabel: `${draft.accountLabel} ${billingAmount.billingType} currency`,
-                              className: "billing-currency-dropdown",
-                              id: `detail-currency-${managedTool.id}-${draft.accountLabel}-${billingAmount.billingType}`,
-                              onChange: (currency) => updateToolDetailDraft(draft.accountLabel, {
-                                billingAmounts: draft.billingAmounts.map((entry) => entry.billingType === billingAmount.billingType ? { ...entry, currency } : entry),
-                              }),
-                              options: currencyOptions,
-                              value: billingAmount.currency,
-                            })}
-                            <input inputMode="decimal" onChange={(event) => updateToolDetailDraft(draft.accountLabel, {
-                              billingAmounts: draft.billingAmounts.map((entry) => entry.billingType === billingAmount.billingType ? { ...entry, amount: event.target.value } : entry),
-                            })} placeholder="0.00" step="0.01" type="number" value={billingAmount.amount} />
-                          </span>
-                        </label>
-                      ))}
-                      <label className="form-field">
-                        <span>Next Charge</span>
-                        <DateFieldControl ariaLabel="Next charge date" onChange={(nextChargeDate) => updateToolDetailDraft(draft.accountLabel, { nextChargeDate })} value={draft.nextChargeDate} />
-                      </label>
-                      <label className="form-field">
-                        <span>Status</span>
-                        {renderDropdown({
-                          className: "modal-dropdown",
-                          id: `detail-status-${managedTool.id}-${draft.accountLabel}`,
-                          onChange: (status) => updateToolDetailDraft(draft.accountLabel, { status: status as ManageStatus }),
-                          options: (["Active", "On a Break", "Goodbye"] as ManageStatus[]).map((status) => ({ label: status, value: status })),
-                          value: draft.status,
-                        })}
-                      </label>
-                    </>
-                  ) : null}
-
-                  <div className="welcome-modal-actions manage-modal-actions tool-detail-account-actions">
-                    <button className="quiet-danger-link" onClick={async () => {
-                      await removeLinkedAccount(managedTool.id, draft.accountLabel);
-                      if (orderedToolDetailDrafts.length === 1) closeManageAccountModal();
-                      else setToolDetailDrafts((current) => { const next = { ...current }; delete next[draft.accountLabel]; return next; });
-                    }} type="button">Unlink this account</button>
-                    <button className="btn-sm btn-sm-primary" type="submit">Save</button>
-                  </div>
-                </form>
-              ))}
-            </div>
-            <button className="inline-text-link tool-detail-add-account" onClick={() => {
-              closeManageAccountModal();
-              openLinkToolModal(managedTool);
-            }} type="button">+ Add another account</button>
-          </section>
-        </div>
+        <ToolDetailModal
+          accountTagClass={(accountLabel) => accountTag(accountLabel, accountList)}
+          drafts={orderedToolDetailDrafts}
+          formatPlanName={formatNickname}
+          onAddAccount={addToolDetailAccountDraft}
+          onArchive={archiveManagedLinkTool}
+          onClose={closeManageAccountModal}
+          onSave={() => saveAllToolDetailAccounts(managedTool, orderedToolDetailDrafts)}
+          onUnlink={async (draft) => {
+            const draftId = draft.draftId ?? draft.accountLabel;
+            if (managedTool.accounts.includes(draft.accountLabel)) {
+              await removeLinkedAccount(managedTool.id, draft.accountLabel);
+            }
+            if (orderedToolDetailDrafts.length === 1) closeManageAccountModal();
+            else setToolDetailDrafts((current) => {
+              const next = { ...current };
+              delete next[draftId];
+              return next;
+            });
+          }}
+          onUpdateDraft={updateToolDetailDraft}
+          renderAccountSelector={(draft) => {
+            const draftId = draft.draftId ?? draft.accountLabel;
+            const selectedByOtherDrafts = new Set(
+              orderedToolDetailDrafts
+                .filter((candidate) => (candidate.draftId ?? candidate.accountLabel) !== draftId)
+                .map((candidate) => candidate.accountLabel)
+                .filter(Boolean),
+            );
+            return renderDropdown({
+              className: "modal-dropdown field-dropdown",
+              id: `detail-account-${managedTool.id}-${draftId}`,
+              onChange: (accountLabel) => updateToolDetailDraft(draftId, { accountLabel }),
+              options: orderedAccountOptions.map((option) => ({
+                ...option,
+                disabled: selectedByOtherDrafts.has(option.value),
+              })),
+              placeholder: "Select account",
+              value: draft.accountLabel,
+            });
+          }}
+          renderBillingTypeSelector={(draft) => renderMultiSelectDropdown({
+            className: "modal-dropdown field-dropdown",
+            id: `detail-billing-${managedTool.id}-${draft.draftId ?? draft.accountLabel}`,
+            onChange: (nextBillingTypes) => updateToolDetailDraft(draft.draftId ?? draft.accountLabel, {
+              billingType: nextBillingTypes.join(", "),
+              billingAmounts: nextBillingTypes.map((billingType) =>
+                draft.billingAmounts.find((entry) => entry.billingType === billingType) ?? {
+                  amount: "",
+                  billingType,
+                  currency: defaultCurrency,
+                  id: billingAmountId(),
+                }),
+            }),
+            options: billingTypeOptions.map((option) => ({
+              ...option,
+              label: option.value === "One-time"
+                ? "One-time payment"
+                : option.value === "Top-up"
+                  ? "Top-up credit"
+                  : option.label,
+            })),
+            placeholder: "Select billing type",
+            toggleSelection: toggleBillingTypeSelection,
+            values: draft.billingType ? draft.billingType.split(", ") : [],
+          })}
+          renderCurrencySelector={(draft, billingAmount) => renderDropdown({
+            ariaLabel: `${draft.accountLabel} ${billingAmount.billingType} currency`,
+            className: "billing-currency-dropdown field-dropdown",
+            id: `detail-currency-${managedTool.id}-${draft.draftId ?? draft.accountLabel}-${billingAmount.billingType}`,
+            onChange: (currency) => updateToolDetailDraft(draft.draftId ?? draft.accountLabel, {
+              billingAmounts: draft.billingAmounts.map((entry) => (
+                entry.billingType === billingAmount.billingType ? { ...entry, currency } : entry
+              )),
+            }),
+            options: currencyOptions,
+            value: billingAmount.currency,
+          })}
+          renderDateField={(ariaLabel, value, onChange) => (
+            <DateFieldControl className="field-input" ariaLabel={ariaLabel} onChange={onChange} value={value} />
+          )}
+          renderPlanSelector={(value, onChange) => renderPlanSelector(value, onChange, managedTool)}
+          renderStatusSelector={(draft) => renderDropdown({
+            className: "modal-dropdown field-dropdown",
+            id: `detail-status-${managedTool.id}-${draft.draftId ?? draft.accountLabel}`,
+            onChange: (status) => updateToolDetailDraft(draft.draftId ?? draft.accountLabel, { status: status as ManageStatus }),
+            options: (["Active", "On a Break", "Goodbye"] as ManageStatus[]).map((status) => ({ label: status, value: status })),
+            value: draft.status,
+          })}
+          tool={{
+            id: managedTool.id,
+            initials: toolInitials(managedTool.name),
+            logoBg: managedTool.logoBg,
+            name: displayToolName(managedTool.name),
+          }}
+        />
       ) : null}
 
       {false && managingLink && managedTool ? (

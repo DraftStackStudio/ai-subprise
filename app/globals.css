@@ -3155,6 +3155,16 @@ p {
   z-index: 90;
 }
 
+.linked-accordion-panel .tool-account-subrow:has(.custom-select.is-open) {
+  position: relative;
+  z-index: 100;
+}
+
+.linked-accordion-panel .linked-manage-status-dropdown .custom-select-options {
+  background: #232326;
+  z-index: 140;
+}
+
 .tool-database-tools > .tool-table-row,
 .tool-database-watchlist > .tool-table-row {
   border-left: 0;
@@ -6580,35 +6590,117 @@ p {
 }
 
 .tool-detail-modal {
+  background: #1b1b1e;
   max-height: calc(100dvh - 40px);
   max-width: 920px;
   overflow-y: auto;
 }
 
 .tool-detail-account-grid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: flex-start;
+  display: flex;
+  gap: 20px;
   margin-top: 18px;
 }
 
-.tool-detail-account-block {
-  background: var(--surface-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+.tool-detail-account-column {
+  align-items: flex-start;
   display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.tool-detail-account-block {
+  align-self: flex-start;
+  background: #232326;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 14px;
   padding: 18px;
   scroll-margin-top: 18px;
+  width: 100%;
+}
+
+.welcome-modal-actions.tool-detail-modal-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  margin-top: 18px;
+  width: 100%;
+}
+
+.tool-detail-modal-footer .tool-detail-add-account {
+  justify-self: start;
+  margin-left: 0;
+  margin-right: auto;
+  margin-top: 0;
+}
+
+.tool-detail-modal-footer .btn-sm-primary {
+  justify-self: end;
+}
+
+.tool-detail-modal .account-card .field-input,
+.tool-detail-modal .account-card .field-dropdown .custom-select-trigger {
+  background: #2e2e32;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.tool-detail-modal .account-card .field-input-control {
+  background: transparent;
+}
+
+.tool-detail-modal .account-card .field-input:hover,
+.tool-detail-modal .account-card .field-dropdown .custom-select-trigger:hover {
+  background: #34343a;
+}
+
+.tool-detail-modal .account-card .field-input:focus,
+.tool-detail-modal .account-card .field-input:focus-within,
+.tool-detail-modal .account-card .field-dropdown.is-open .custom-select-trigger,
+.tool-detail-modal .account-card .field-dropdown .custom-select-trigger:focus-visible {
+  background: #34343a;
+  border-color: #c5a065;
 }
 
 .tool-detail-account-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
   min-height: 28px;
 }
 
-.tool-detail-account-actions {
-  margin-top: auto;
+.tool-detail-account-heading .quiet-danger-link,
+.tool-detail-account-heading .quiet-danger-link:hover {
+  color: var(--danger-text);
+}
+
+.tool-detail-account-block.is-trial-account {
+  padding-bottom: 14px;
+}
+
+.tool-detail-trial-date-field {
+  margin-top: 4px;
+}
+
+.tool-detail-field-row,
+.tool-detail-amount-row {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.tool-detail-plan-status-row {
+  grid-template-columns: minmax(0, 13fr) minmax(0, 7fr);
+}
+
+.tool-detail-amount-row.is-single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .tool-detail-add-account {
@@ -6909,7 +7001,11 @@ p {
 
 @media (max-width: 767px) {
   .tool-detail-account-grid {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .tool-detail-account-column > .tool-detail-account-block:last-child {
+    flex-grow: 0;
   }
 }
 
