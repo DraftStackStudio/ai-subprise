@@ -1,0 +1,52 @@
+{
+  "_readme": "Defines which plan tiers each AI tool supports. Tools not listed in overrides inherit default_tiers. reason is internal documentation only and must never be rendered in the UI.",
+  "match_priority": ["domain", "aliases", "tool_name"],
+  "domain_matching_rule": "Match on hostname only. Ignore paths, query parameters, and fragments, and strip www. before comparing.",
+  "default_tiers": ["free", "trial", "paid"],
+  "not_subscribed_label": "Not Subscribed",
+  "overrides": {
+    "midjourney": {
+      "tool_name": "Midjourney",
+      "aliases": ["Midjourney", "MJ"],
+      "domain": "midjourney.com",
+      "icon": "MJ",
+      "supported_tiers": ["paid"],
+      "not_paid_label": "Not Subscribed",
+      "reason": "No free tier or trial. Free trial suspended indefinitely since April 2023."
+    },
+    "flux2": {
+      "tool_name": "FLUX.2 (Black Forest Labs)",
+      "aliases": ["FLUX.2", "FLUX 2", "Flux", "Black Forest Labs", "BFL"],
+      "domain": "bfl.ai",
+      "icon": "F",
+      "supported_tiers": ["paid"],
+      "not_paid_label": "Not Subscribed",
+      "reason": "No free plan. Credit-based paid access only (1 credit = $0.01)."
+    },
+    "runway": {
+      "tool_name": "Runway ML",
+      "aliases": ["Runway ML", "Runway", "RunwayML"],
+      "domain": "runwayml.com",
+      "icon": "R",
+      "supported_tiers": ["trial", "paid"],
+      "not_paid_label": "Trial",
+      "reason": "One-time, non-renewing allotment of 125 credits with watermark and 720p cap; behaves as a trial, not a persistent free tier."
+    },
+    "steambox": {
+      "tool_name": "Steambox",
+      "aliases": ["Steambox", "Steam", "Kreativflow"],
+      "domain": "steam.kreativflow.co",
+      "icon": "S",
+      "supported_tiers": ["trial", "paid"],
+      "not_paid_label": "Trial",
+      "reason": "7-day trial, then paid. No persistent free tier."
+    }
+  },
+  "notes": [
+    "Sort order for Free/Trial/Paid tools: Paid > Trial > Free.",
+    "Sort order for paid-only tools: Paid > Not Subscribed.",
+    "Pill color mapping: Paid = green, Trial = amber/yellow, Free = blue, Not Subscribed = grey.",
+    "Matching priority is saved URL domain, then aliases, then exact tool_name.",
+    "reason is internal documentation only and must not be displayed."
+  ]
+}

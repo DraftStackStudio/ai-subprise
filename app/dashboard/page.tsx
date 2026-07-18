@@ -3,6 +3,18 @@
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import toolCustomizationsData from "@/config/toolCustomizations.json";
+import toolPlanTiersData from "@/config/tool-plan-tiers.json";
+import toolboxPresetsData from "@/config/toolboxPresets.json";
+import {
+  toggleBillingTypeSelection,
+  validateBillingTypeSelection,
+} from "@/config/billingTypeRules";
+import {
+  demoAccounts,
+  demoManualBillingHistory,
+  demoToolLinks,
+  demoWorkspaceFixtureVersion,
+} from "@/config/demoWorkspaceData";
 import {
   createAccountRecord,
   deleteAccountRecord,
@@ -41,13 +53,42 @@ import {
 type Section = "dashboard" | "tools" | "linked" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
 type ToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
-type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "Custom";
+type LinkedPlanFilter = "All" | "Paid" | "Trial" | "Free";
+type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "AI Explorer" | "Custom";
+type ToolboxPresetCategory = {
+  description: string;
+  id: string;
+  label: string;
+  pendingTools?: string[];
+  subgroups?: Array<{ label: string; tools: string[] }>;
+  tools?: string[];
+};
+type ToolboxPresetConfig = {
+  categories: ToolboxPresetCategory[];
+  clusters: Array<{ categories: string[]; id: string; label: string }>;
+  excludedTools: Array<{ name: string; reason: string }>;
+  templates: Record<string, { categories: string[]; label: RoleOption }>;
+};
 type PlanKey = "free" | "trial" | "paid";
+type ToolPlanTierOverride = {
+  aliases: string[];
+  domain: string;
+  icon: string;
+  not_paid_label: string;
+  reason: string;
+  supported_tiers: PlanKey[];
+  tool_name: string;
+};
+type ToolPlanTierConfig = {
+  default_tiers: PlanKey[];
+  domain_matching_rule: string;
+  match_priority: Array<"domain" | "aliases" | "tool_name">;
+  not_subscribed_label: string;
+  overrides: Record<string, ToolPlanTierOverride>;
+};
 type ArchivedStatusKey = "active" | "trial" | "free" | "paused" | "watchlist" | "cancelled";
 type ToolCustomization = {
-  allowedPlans?: PlanKey[];
   displayInitials?: string;
-  planLockedReason?: string;
   preserveNameCase?: boolean;
 };
 type DropdownOption = {
@@ -97,6 +138,43 @@ type BillingAmount = {
   amount: string;
   billingType: BillingType;
   currency: string;
+  id: string;
+};
+type BillingHistoryEvent =
+  | "Charged"
+  | "Trial Started"
+  | "Trial Converted to Paid"
+  | "Plan Changed"
+  | "Refunded"
+  | "Double Charged"
+  | "Cancelled";
+type BillingHistoryEntry = {
+  amount?: string;
+  billingType?: string;
+  currency?: string;
+  date: string;
+  event: BillingHistoryEvent;
+  id: string;
+  note?: string;
+  planName?: string;
+  resolvesEntryId?: string;
+  saved?: boolean;
+  source: "generated" | "manual";
+};
+type BillingHistorySection = {
+  accountLabel: string;
+  entries: BillingHistoryEntry[];
+  planName: string;
+};
+type ToolDetailAccountDraft = {
+  accountLabel: string;
+  billingAmounts: BillingAmount[];
+  billingType: BillingType;
+  nextChargeDate: string;
+  plan: ToolStatus;
+  planName: string;
+  status: ManageStatus;
+  trialExpiryDate: string;
 };
 type ToolAccountDetail = {
   amount: string;
@@ -108,20 +186,18 @@ type ToolAccountDetail = {
   status: ManageStatus;
   trialExpiryDate: string;
 };
-type BillingEditTarget = {
-  accountLabel: string;
-  toolId: string;
-};
 type LinkToolAccountBlock = {
   accountLabel: string;
+  billingType: BillingType;
   id: string;
-  plan: ToolStatus;
+  plan: ToolStatus | "";
   planName: string;
+  trialExpiryDate: string;
 };
 
 const navItems: Array<{ id: Section; icon: string; label: string; badge?: number }> = [
   { id: "dashboard", icon: "grid", label: "Dashboard" },
-  { id: "account", icon: "user", label: "My Account", badge: 3 },
+  { id: "account", icon: "user", label: "Logins", badge: 3 },
   { id: "tools", icon: "list", label: "AI Toolbox", badge: 12 },
   { id: "linked", icon: "link", label: "Linked" },
   { id: "billing", icon: "billing", label: "Billing" },
@@ -132,41 +208,53 @@ const navItems: Array<{ id: Section; icon: string; label: string; badge?: number
   { id: "settings", icon: "gear", label: "Settings" },
 ];
 
+function billingHistoryDisplayDate(value: string) {
+  if (!value || value === "—") return "—";
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(date);
+}
+
+function billingHistoryDisplayAmount(entry: BillingHistoryEntry) {
+  if (!entry.amount) return "—";
+  return entry.source === "manual"
+    ? `${normaliseCurrency(entry.currency)} ${entry.amount}`
+    : entry.amount;
+}
+
 const initialAccounts: Account[] = [];
 const toolCustomizations = toolCustomizationsData as Record<string, ToolCustomization>;
+const toolPlanTiers = toolPlanTiersData as ToolPlanTierConfig;
+const toolboxPresets = toolboxPresetsData as ToolboxPresetConfig;
+
+function billingAmountId(id?: string) {
+  return id || crypto.randomUUID();
+}
 
 const defaultProviders = ["Gmail", "iCloud", "Outlook", "Yahoo", "Github"];
 const customProviderOption = "+ new provider";
-const defaultToolCategories = [
-  "AI Assistant",
-  "Visual & Audio",
-  "AI Agents",
-  "Automation",
-  "Research",
-  "Coding",
-  "Meetings",
-  "Niche",
-];
-const categoryDescriptions: Record<string, string> = {
-  "AI Assistant": "Chat & reasoning tools",
-  "Visual & Audio": "Image, video & audio creation",
-  Automation: "Triggers & repeats tasks",
-  Research: "Search & knowledge tools",
-  Coding: "Dev & coding assistants",
-  "AI Agents": "Plans & executes independently",
-  Meetings: "Notes & transcription",
-  Niche: "Industry-specific tools",
-};
+const defaultToolCategories = toolboxPresets.categories.map((category) => category.label);
+const presetCategoryById = new Map(toolboxPresets.categories.map((category) => [category.id, category]));
+const presetCategoryByLabel = new Map(toolboxPresets.categories.map((category) => [category.label, category]));
+const categoryDescriptions: Record<string, string> = Object.fromEntries(
+  toolboxPresets.categories.map((category) => [category.label, category.description]),
+);
 const customCategoryOption = "+ new category";
-const roleOptions: RoleOption[] = ["Creator", "Designer", "Developer", "Business", "Researcher", "Custom"];
-const roleCategoryMap: Record<RoleOption, string[]> = {
-  Creator: ["AI Assistant", "Visual & Audio", "AI Agents", "Automation"],
-  Designer: ["AI Assistant", "Visual & Audio", "Research", "Meetings", "Niche"],
-  Developer: ["AI Assistant", "Automation", "Coding", "AI Agents"],
-  Business: ["AI Assistant", "Automation", "Research", "Meetings", "AI Agents", "Niche"],
-  Researcher: ["AI Assistant", "Research", "Meetings", "Niche"],
-  Custom: ["AI Assistant"],
-};
+const roleOptions = Object.values(toolboxPresets.templates).map((template) => template.label);
+const roleCategoryMap = Object.fromEntries(
+  Object.values(toolboxPresets.templates).map((template) => [
+    template.label,
+    template.categories
+      .map((categoryId) => presetCategoryById.get(categoryId)?.label)
+      .filter((category): category is string => Boolean(category)),
+  ]),
+) as Record<RoleOption, string[]>;
 const legacyCategoryMap: Record<string, string> = {
   Audio: "Visual & Audio",
   "Chat & AI": "AI Assistant",
@@ -176,10 +264,18 @@ const legacyCategoryMap: Record<string, string> = {
   LLM: "AI Assistant",
   "Media Generation": "Visual & Audio",
   Other: "Niche",
-  Productivity: "Automation",
+  Coding: "Coding & Dev",
   "Video Gen": "Visual & Audio",
   "Video Generation": "Visual & Audio",
 };
+const presetToolCategoryByName = new Map(
+  toolboxPresets.categories.flatMap((category) => {
+    const names = category.subgroups
+      ? category.subgroups.flatMap((subgroup) => subgroup.tools)
+      : (category.tools ?? []);
+    return names.map((name) => [name.trim().toLowerCase(), category.label] as const);
+  }),
+);
 const toolSortOptions: Array<{ label: string; value: ToolSortRange; start: string; end: string }> = [
   { label: "By Category", value: "Category", start: "A", end: "Z" },
   { label: "All", value: "All", start: "A", end: "Z" },
@@ -212,6 +308,9 @@ const toolOrderPreferenceStorageKey = "ai-subprise-tool-order-preference";
 const toolAccountStatusStorageKey = "ai-subprise-tool-account-statuses";
 const toolAccountPlanNameStorageKey = "ai-subprise-tool-account-plan-names";
 const toolAccountDetailStorageKey = "ai-subprise-tool-account-details";
+const demoAccountsStorageKey = "ai-subprise-demo-logins-v1";
+const demoBillingHistoryStorageKey = "ai-subprise-demo-billing-history-v1";
+const demoFixtureVersionStorageKey = "ai-subprise-demo-workspace-fixture-version";
 const isSupabaseConfigured = Boolean(
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 );
@@ -382,10 +481,19 @@ function normaliseManageStatus(status: string): ManageStatus {
 }
 
 function normaliseBillingType(value: string): BillingType {
-  if (value === "Yearly" || value === "Annual") return "Annual";
-  if (value === "One-time" || value === "Top-up Credit") return value;
-  if (value.includes(",")) return value;
-  return "Monthly";
+  const normaliseEntry = (entry: string) => {
+    const trimmedEntry = entry.trim();
+    if (trimmedEntry === "Annual" || trimmedEntry === "Yearly") return "Yearly";
+    if (trimmedEntry === "Top-up Credit" || trimmedEntry === "Top-up credit" || trimmedEntry === "Top-up") return "Top-up";
+    if (trimmedEntry === "One-time credit" || trimmedEntry === "One-time") return "One-time";
+    if (trimmedEntry === "Lifetime") return "Lifetime";
+    return "Monthly";
+  };
+
+  const entries = value
+    ? value.split(",").map(normaliseEntry)
+    : ["Monthly"];
+  return validateBillingTypeSelection(entries).join(", ") || "Monthly";
 }
 
 const currencyOptions: DropdownOption[] = ["USD", "SGD", "EUR", "GBP", "AUD"].map((currency) => ({
@@ -417,6 +525,7 @@ function archivedStatusKey(status: ToolStatus): ArchivedStatusKey {
 }
 
 function archivedStatusLabel(status: ToolStatus) {
+  if (status === "Paid") return "Paid";
   const labels: Record<ArchivedStatusKey, string> = {
     active: "Active",
     trial: "Trial",
@@ -468,6 +577,7 @@ function formatShortDate(value: string) {
   return date.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
+    year: "numeric",
   });
 }
 
@@ -475,7 +585,78 @@ function formatBillingDate(value: string) {
   if (!value) return "Select date";
   const date = new Date(`${value}T00:00:00`);
   if (Number.isNaN(date.getTime())) return "Select date";
-  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+  return date
+    .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+    .replace(/[.,]\s*$/, "");
+}
+
+function DateFieldControl({
+  ariaLabel,
+  className = "",
+  onChange,
+  value,
+}: {
+  ariaLabel: string;
+  className?: string;
+  onChange: (value: string) => void;
+  value: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  function openDatePicker() {
+    const input = inputRef.current;
+    if (!input) return;
+
+    input.focus({ preventScroll: true });
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      } else {
+        input.click();
+      }
+    } catch {
+      input.click();
+    }
+  }
+
+  return (
+    <span
+      aria-label={ariaLabel}
+      className={`modal-date-display-control${className ? ` ${className}` : ""}`}
+      onClick={(event) => {
+        if (event.target !== inputRef.current) openDatePicker();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openDatePicker();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+    >
+      <span>{formatBillingDate(value)}</span>
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <rect x="4" y="5.5" width="16" height="14" rx="2" />
+        <path d="M8 3.5v4M16 3.5v4M4 9.5h16" />
+      </svg>
+      <input
+        aria-hidden="true"
+        onChange={(event) => onChange(event.target.value)}
+        ref={inputRef}
+        tabIndex={-1}
+        type="date"
+        value={value}
+      />
+    </span>
+  );
+}
+
+function billingMonthLabel(value: string) {
+  if (!value) return "No date";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "No date";
+  return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
 function daysUntilDate(value: string) {
@@ -504,6 +685,52 @@ function toolCustomizationFor(value: string) {
   return toolCustomizations[toolCustomizationKey(value)];
 }
 
+function normaliseToolHostname(value?: string) {
+  const trimmedValue = value?.trim();
+  if (!trimmedValue) return "";
+
+  try {
+    const parsedUrl = new URL(/^https?:\/\//i.test(trimmedValue) ? trimmedValue : `https://${trimmedValue}`);
+    return parsedUrl.hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function toolPlanOverrideFor(tool?: string | Pick<ToolItem, "name" | "pricingUrl">) {
+  if (!tool) return undefined;
+  const toolName = typeof tool === "string" ? tool : tool.name;
+  const toolHostname = typeof tool === "string" ? "" : normaliseToolHostname(tool.pricingUrl);
+  const normalisedName = toolName.trim().toLowerCase();
+  const overrides = Object.values(toolPlanTiers.overrides);
+
+  if (toolHostname) {
+    const domainMatch = overrides.find(
+      (override) => normaliseToolHostname(override.domain) === toolHostname,
+    );
+    if (domainMatch) return domainMatch;
+  }
+
+  const aliasMatch = overrides.find((override) =>
+    override.aliases.some((alias) => alias.trim().toLowerCase() === normalisedName),
+  );
+  if (aliasMatch) return aliasMatch;
+
+  return overrides.find(
+    (override) => override.tool_name.trim().toLowerCase() === normalisedName,
+  );
+}
+
+function supportedPlanKeysForTool(tool?: string | Pick<ToolItem, "name" | "pricingUrl">): PlanKey[] {
+  if (!tool) return [...toolPlanTiers.default_tiers];
+  return [...(toolPlanOverrideFor(tool)?.supported_tiers ?? toolPlanTiers.default_tiers)];
+}
+
+function notPaidPlanLabelForTool(tool?: string | Pick<ToolItem, "name" | "pricingUrl">) {
+  if (!tool) return "Free";
+  return toolPlanOverrideFor(tool)?.not_paid_label ?? "Free";
+}
+
 function displayToolName(value: string) {
   const customization = toolCustomizationFor(value);
   if (customization?.preserveNameCase) return toolCustomizationKey(value);
@@ -528,6 +755,10 @@ function normaliseToolCategory(category: string) {
   return legacyCategoryMap[trimmedCategory] ?? trimmedCategory;
 }
 
+function categoryForTool(name: string, currentCategory: string) {
+  return presetToolCategoryByName.get(name.trim().toLowerCase()) ?? normaliseToolCategory(currentCategory);
+}
+
 function normaliseCategoryList(categories: string[]) {
   return Array.from(
     new Set(
@@ -545,7 +776,7 @@ function toolFromRecord(record: ToolRecord): ToolItem {
     archivedAt: record.archivedAt,
     archivedStatus: record.archivedStatus as ToolStatus | undefined,
     billing: record.billing,
-    category: normaliseToolCategory(record.category),
+    category: categoryForTool(record.name, record.category),
     favorite: record.favorite,
     id: record.id,
     logo: record.logo,
@@ -579,7 +810,7 @@ function toolToInput(tool: ToolItem): ToolInput {
 function withToolIds(items: ToolItem[]) {
   return items.map((item) => ({
     ...item,
-    category: normaliseToolCategory(item.category),
+    category: categoryForTool(item.name, item.category),
     id: item.id || createToolId(item.name),
   }));
 }
@@ -721,6 +952,9 @@ function DashboardContent() {
   const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [showAddToolModal, setShowAddToolModal] = useState(false);
+  const [showPresetToolPicker, setShowPresetToolPicker] = useState(false);
+  const [showAllPresetCategories, setShowAllPresetCategories] = useState(false);
+  const [expandedPresetCategories, setExpandedPresetCategories] = useState<string[]>([]);
   const [showRoleQuestionModal, setShowRoleQuestionModal] = useState(false);
   const [showCategoryPreviewModal, setShowCategoryPreviewModal] = useState(false);
   const [showCategoryInfoModal, setShowCategoryInfoModal] = useState(false);
@@ -736,7 +970,7 @@ function DashboardContent() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editingTool, setEditingTool] = useState<ToolItem | null>(null);
   const [confirmToolStateChange, setConfirmToolStateChange] = useState<{
-    action: "unfavorite" | "unarchive";
+    action: "unarchive" | "unwatchlist";
     tool: ToolItem;
   } | null>(null);
   const [watchlistMoveTool, setWatchlistMoveTool] = useState<ToolItem | null>(null);
@@ -744,22 +978,17 @@ function DashboardContent() {
   const [isLinkToolLocked, setIsLinkToolLocked] = useState(false);
   const [linkToolActivateToolId, setLinkToolActivateToolId] = useState("");
   const [managingLink, setManagingLink] = useState<{ accountLabel: string; toolId: string } | null>(null);
+  const [toolDetailDrafts, setToolDetailDrafts] = useState<Record<string, ToolDetailAccountDraft>>({});
   const [managedAccountLabel, setManagedAccountLabel] = useState("");
   const [managedPlan, setManagedPlan] = useState<ToolStatus>("Free Tier");
   const [managedPlanName, setManagedPlanName] = useState("");
   const [managedBillingType, setManagedBillingType] = useState<BillingType>("Monthly");
   const [managedBillingAmounts, setManagedBillingAmounts] = useState<BillingAmount[]>([
-    { amount: "", billingType: "Monthly", currency: "USD" },
+    { amount: "", billingType: "Monthly", currency: "USD", id: billingAmountId() },
   ]);
   const [managedNextChargeDate, setManagedNextChargeDate] = useState("");
   const [managedTrialExpiryDate, setManagedTrialExpiryDate] = useState("");
   const [managedStatus, setManagedStatus] = useState<ManageStatus>("Active");
-  const [editingBillingLink, setEditingBillingLink] = useState<BillingEditTarget | null>(null);
-  const [billingPlanName, setBillingPlanName] = useState("");
-  const [billingBillingType, setBillingBillingType] = useState<BillingType>("Monthly");
-  const [billingCurrency, setBillingCurrency] = useState("USD");
-  const [billingAmount, setBillingAmount] = useState("");
-  const [billingNextChargeDate, setBillingNextChargeDate] = useState("");
   const [toolAccountStatuses, setToolAccountStatuses] = useState<Record<string, Record<string, ToolStatus>>>({});
   const [toolAccountPlanNames, setToolAccountPlanNames] = useState<Record<string, Record<string, string>>>({});
   const [toolAccountDetails, setToolAccountDetails] = useState<Record<string, Record<string, ToolAccountDetail>>>({});
@@ -788,6 +1017,7 @@ function DashboardContent() {
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [reminderDays, setReminderDays] = useState("7");
+  const [settingsTab, setSettingsTab] = useState<"profile" | "preferences">("profile");
   const [profileMessage, setProfileMessage] = useState("");
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -809,10 +1039,11 @@ function DashboardContent() {
   const [toolUrl, setToolUrl] = useState("");
   const [linkToolId, setLinkToolId] = useState("");
   const [linkToolAccountBlocks, setLinkToolAccountBlocks] = useState<LinkToolAccountBlock[]>([
-    { accountLabel: "", id: "link-account-1", plan: "Free Tier", planName: "" },
+    { accountLabel: "", billingType: "Monthly", id: "link-account-1", plan: "Free Tier", planName: "", trialExpiryDate: "" },
   ]);
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
+  const [hasSubmittedLinkToolForm, setHasSubmittedLinkToolForm] = useState(false);
   const [toolSearchQuery, setToolSearchQuery] = useState("");
   const [categoryDrafts, setCategoryDrafts] = useState<string[]>([]);
   const [categoryDeleteWarning, setCategoryDeleteWarning] = useState<{
@@ -820,6 +1051,7 @@ function DashboardContent() {
     index: number;
     toolCount: number;
   } | null>(null);
+  const [categoryDiscardWarning, setCategoryDiscardWarning] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [restoreToolIds, setRestoreToolIds] = useState<string[]>([]);
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
@@ -830,7 +1062,19 @@ function DashboardContent() {
   const [isColourMenuOpen, setIsColourMenuOpen] = useState(false);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [selectedToolSort, setSelectedToolSort] = useState<ToolSortRange>("Category");
+  const [linkedPlanFilter, setLinkedPlanFilter] = useState<LinkedPlanFilter>("All");
   const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Month">("All");
+  const [billingHistoryTarget, setBillingHistoryTarget] = useState<{ accountLabel: string; toolId: string } | null>(null);
+  const [billingHistoryNotes, setBillingHistoryNotes] = useState<Record<string, string>>({});
+  const [manualBillingHistory, setManualBillingHistory] = useState<Record<string, BillingHistoryEntry[]>>({});
+  const [isPendingActionsExpanded, setIsPendingActionsExpanded] = useState(false);
+  const [resolvingPendingActionId, setResolvingPendingActionId] = useState("");
+  const [pendingResolutionOutcome, setPendingResolutionOutcome] = useState<BillingHistoryEvent>("Charged");
+  const [pendingResolutionDate, setPendingResolutionDate] = useState("");
+  const [pendingResolutionConfirmation, setPendingResolutionConfirmation] = useState<{
+    entry: BillingHistoryEntry;
+    recordKey: string;
+  } | null>(null);
   const [hasCustomToolOrder, setHasCustomToolOrder] = useState(false);
   const [selectedRole, setSelectedRole] = useState<RoleOption>("Creator");
   const [roleQuestionChoice, setRoleQuestionChoice] = useState<RoleOption | "">("");
@@ -847,6 +1091,89 @@ function DashboardContent() {
   const [hasSubmittedAccountForm, setHasSubmittedAccountForm] = useState(false);
   const [hasSubmittedToolForm, setHasSubmittedToolForm] = useState(false);
   const hasConfirmedCategories = workspaceCategories.length > 0;
+
+  const reseedDemoWorkspace = (showConfirmation = true) => {
+    if (!isDemoMode) return;
+
+    const demoAccountRecords = demoAccounts.map((account) => ({ ...account })) as Account[];
+    const fixtureToolsByName = new Map(
+      demoToolLinks.map((fixture) => [fixture.toolName.toLowerCase(), fixture]),
+    );
+    const matchedTools = toolList.filter((tool) => fixtureToolsByName.has(tool.name.trim().toLowerCase()));
+    if (matchedTools.length === 0) return;
+
+    setAccountList(demoAccountRecords);
+    setToolList((currentTools) => currentTools.map((tool) => {
+      const fixture = fixtureToolsByName.get(tool.name.trim().toLowerCase());
+      return fixture ? { ...tool, accounts: fixture.accounts.map((account) => account.accountLabel) } : tool;
+    }));
+
+    setToolAccountStatuses((current) => {
+      const next = { ...current };
+      matchedTools.forEach((tool) => {
+        const fixture = fixtureToolsByName.get(tool.name.trim().toLowerCase());
+        if (!fixture) return;
+        next[tool.id] = fixture.accounts.reduce<Record<string, ToolStatus>>((statuses, account) => {
+          statuses[account.accountLabel] = account.plan as ToolStatus;
+          return statuses;
+        }, {});
+      });
+      return next;
+    });
+
+    setToolAccountPlanNames((current) => {
+      const next = { ...current };
+      matchedTools.forEach((tool) => {
+        const fixture = fixtureToolsByName.get(tool.name.trim().toLowerCase());
+        if (!fixture) return;
+        next[tool.id] = fixture.accounts.reduce<Record<string, string>>((planNames, account) => {
+          planNames[account.accountLabel] = account.planName;
+          return planNames;
+        }, {});
+      });
+      return next;
+    });
+
+    setToolAccountDetails((current) => {
+      const next = { ...current };
+      matchedTools.forEach((tool) => {
+        const fixture = fixtureToolsByName.get(tool.name.trim().toLowerCase());
+        if (!fixture) return;
+        next[tool.id] = fixture.accounts.reduce<Record<string, ToolAccountDetail>>((details, account) => {
+          details[account.accountLabel] = {
+            amount: account.billingAmounts[0]?.amount ?? "",
+            billingAmounts: account.billingAmounts.map((amount) => ({ ...amount, id: billingAmountId(amount.id) })),
+            billingType: account.billingType,
+            currency: account.billingAmounts[0]?.currency ?? "USD",
+            nextChargeDate: account.nextChargeDate,
+            planName: account.planName,
+            status: account.status as ManageStatus,
+            trialExpiryDate: account.trialExpiryDate,
+          };
+          return details;
+        }, {});
+      });
+      return next;
+    });
+
+    const manualTool = matchedTools.find(
+      (tool) => tool.name.trim().toLowerCase() === demoManualBillingHistory.toolName.toLowerCase(),
+    );
+    if (manualTool) {
+      const recordKey = `${manualTool.id}::${demoManualBillingHistory.accountLabel}`;
+      setManualBillingHistory((current) => ({
+        ...current,
+        [recordKey]: [{ ...demoManualBillingHistory.entry } as BillingHistoryEntry],
+      }));
+    }
+
+    try {
+      window.localStorage.setItem(demoFixtureVersionStorageKey, demoWorkspaceFixtureVersion);
+    } catch {
+      // Local storage can be unavailable in private or embedded browser contexts.
+    }
+    if (showConfirmation) showToast("Demo Logins, Linked, and Billing data reseeded.");
+  };
 
   useEffect(() => {
     if (activeSection === "watchlist" && selectedToolSort !== "Category" && selectedToolSort !== "All") {
@@ -948,18 +1275,22 @@ function DashboardContent() {
   const renderMultiSelectDropdown = ({
     ariaLabel,
     className = "",
+    compactSummary = false,
     id,
     onChange,
     options,
     placeholder = "Select",
+    toggleSelection,
     values,
   }: {
     ariaLabel?: string;
     className?: string;
+    compactSummary?: boolean;
     id: string;
     onChange: (values: string[]) => void;
     options: DropdownOption[];
     placeholder?: string;
+    toggleSelection?: (currentValues: string[], toggledValue: string) => string[];
     values: string[];
   }) => {
     const isOpen = openDropdownId === id;
@@ -967,7 +1298,9 @@ function DashboardContent() {
       .filter((option) => values.includes(option.value) && option.value)
       .map((option) => option.label);
     const displayLabel = selectedLabels.length > 0
-      ? selectedLabels.join(", ")
+      ? compactSummary
+        ? selectedLabels[0]
+        : selectedLabels.join(", ")
       : placeholder;
 
     return (
@@ -991,7 +1324,11 @@ function DashboardContent() {
           type="button"
         >
           <span>{displayLabel || placeholder}</span>
-          {selectedLabels.length > 0 ? <small>{selectedLabels.length} selected</small> : null}
+          {compactSummary && selectedLabels.length > 1 ? (
+            <small className="multi-select-count-badge">+{selectedLabels.length - 1}</small>
+          ) : selectedLabels.length > 0 && !compactSummary ? (
+            <small>{selectedLabels.length} selected</small>
+          ) : null}
           <svg aria-hidden="true" viewBox="0 0 24 24">
             <path d="m6 9 6 6 6-6" />
           </svg>
@@ -1015,11 +1352,11 @@ function DashboardContent() {
                       return;
                     }
 
-                    onChange(
-                      isChecked
+                    onChange(toggleSelection
+                      ? toggleSelection(values, option.value)
+                      : isChecked
                         ? values.filter((currentValue) => currentValue !== option.value)
-                        : [...values, option.value],
-                    );
+                        : [...values, option.value]);
                   }}
                   type="button"
                 >
@@ -1059,6 +1396,8 @@ function DashboardContent() {
       const storedToolAccountStatuses = window.localStorage.getItem(toolAccountStatusStorageKey);
       const storedToolAccountPlanNames = window.localStorage.getItem(toolAccountPlanNameStorageKey);
       const storedToolAccountDetails = window.localStorage.getItem(toolAccountDetailStorageKey);
+      const storedDemoAccounts = window.localStorage.getItem(demoAccountsStorageKey);
+      const storedDemoBillingHistory = window.localStorage.getItem(demoBillingHistoryStorageKey);
       const storedDefaultCurrency = window.localStorage.getItem("ai-subprise-default-currency");
       const storedRemindersEnabled = window.localStorage.getItem("ai-subprise-reminders-enabled");
       const storedReminderDays = window.localStorage.getItem("ai-subprise-reminder-days");
@@ -1084,11 +1423,22 @@ function DashboardContent() {
                 ...nextToolDetails,
                 [accountLabel]: {
                   amount: detail.amount ?? "",
-                  billingAmounts: detail.billingAmounts?.map((entry) => ({
-                    amount: entry.amount ?? "",
-                    billingType: normaliseBillingType(entry.billingType),
-                    currency: normaliseCurrency(entry.currency),
-                  })),
+                  billingAmounts: detail.billingAmounts?.length
+                    ? detail.billingAmounts.map((entry) => ({
+                        amount: entry.amount ?? "",
+                        billingType: normaliseBillingType(entry.billingType),
+                        currency: normaliseCurrency(entry.currency),
+                        id: billingAmountId(entry.id),
+                      }))
+                    : normaliseBillingType(detail.billingType ?? "Monthly")
+                        .split(", ")
+                        .filter(Boolean)
+                        .map((billingType, index) => ({
+                          amount: index === 0 ? detail.amount ?? "" : "",
+                          billingType,
+                          currency: normaliseCurrency(detail.currency),
+                          id: billingAmountId(),
+                        })),
                   billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
                   currency: normaliseCurrency(detail.currency),
                   nextChargeDate: detail.nextChargeDate ?? "",
@@ -1103,6 +1453,17 @@ function DashboardContent() {
           {},
         );
         setToolAccountDetails(normalisedDetails);
+      }
+      if (isDemoMode) {
+        if (storedDemoAccounts) {
+          const parsedAccounts = JSON.parse(storedDemoAccounts);
+          setAccountList(Array.isArray(parsedAccounts) ? parsedAccounts as Account[] : demoAccounts.map((account) => ({ ...account })) as Account[]);
+        } else {
+          setAccountList(demoAccounts.map((account) => ({ ...account })) as Account[]);
+        }
+        if (storedDemoBillingHistory) {
+          setManualBillingHistory(JSON.parse(storedDemoBillingHistory));
+        }
       }
 
       if (storedOpenState) {
@@ -1165,7 +1526,19 @@ function DashboardContent() {
     } finally {
       setHasLoadedStoredTools(true);
     }
-  }, []);
+  }, [isDemoMode]);
+
+  useEffect(() => {
+    if (!isDemoMode || !hasLoadedStoredTools || toolList.length === 0) return;
+
+    let storedVersion = "";
+    try {
+      storedVersion = window.localStorage.getItem(demoFixtureVersionStorageKey) ?? "";
+    } catch {
+      storedVersion = "";
+    }
+    if (storedVersion !== demoWorkspaceFixtureVersion) reseedDemoWorkspace(false);
+  }, [hasLoadedStoredTools, isDemoMode, toolList]);
 
   useEffect(() => {
     if (shouldUseSupabase || !hasLoadedStoredTools) return;
@@ -1270,6 +1643,12 @@ function DashboardContent() {
             ...(nextDetails[detail.toolId] ?? {}),
             [detail.accountLabel]: {
               amount: detail.amount,
+              billingAmounts: normaliseBillingType(detail.billingType).split(", ").filter(Boolean).map((billingType, index) => ({
+                amount: index === 0 ? detail.amount : "",
+                billingType,
+                currency: normaliseCurrency(detail.currency),
+                id: billingAmountId(),
+              })),
               billingType: normaliseBillingType(detail.billingType),
               currency: normaliseCurrency(detail.currency),
               nextChargeDate: detail.nextChargeDate,
@@ -1337,6 +1716,24 @@ function DashboardContent() {
       // Local storage can be unavailable in private or embedded browser contexts.
     }
   }, [hasLoadedStoredTools, toolAccountDetails]);
+
+  useEffect(() => {
+    if (!isDemoMode || !hasLoadedStoredTools) return;
+    try {
+      window.localStorage.setItem(demoAccountsStorageKey, JSON.stringify(accountList));
+    } catch {
+      // Local storage can be unavailable in private or embedded browser contexts.
+    }
+  }, [accountList, hasLoadedStoredTools, isDemoMode]);
+
+  useEffect(() => {
+    if (!isDemoMode || !hasLoadedStoredTools) return;
+    try {
+      window.localStorage.setItem(demoBillingHistoryStorageKey, JSON.stringify(manualBillingHistory));
+    } catch {
+      // Local storage can be unavailable in private or embedded browser contexts.
+    }
+  }, [hasLoadedStoredTools, isDemoMode, manualBillingHistory]);
 
   useEffect(() => {
     const existingToolIds = new Set(toolList.map((tool) => tool.id));
@@ -1474,14 +1871,15 @@ function DashboardContent() {
     setShowAddToolModal(true);
   };
 
+  const openPresetToolPicker = () => {
+    setExpandedPresetCategories([]);
+    setShowAllPresetCategories(false);
+    setShowPresetToolPicker(true);
+  };
+
   const handleAddToolClick = () => {
     if (activeSection === "linked") {
       openLinkToolModal();
-      return;
-    }
-
-    if (activeSection === "tools" && !hasConfirmedCategories) {
-      openRoleQuestionModal();
       return;
     }
 
@@ -1514,8 +1912,42 @@ function DashboardContent() {
     const activeCategories = workspaceCategories.length > 0 ? workspaceCategories : defaultToolCategories;
     setCategoryDrafts(activeCategories);
     setCategoryDeleteWarning(null);
+    setCategoryDiscardWarning(false);
     setNewCategoryName("");
     setShowEditCategoryModal(true);
+  };
+
+  const hasUnsavedCategoryChanges = () => {
+    const savedCategories = workspaceCategories.length > 0 ? workspaceCategories : defaultToolCategories;
+    return JSON.stringify(categoryDrafts) !== JSON.stringify(savedCategories);
+  };
+
+  const requestCloseEditCategoryModal = () => {
+    if (categoryDeleteWarning) {
+      setCategoryDeleteWarning(null);
+      return;
+    }
+
+    if (categoryDiscardWarning) {
+      return;
+    }
+
+    if (hasUnsavedCategoryChanges()) {
+      setCategoryDiscardWarning(true);
+      return;
+    }
+
+    setShowEditCategoryModal(false);
+    setNewCategoryName("");
+  };
+
+  const discardCategoryDrafts = () => {
+    const savedCategories = workspaceCategories.length > 0 ? workspaceCategories : defaultToolCategories;
+    setCategoryDrafts(savedCategories);
+    setCategoryDeleteWarning(null);
+    setCategoryDiscardWarning(false);
+    setNewCategoryName("");
+    setShowEditCategoryModal(false);
   };
 
   const persistCategoryDrafts = (draftCategories: string[], options?: { closeModal?: boolean }) => {
@@ -1562,6 +1994,7 @@ function DashboardContent() {
     }
     setIsToolsNavOpen(true);
     setCategoryDeleteWarning(null);
+    setCategoryDiscardWarning(false);
     if (options?.closeModal) {
       setShowEditCategoryModal(false);
     }
@@ -1576,7 +2009,6 @@ function DashboardContent() {
       : [...categoryDrafts, trimmedCategory];
 
     setCategoryDrafts(nextCategories);
-    persistCategoryDrafts(nextCategories);
     setNewCategoryName("");
   };
 
@@ -1965,6 +2397,7 @@ function DashboardContent() {
       // Local storage can be unavailable in private or embedded browser contexts.
     }
     setShowCategoryPreviewModal(false);
+    openPresetToolPicker();
   };
 
   const saveAccount = async (event?: FormEvent<HTMLFormElement>, options?: { addAnother?: boolean }) => {
@@ -2195,6 +2628,51 @@ function DashboardContent() {
     setShowAddToolModal(false);
   };
 
+  const addPresetTool = async (presetName: string, category: string) => {
+    if (toolList.some((tool) => tool.name.trim().toLowerCase() === presetName.trim().toLowerCase())) return;
+
+    const toolDetails: ToolItem = {
+      id: createToolId(presetName),
+      name: presetName,
+      category,
+      status: "Free",
+      accounts: [],
+      billing: "None",
+      notes: "",
+      favorite: false,
+      archived: false,
+      pricingUrl: "#",
+      logo: toolInitials(presetName),
+      logoBg: "#F0F4FF",
+    };
+
+    setIsSavingTool(true);
+    try {
+      const savedTool = shouldUseSupabase
+        ? toolFromRecord(await createToolRecord(toolToInput(toolDetails), accountList))
+        : toolDetails;
+      setToolList((currentTools) => insertToolAlphabetically(currentTools, savedTool));
+      setWorkspaceCategories((currentCategories) => {
+        if (currentCategories.includes(category)) return currentCategories;
+        const nextCategories = defaultToolCategories.filter(
+          (defaultCategory) => defaultCategory === category || currentCategories.includes(defaultCategory),
+        );
+        try {
+          window.localStorage.setItem("ai-subprise-workspace-categories", JSON.stringify(nextCategories));
+        } catch {
+          // Local storage can be unavailable in private or embedded browser contexts.
+        }
+        return nextCategories;
+      });
+      setIsToolsNavOpen(true);
+      showToast(`${presetName} added to AI Toolbox.`);
+    } catch (error) {
+      setToolDataError(error instanceof Error ? error.message : "Could not add AI tool.");
+    } finally {
+      setIsSavingTool(false);
+    }
+  };
+
   const openEditProviderModal = (providerNameToEdit: string) => {
     setEditingProvider(providerNameToEdit);
     setProviderName(providerNameToEdit);
@@ -2371,18 +2849,13 @@ function DashboardContent() {
   const confirmPendingToolStateChange = async () => {
     if (!confirmToolStateChange) return;
 
-    if (confirmToolStateChange.action === "unfavorite") {
-      setToolList((currentTools) =>
-        currentTools.map((tool) =>
-          tool.id === confirmToolStateChange.tool.id ? { ...tool, favorite: false } : tool,
-        ),
-      );
-      showToast("✅ Removed from Favourites.");
-    }
-
     if (confirmToolStateChange.action === "unarchive") {
       unarchiveToolIds([confirmToolStateChange.tool.id]);
       showToast(`✅ ${confirmToolStateChange.tool.name} is back.`);
+    }
+
+    if (confirmToolStateChange.action === "unwatchlist") {
+      await toggleToolWatchlist(confirmToolStateChange.tool.id);
     }
 
     setConfirmToolStateChange(null);
@@ -2424,6 +2897,14 @@ function DashboardContent() {
     return status;
   };
 
+  const linkedPlanSnapshot = (tool: ToolItem): ToolStatus => {
+    const linkedPlans = tool.accounts.map((accountLabel) => relationStatus(tool, accountLabel));
+    if (linkedPlans.some((plan) => plan === "Active" || plan === "Paid")) return "Paid";
+    if (linkedPlans.includes("Trial")) return "Trial";
+    if (linkedPlans.some((plan) => plan === "Free" || plan === "Free Tier")) return "Free";
+    return tool.archivedStatus ?? tool.status;
+  };
+
   const updateRelationStatus = async (toolId: string, accountLabel: string, nextStatus: ToolStatus) => {
     setToolAccountStatuses((currentStatuses) => ({
       ...currentStatuses,
@@ -2455,55 +2936,73 @@ function DashboardContent() {
     return "Free Tier";
   };
 
-  const isPlanAllowedForTool = (tool: ToolItem | undefined, status: ToolStatus) => {
-    const allowedPlans = tool ? toolCustomizationFor(tool.name)?.allowedPlans : undefined;
-    return !allowedPlans?.length || allowedPlans.includes(planKeyForStatus(status));
+  const isPlanAllowedForTool = (tool: ToolItem | undefined, status: ToolStatus | "") => {
+    if (!status) return false;
+    return supportedPlanKeysForTool(tool).includes(planKeyForStatus(status));
   };
 
-  const renderPlanSelector = (value: ToolStatus, onChange: (nextPlan: ToolStatus) => void, tool?: ToolItem) => {
-    const customization = tool ? toolCustomizationFor(tool.name) : undefined;
-    const allowedPlans = customization?.allowedPlans;
-    const planOptions = [
-      { key: "free" as PlanKey, label: "Free", value: "Free Tier" as ToolStatus },
-      { key: "trial" as PlanKey, label: "Trial", value: "Trial" as ToolStatus },
-      { key: "paid" as PlanKey, label: "Paid", value: "Active" as ToolStatus },
-    ];
-    const hasLockedPlans = Boolean(allowedPlans?.length);
+  const planStatusOptionsForTool = (tool?: ToolItem): Array<{ label: string; value: ToolStatus }> => {
+    const optionByKey: Record<PlanKey, { label: string; value: ToolStatus }> = {
+      paid: { label: "Paid", value: "Active" },
+      trial: { label: "Trial", value: "Trial" },
+      free: { label: "Free", value: "Free Tier" },
+    };
+    const supportedPlans = new Set(supportedPlanKeysForTool(tool));
+    return (["paid", "trial", "free"] as PlanKey[])
+      .filter((planKey) => supportedPlans.has(planKey))
+      .map((planKey) => optionByKey[planKey]);
+  };
+
+  const renderPlanSelector = (value: ToolStatus | "", onChange: (nextPlan: ToolStatus | "") => void, tool?: ToolItem) => {
+    const planOptions = planStatusOptionsForTool(tool).map((plan) => ({
+      ...plan,
+      key: planKeyForStatus(plan.value),
+    }));
+    const isPaidOnly = supportedPlanKeysForTool(tool).length === 1 && supportedPlanKeysForTool(tool)[0] === "paid";
 
     return (
-      <>
-        <div className="plan-selector" role="group" aria-label="Plan">
+      <div className="plan-selector" role="group" aria-label="Plan">
           {planOptions.map((plan) => {
-            const isDisabled = Boolean(allowedPlans && !allowedPlans.includes(plan.key));
-
             return (
               <button
-                aria-disabled={isDisabled}
                 className={
                   value === plan.value
                     ? `plan-selector-pill plan-${plan.label.toLowerCase()} is-selected`
                     : `plan-selector-pill plan-${plan.label.toLowerCase()}`
                 }
-                disabled={isDisabled}
                 key={plan.value}
                 onClick={() => onChange(plan.value)}
-                title={isDisabled ? customization?.planLockedReason : undefined}
                 type="button"
               >
                 {plan.label}
               </button>
             );
           })}
-        </div>
-        {hasLockedPlans && customization?.planLockedReason ? (
-          <small className="field-feedback neutral">{customization.planLockedReason}</small>
-        ) : null}
-      </>
+          {isPaidOnly ? (
+            <button
+              aria-pressed={!value}
+              className={!value
+                ? "plan-selector-pill plan-not-subscribed is-selected"
+                : "plan-selector-pill plan-not-subscribed"}
+              onClick={() => onChange("")}
+              type="button"
+            >
+              {notPaidPlanLabelForTool(tool)}
+            </button>
+          ) : null}
+      </div>
     );
   };
 
-  const resetLinkToolBlocks = () => {
-    setLinkToolAccountBlocks([{ accountLabel: "", id: "link-account-1", plan: "Free Tier", planName: "" }]);
+  const defaultLinkPlanForTool = (tool?: ToolItem): ToolStatus | "" => {
+    const supportedPlans = supportedPlanKeysForTool(tool);
+    if (supportedPlans.length === 1 && supportedPlans[0] === "paid") return "";
+    return statusForPlanKey(supportedPlans[0] ?? "free");
+  };
+
+  const resetLinkToolBlocks = (tool?: ToolItem) => {
+    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "Monthly", id: "link-account-1", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
+    setHasSubmittedLinkToolForm(false);
   };
 
   const closeLinkToolModal = () => {
@@ -2517,8 +3016,12 @@ function DashboardContent() {
   };
 
   const openLinkToolModal = (tool?: ToolItem, options?: { activateToolOnSave?: boolean }) => {
+    if (tool?.status === "Considering") {
+      showToast("Remove this tool from Watchlist before linking an account.");
+      return;
+    }
     setLinkToolId(tool?.id ?? "");
-    resetLinkToolBlocks();
+    resetLinkToolBlocks(tool);
     setLinkToolSearchQuery(tool?.name ?? "");
     setIsLinkToolPickerOpen(false);
     setOpenDropdownId(null);
@@ -2528,38 +3031,107 @@ function DashboardContent() {
   };
 
   const openManageAccountModal = (tool: ToolItem, accountLabel: string) => {
-    const details = toolAccountDetails[tool.id]?.[accountLabel];
-
     setManagingLink({ accountLabel, toolId: tool.id });
-    setManagedAccountLabel(accountLabel);
-    setManagedPlan(relationPlanStatusValue(tool, accountLabel));
-    setManagedPlanName(details?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "");
-    setManagedBillingType(normaliseBillingType(details?.billingType ?? "Monthly"));
-    const selectedBillingTypes = normaliseBillingType(details?.billingType ?? "Monthly").split(", ").filter(Boolean);
-    setManagedBillingAmounts(
-      details?.billingAmounts?.length
-        ? details.billingAmounts
-        : selectedBillingTypes.map((billingType, index) => ({
-            amount: index === 0 ? details?.amount ?? "" : "",
-            billingType,
-            currency: normaliseCurrency(details?.currency ?? defaultCurrency),
-          })),
+    setToolDetailDrafts(
+      tool.accounts.reduce<Record<string, ToolDetailAccountDraft>>((drafts, linkedAccountLabel) => {
+        const details = toolAccountDetails[tool.id]?.[linkedAccountLabel];
+        const billingType = normaliseBillingType(details?.billingType ?? "Monthly");
+        const selectedBillingTypes = billingType.split(", ").filter(Boolean);
+        drafts[linkedAccountLabel] = {
+          accountLabel: linkedAccountLabel,
+          billingAmounts: details?.billingAmounts?.length
+            ? details.billingAmounts
+            : selectedBillingTypes.map((selectedBillingType, index) => ({
+                amount: index === 0 ? details?.amount ?? "" : "",
+                billingType: selectedBillingType,
+                currency: normaliseCurrency(details?.currency ?? defaultCurrency),
+                id: billingAmountId(),
+              })),
+          billingType,
+          nextChargeDate: details?.nextChargeDate ?? "",
+          plan: relationPlanStatusValue(tool, linkedAccountLabel),
+          planName: details?.planName ?? toolAccountPlanNames[tool.id]?.[linkedAccountLabel] ?? "",
+          status: details?.status ?? "Active",
+          trialExpiryDate: details?.trialExpiryDate ?? "",
+        };
+        return drafts;
+      }, {}),
     );
-    setManagedNextChargeDate(details?.nextChargeDate ?? "");
-    setManagedTrialExpiryDate(details?.trialExpiryDate ?? "");
-    setManagedStatus(details?.status ?? "Active");
   };
 
   const closeManageAccountModal = () => {
     setManagingLink(null);
+    setToolDetailDrafts({});
     setManagedAccountLabel("");
     setManagedPlan("Free Tier");
     setManagedPlanName("");
     setManagedBillingType("Monthly");
-    setManagedBillingAmounts([{ amount: "", billingType: "Monthly", currency: defaultCurrency }]);
+    setManagedBillingAmounts([{ amount: "", billingType: "Monthly", currency: defaultCurrency, id: billingAmountId() }]);
     setManagedNextChargeDate("");
     setManagedTrialExpiryDate("");
     setManagedStatus("Active");
+  };
+
+  const updateToolDetailDraft = (accountLabel: string, patch: Partial<ToolDetailAccountDraft>) => {
+    setToolDetailDrafts((currentDrafts) => ({
+      ...currentDrafts,
+      [accountLabel]: { ...currentDrafts[accountLabel], ...patch },
+    }));
+  };
+
+  const saveToolDetailAccount = async (tool: ToolItem, draft: ToolDetailAccountDraft) => {
+    const validatedBillingType = normaliseBillingType(draft.billingType);
+    const validatedBillingTypes = validatedBillingType.split(", ");
+    const nextDetail: ToolAccountDetail = {
+      amount: draft.plan === "Active" ? draft.billingAmounts[0]?.amount.trim() ?? "" : "",
+      billingAmounts: draft.plan === "Active"
+        ? draft.billingAmounts.filter((entry) => validatedBillingTypes.includes(entry.billingType))
+        : [],
+      billingType: validatedBillingType,
+      currency: normaliseCurrency(draft.billingAmounts[0]?.currency),
+      nextChargeDate: draft.plan === "Active" ? draft.nextChargeDate : "",
+      planName: draft.plan === "Active" ? draft.planName.trim() : "",
+      status: draft.status,
+      trialExpiryDate: draft.plan === "Trial" ? draft.trialExpiryDate : "",
+    };
+
+    setToolAccountStatuses((current) => ({
+      ...current,
+      [tool.id]: { ...(current[tool.id] ?? {}), [draft.accountLabel]: draft.plan },
+    }));
+    setToolAccountPlanNames((current) => ({
+      ...current,
+      [tool.id]: { ...(current[tool.id] ?? {}), [draft.accountLabel]: nextDetail.planName },
+    }));
+    setToolAccountDetails((current) => ({
+      ...current,
+      [tool.id]: { ...(current[tool.id] ?? {}), [draft.accountLabel]: nextDetail },
+    }));
+
+    if (shouldUseSupabase) {
+      try {
+        await updateToolLinkDetails(tool.id, draft.accountLabel, accountList, {
+          amount: nextDetail.amount,
+          billingType: nextDetail.billingType,
+          currency: nextDetail.currency,
+          nextChargeDate: nextDetail.nextChargeDate,
+          plan: draft.plan,
+          planName: nextDetail.planName,
+          status: nextDetail.status,
+          trialExpiryDate: nextDetail.trialExpiryDate,
+        });
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not update linked account.");
+        return;
+      }
+    }
+    showToast(`${draft.accountLabel} saved.`);
+  };
+
+  const archiveManagedLinkTool = async () => {
+    if (!managingLink) return;
+    await archiveToolIds([managingLink.toolId]);
+    closeManageAccountModal();
   };
 
   const saveManagedAccount = async (event?: FormEvent<HTMLFormElement>) => {
@@ -2622,7 +3194,7 @@ function DashboardContent() {
       nextToolDetails[managedAccountLabel] = {
         amount: managedPlan === "Active" ? managedBillingAmounts[0]?.amount.trim() ?? "" : "",
         billingAmounts: managedPlan === "Active" ? managedBillingAmounts : [],
-        billingType: managedBillingType,
+        billingType: normaliseBillingType(managedBillingType),
         currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
         nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
         planName: managedPlan === "Active" ? managedPlanName.trim() : "",
@@ -2638,7 +3210,7 @@ function DashboardContent() {
         await replaceToolLinks(toolId, nextAccounts, accountList);
         await updateToolLinkDetails(toolId, managedAccountLabel, accountList, {
           amount: managedPlan === "Active" ? managedBillingAmounts[0]?.amount.trim() ?? "" : "",
-          billingType: managedBillingType,
+          billingType: normaliseBillingType(managedBillingType),
           currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
           nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
           plan: managedPlan,
@@ -2655,80 +3227,6 @@ function DashboardContent() {
     }
 
     closeManageAccountModal();
-  };
-
-  const openBillingEditModal = (toolId: string, accountLabel: string) => {
-    const detail = toolAccountDetails[toolId]?.[accountLabel];
-
-    setEditingBillingLink({ accountLabel, toolId });
-    setBillingPlanName(detail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "");
-    setBillingBillingType(normaliseBillingType(detail?.billingType ?? "Monthly"));
-    setBillingCurrency(normaliseCurrency(detail?.currency ?? defaultCurrency));
-    setBillingAmount(detail?.amount ?? "");
-    setBillingNextChargeDate(detail?.nextChargeDate ?? "");
-  };
-
-  const closeBillingEditModal = () => {
-    setEditingBillingLink(null);
-    setBillingPlanName("");
-    setBillingBillingType("Monthly");
-    setBillingCurrency("USD");
-    setBillingAmount("");
-    setBillingNextChargeDate("");
-  };
-
-  const saveBillingDetails = async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
-    if (!editingBillingLink) return;
-
-    const { accountLabel, toolId } = editingBillingLink;
-    const previousDetails = toolAccountDetails;
-    const nextDetail: ToolAccountDetail = {
-      amount: billingAmount.trim(),
-      billingType: billingBillingType,
-      currency: normaliseCurrency(billingCurrency),
-      nextChargeDate: billingNextChargeDate,
-      planName: billingPlanName.trim(),
-      status: toolAccountDetails[toolId]?.[accountLabel]?.status ?? "Active",
-      trialExpiryDate: toolAccountDetails[toolId]?.[accountLabel]?.trialExpiryDate ?? "",
-    };
-
-    setToolAccountDetails((currentDetails) => ({
-      ...currentDetails,
-      [toolId]: {
-        ...(currentDetails[toolId] ?? {}),
-        [accountLabel]: nextDetail,
-      },
-    }));
-    setToolAccountPlanNames((currentPlanNames) => ({
-      ...currentPlanNames,
-      [toolId]: {
-        ...(currentPlanNames[toolId] ?? {}),
-        [accountLabel]: billingPlanName.trim(),
-      },
-    }));
-
-    if (shouldUseSupabase) {
-      try {
-        await updateToolLinkDetails(toolId, accountLabel, accountList, {
-          amount: nextDetail.amount,
-          billingType: nextDetail.billingType,
-          currency: nextDetail.currency,
-          nextChargeDate: nextDetail.nextChargeDate,
-          plan: "Active",
-          planName: nextDetail.planName,
-          status: nextDetail.status,
-          trialExpiryDate: "",
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not update billing details.";
-        setToolDataError(message);
-        setToolAccountDetails(previousDetails);
-        return;
-      }
-    }
-
-    closeBillingEditModal();
   };
 
   const updateBillingField = async (
@@ -2789,11 +3287,53 @@ function DashboardContent() {
     }
   };
 
+  const updateLinkedManageStatus = async (tool: ToolItem, accountLabel: string, status: ManageStatus) => {
+    const currentDetail = toolAccountDetails[tool.id]?.[accountLabel];
+    const nextDetail: ToolAccountDetail = {
+      amount: currentDetail?.amount ?? "",
+      billingAmounts: currentDetail?.billingAmounts,
+      billingType: normaliseBillingType(currentDetail?.billingType ?? "Monthly"),
+      currency: normaliseCurrency(currentDetail?.currency),
+      nextChargeDate: currentDetail?.nextChargeDate ?? "",
+      planName: currentDetail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
+      status,
+      trialExpiryDate: currentDetail?.trialExpiryDate ?? "",
+    };
+
+    setToolAccountDetails((current) => ({
+      ...current,
+      [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: nextDetail },
+    }));
+    setToolDetailDrafts((current) => current[accountLabel]
+      ? { ...current, [accountLabel]: { ...current[accountLabel], status } }
+      : current);
+
+    if (shouldUseSupabase) {
+      try {
+        await updateToolLinkDetails(tool.id, accountLabel, accountList, {
+          amount: nextDetail.amount,
+          billingType: nextDetail.billingType,
+          currency: nextDetail.currency,
+          nextChargeDate: nextDetail.nextChargeDate,
+          plan: relationPlanStatusValue(tool, accountLabel),
+          planName: nextDetail.planName,
+          status,
+          trialExpiryDate: nextDetail.trialExpiryDate,
+        });
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not update account status.");
+      }
+    }
+  };
+
   const saveToolLink = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
+    setHasSubmittedLinkToolForm(true);
     const selectedTool = toolList.find((tool) => tool.id === linkToolId);
 
-    const filledBlocks = linkToolAccountBlocks.filter((block) => block.accountLabel && block.plan);
+    const filledBlocks = linkToolAccountBlocks.filter(
+      (block): block is LinkToolAccountBlock & { plan: ToolStatus } => Boolean(block.accountLabel && block.plan),
+    );
     const selectedAccountLabels = filledBlocks.map((block) => block.accountLabel);
     const hasDuplicateSelection = new Set(selectedAccountLabels).size !== selectedAccountLabels.length;
     const hasExistingLink = selectedAccountLabels.some((accountLabel) => selectedTool?.accounts.includes(accountLabel));
@@ -2837,12 +3377,20 @@ function DashboardContent() {
           ...nextDetails,
           [block.accountLabel]: {
             amount: "",
-            billingType: "Monthly",
+            billingAmounts: block.plan === "Active"
+              ? normaliseBillingType(block.billingType).split(", ").filter(Boolean).map((billingType) => ({
+                  amount: "",
+                  billingType,
+                  currency: "USD",
+                  id: billingAmountId(),
+                }))
+              : [],
+            billingType: normaliseBillingType(block.billingType),
             currency: "USD",
             nextChargeDate: "",
             planName: block.plan === "Active" ? block.planName.trim() : "",
             status: "Active",
-            trialExpiryDate: "",
+            trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
           },
         }),
         { ...(currentDetails[selectedTool.id] ?? {}) },
@@ -2854,12 +3402,13 @@ function DashboardContent() {
         await Promise.all(
           filledBlocks.map((block) =>
             updateToolLinkDetails(selectedTool.id, block.accountLabel, accountList, {
-              billingType: "Monthly",
+              billingType: normaliseBillingType(block.billingType),
               currency: "USD",
               nextChargeDate: "",
               plan: block.plan,
               planName: block.plan === "Active" ? block.planName.trim() : "",
               status: "Active",
+              trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
             }),
           ),
         );
@@ -2928,7 +3477,7 @@ function DashboardContent() {
     setToolList((currentTools) =>
       currentTools.map((tool) =>
         selectedIds.has(tool.id)
-          ? { ...tool, archived: true, archivedAt, archivedStatus: tool.status }
+          ? { ...tool, archived: true, archivedAt, archivedStatus: linkedPlanSnapshot(tool) }
           : tool,
       ),
     );
@@ -2944,7 +3493,7 @@ function DashboardContent() {
             patchToolRecord(tool.id, {
               archived: true,
               archivedAt,
-              archivedStatus: tool.status,
+              archivedStatus: linkedPlanSnapshot(tool),
             }),
           ),
       );
@@ -3282,6 +3831,15 @@ function DashboardContent() {
     const nextTools = filterBySection()
       .filter((tool) => isInSelectedRange(tool.name))
       .filter((tool) => {
+        if (activeSection !== "linked" || linkedPlanFilter === "All") return true;
+
+        return tool.accounts.some((accountLabel) => {
+          const status = toolAccountStatuses[tool.id]?.[accountLabel] ?? tool.status;
+          const plan = status === "Active" || status === "Paid" ? "Paid" : status === "Trial" ? "Trial" : "Free";
+          return plan === linkedPlanFilter;
+        });
+      })
+      .filter((tool) => {
         if (!query) return true;
 
         return [tool.name, tool.category, ...tool.accounts].some((value) =>
@@ -3294,7 +3852,7 @@ function DashboardContent() {
     }
 
     return nextTools;
-  }, [activeCategory, activeSection, hasCustomToolOrder, selectedToolSort, toolsWithValidAccountLinks, toolSearchQuery]);
+  }, [activeCategory, activeSection, hasCustomToolOrder, linkedPlanFilter, selectedToolSort, toolAccountStatuses, toolsWithValidAccountLinks, toolSearchQuery]);
   const totalToolboxCount = useMemo(
     () => toolsWithValidAccountLinks.filter((tool) => !tool.archived).length,
     [toolsWithValidAccountLinks],
@@ -3323,8 +3881,16 @@ function DashboardContent() {
   };
 
   const sortedWorkspaceCategories = useMemo(
-    () => sortCategoriesWithUncategorizedLast(workspaceCategories),
-    [workspaceCategories],
+    () =>
+      sortCategoriesWithUncategorizedLast(
+        normaliseCategoryList([
+          ...defaultToolCategories,
+          ...workspaceCategories,
+          ...customToolCategories,
+          ...toolsWithValidAccountLinks.map((tool) => tool.category),
+        ]),
+      ),
+    [customToolCategories, toolsWithValidAccountLinks, workspaceCategories],
   );
   const hasUncategorizedTools = useMemo(
     () => toolsWithValidAccountLinks.some((tool) => !tool.archived && tool.category === "Uncategorized"),
@@ -3364,19 +3930,83 @@ function DashboardContent() {
     () => {
       const query = toolSearchQuery.trim();
 
-      return visibleWorkspaceCategories
+      const groups = visibleWorkspaceCategories
         .map((category) => ({
           category,
           tools: visibleTools.filter((tool) => tool.category === category),
         }))
         .filter((group) => {
           if (query) return group.tools.length > 0;
+          if (activeSection === "tools") return group.tools.length > 0;
 
           return group.category !== "Uncategorized" || group.tools.length > 0;
         });
+
+      if (activeSection !== "watchlist" || query) return groups;
+
+      return [...groups].sort((firstGroup, secondGroup) => {
+        const firstIsEmpty = firstGroup.tools.length === 0;
+        const secondIsEmpty = secondGroup.tools.length === 0;
+
+        return Number(firstIsEmpty) - Number(secondIsEmpty);
+      });
     },
-    [toolSearchQuery, visibleWorkspaceCategories, visibleTools],
+    [activeSection, toolSearchQuery, visibleWorkspaceCategories, visibleTools],
   );
+  const populatedToolboxCategories = useMemo(() => {
+    const populated = new Set(
+      toolsWithValidAccountLinks
+        .filter((tool) => !tool.archived)
+        .map((tool) => tool.category),
+    );
+    return visibleWorkspaceCategories.filter((category) => populated.has(category));
+  }, [toolsWithValidAccountLinks, visibleWorkspaceCategories]);
+  const toolboxClusterGroups = useMemo(() => {
+    const groupedByCategory = new Map(groupedToolCategories.map((group) => [group.category, group]));
+    const configuredCategoryLabels = new Set(defaultToolCategories);
+    const clusters = toolboxPresets.clusters
+      .map((cluster) => ({
+        ...cluster,
+        groups: cluster.categories
+          .map((categoryId) => presetCategoryById.get(categoryId)?.label)
+          .map((categoryLabel) => (categoryLabel ? groupedByCategory.get(categoryLabel) : undefined))
+          .filter((group): group is { category: string; tools: ToolItem[] } => Boolean(group)),
+      }))
+      .filter((cluster) => cluster.groups.length > 0);
+    const customGroups = groupedToolCategories.filter((group) => !configuredCategoryLabels.has(group.category));
+
+    if (customGroups.length > 0) {
+      const otherCluster = clusters.find((cluster) => cluster.id === "other");
+      if (otherCluster) otherCluster.groups.push(...customGroups);
+      else clusters.push({ categories: [], groups: customGroups, id: "other", label: "Other" });
+    }
+
+    return clusters;
+  }, [groupedToolCategories]);
+  const sidebarClusterGroups = useMemo(() => {
+    const populated = new Set(populatedToolboxCategories);
+    const configuredCategoryLabels = new Set(defaultToolCategories);
+    const clusters = toolboxPresets.clusters
+      .map((cluster) => ({
+        ...cluster,
+        categories: cluster.categories
+          .map((categoryId) => presetCategoryById.get(categoryId)?.label)
+          .filter(
+            (category): category is string =>
+              typeof category === "string" && populated.has(category),
+          ),
+      }))
+      .filter((cluster) => cluster.categories.length > 0);
+    const customCategories = populatedToolboxCategories.filter((category) => !configuredCategoryLabels.has(category));
+
+    if (customCategories.length > 0) {
+      const otherCluster = clusters.find((cluster) => cluster.id === "other");
+      if (otherCluster) otherCluster.categories.push(...customCategories);
+      else clusters.push({ categories: customCategories, id: "other", label: "Other" });
+    }
+
+    return clusters;
+  }, [populatedToolboxCategories]);
 
   const providerOptions = useMemo(() => [...defaultProviders, ...customProviders], [customProviders]);
   const toolCategoryOptions = useMemo(
@@ -3563,7 +4193,7 @@ function DashboardContent() {
 
   const title =
     activeSection === "account"
-      ? "My Account"
+      ? "Logins"
       : activeSection === "providers"
         ? "Edit Provider"
         : activeSection === "recovery"
@@ -3640,6 +4270,14 @@ function DashboardContent() {
       }),
     )
     .sort((a, b) => a.daysRemaining - b.daysRemaining) : [];
+  const trialsNeedingConfirmation = remindersEnabled ? toolsWithValidAccountLinks
+    .filter((tool) => !tool.archived)
+    .flatMap((tool) => tool.accounts.flatMap((accountLabel) => {
+      const detail = toolAccountDetails[tool.id]?.[accountLabel];
+      const daysRemaining = detail?.trialExpiryDate ? daysUntilDate(detail.trialExpiryDate) : null;
+      if (relationStatus(tool, accountLabel) !== "Trial" || daysRemaining === null || daysRemaining >= 0) return [];
+      return [{ accountLabel, tool }];
+    })) : [];
   const renderToolNameCell = (tool: ToolItem) => (
     <div className="tool-name-cell">
       <div className="tool-logo" style={{ background: tool.logoBg }}>{toolInitials(tool.name)}</div>
@@ -3664,6 +4302,22 @@ function DashboardContent() {
             {displayToolName(tool.name)}
           </button>
         )}
+      </div>
+    </div>
+  );
+
+  const renderBillingToolNameCell = (tool: ToolItem, accountLabel: string) => (
+    <div className="tool-name-cell billing-readonly-tool-name">
+      <div className="tool-logo" style={{ background: tool.logoBg }}>{toolInitials(tool.name)}</div>
+      <div>
+        <span className="tool-name">{displayToolName(tool.name)}</span>
+        <button
+          className="billing-history-link"
+          onClick={() => setBillingHistoryTarget({ accountLabel, toolId: tool.id })}
+          type="button"
+        >
+          More
+        </button>
       </div>
     </div>
   );
@@ -3705,8 +4359,10 @@ function DashboardContent() {
 
   const relationPlan = (tool: ToolItem, accountLabel: string) => {
     const status = relationStatus(tool, accountLabel);
-    if (status === "Trial") return "Trial";
     if (status === "Active" || status === "Paid") return "Paid";
+    const override = toolPlanOverrideFor(tool);
+    if (override) return override.not_paid_label;
+    if (status === "Trial") return "Trial";
     return "Free";
   };
 
@@ -3717,13 +4373,24 @@ function DashboardContent() {
     return "Free Tier";
   };
 
-  const planStatusOptions: Array<{ label: string; value: ToolStatus }> = [
-    { label: "Free", value: "Free Tier" },
-    { label: "Trial", value: "Trial" },
-    { label: "Paid", value: "Active" },
-  ];
-  const billingTypeOptions: DropdownOption[] = ["Monthly", "Annual", "One-time", "Top-up Credit"].map((billingType) => ({
+  const planPillTone = (plan: string) => {
+    if (plan === "Paid") return "status-running";
+    if (plan === "Trial") return "status-trial";
+    if (plan === "Free") return "status-free";
+    return "status-muted";
+  };
+
+  const billingTypeOptions: DropdownOption[] = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"].map((billingType) => ({
     label: billingType,
+    value: billingType,
+  }));
+  const linkBillingTypeOptions: DropdownOption[] = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"].map((billingType) => ({
+    label:
+      billingType === "One-time"
+        ? "One-time payment"
+        : billingType === "Top-up"
+          ? "Top-up credit"
+          : billingType,
     value: billingType,
   }));
 
@@ -3741,9 +4408,18 @@ function DashboardContent() {
         (firstAccount, secondAccount) =>
           linkedAccountPlanRank(tool, firstAccount.accountLabel) -
             linkedAccountPlanRank(tool, secondAccount.accountLabel) ||
+          (toolAccountDetails[tool.id]?.[secondAccount.accountLabel]?.nextChargeDate ?? "").localeCompare(
+            toolAccountDetails[tool.id]?.[firstAccount.accountLabel]?.nextChargeDate ?? "",
+          ) ||
           firstAccount.index - secondAccount.index,
       )
       .map((account) => account.accountLabel);
+
+  const linkedAccountLabelsForDisplay = (tool: ToolItem) => {
+    const accountLabels = orderedLinkedAccountLabels(tool);
+    if (linkedPlanFilter === "All") return accountLabels;
+    return accountLabels.filter((accountLabel) => relationPlan(tool, accountLabel) === linkedPlanFilter);
+  };
 
   const billingRows = toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
@@ -3752,18 +4428,13 @@ function DashboardContent() {
         if (relationPlan(tool, accountLabel) !== "Paid") return [];
 
         const detail = toolAccountDetails[tool.id]?.[accountLabel];
-        const billingAmounts = detail?.billingAmounts?.length
-          ? detail.billingAmounts
-          : normaliseBillingType(detail?.billingType ?? "Monthly").split(", ").filter(Boolean).map((billingType, index) => ({
-              amount: index === 0 ? detail?.amount ?? "" : "",
-              billingType,
-              currency: normaliseCurrency(detail?.currency),
-            }));
+        const billingAmounts = detail?.billingAmounts ?? [];
         return billingAmounts.map((billingAmount) => ({
             accountLabel,
             amount: billingAmount.amount,
-            billingType: billingAmount.billingType,
+            billingType: normaliseBillingType(billingAmount.billingType),
             currency: normaliseCurrency(billingAmount.currency),
+            id: billingAmount.id,
             nextChargeDate: detail?.nextChargeDate ?? "",
             planName: detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
             tool,
@@ -3788,15 +4459,19 @@ function DashboardContent() {
         ? (firstRow.nextChargeDate || "9999-12-31").localeCompare(secondRow.nextChargeDate || "9999-12-31")
         : 0) ||
       firstRow.tool.name.localeCompare(secondRow.tool.name) ||
+      (secondRow.nextChargeDate ?? "").localeCompare(firstRow.nextChargeDate ?? "") ||
       firstRow.accountLabel.localeCompare(secondRow.accountLabel),
     );
 
-  const renderLinkedAccountCell = (accountLabel: string) => {
+  const renderLinkedAccountCell = (accountLabel: string, compact = false) => {
     const accountDetails = accountList.find((account) => account.label === accountLabel);
     const tagClass = accountTag(accountLabel, accountList);
 
     return (
-      <span className={`linked-account-cell ${tagClass}`}>
+      <span
+        className={`linked-account-cell ${tagClass}`}
+        style={compact ? { boxSizing: "border-box", minWidth: 0, padding: "8px 12px" } : undefined}
+      >
         <span className="linked-account-line">
           <span className={`tag-dot ${tagClass}`} />
           <strong>{accountLabel}</strong>
@@ -3817,22 +4492,88 @@ function DashboardContent() {
     );
   };
 
-  const renderBillingRow = (row: (typeof billingRows)[number], isContinuation = false) => (
-    <article className={isContinuation ? "account-table-row tool-table-row billing-tool-row is-continuation" : "account-table-row tool-table-row billing-tool-row"} key={`${row.tool.id}-${row.accountLabel}-${row.billingType}`}>
-      <div data-label="Tool Name">{isContinuation ? null : renderToolNameCell(row.tool)}</div>
-      <div data-label="Account">{isContinuation ? null : renderBillingAccountCell(row.accountLabel)}</div>
-      <span className="billing-plan-name" data-label="Plan Name">{row.planName || "Not set"}</span>
-      <span data-label="Billing Type">
-        {renderDropdown({
-          ariaLabel: `${row.tool.name} ${row.accountLabel} billing type`,
-          className: "billing-type-dropdown",
-          id: `billing-type-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
-          onChange: (nextBillingType) =>
-            updateBillingField(row.tool.id, row.accountLabel, { billingType: normaliseBillingType(nextBillingType) }),
-          options: billingTypeOptions,
-          selectedLabel: row.billingType === "Top-up Credit" ? "Top-up" : undefined,
-          value: row.billingType,
-        })}
+  const linkedPlanName = (tool: ToolItem, accountLabel: string) => (
+      toolAccountDetails[tool.id]?.[accountLabel]?.planName ??
+      toolAccountPlanNames[tool.id]?.[accountLabel] ??
+      ""
+    ).trim();
+
+  const linkedTrialDaysRemaining = (tool: ToolItem, accountLabel: string) => {
+    const trialExpiryDate = toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "";
+    return trialExpiryDate ? daysUntilDate(trialExpiryDate) : null;
+  };
+
+  const linkedPlanPillText = (tool: ToolItem, accountLabel: string, plan: string) => {
+    if (plan === "Paid") return linkedPlanName(tool, accountLabel) || "Paid";
+    if (plan !== "Trial") return plan;
+
+    const daysRemaining = linkedTrialDaysRemaining(tool, accountLabel);
+    if (daysRemaining === null) return "Trial";
+    return daysRemaining < 0 ? "Trial · ended" : `Trial · ${daysRemaining}d left`;
+  };
+
+  const linkedPlanPillTone = (tool: ToolItem, accountLabel: string, plan: string) => {
+    if (plan !== "Trial") return planPillTone(plan);
+    const daysRemaining = linkedTrialDaysRemaining(tool, accountLabel);
+    return daysRemaining !== null && daysRemaining <= 3 ? "status-trial-danger" : "status-trial";
+  };
+
+  const renderBillingRow = (
+    row: (typeof billingRows)[number],
+    options: {
+      isAccountContinuation?: boolean;
+      isPlanGroupEnd?: boolean;
+      isPlanGroupStart?: boolean;
+      isPlanGrouped?: boolean;
+      isPlanContinuation?: boolean;
+      isToolContinuation?: boolean;
+    } = {},
+  ) => {
+    const {
+      isAccountContinuation = false,
+      isPlanGroupEnd = false,
+      isPlanGroupStart = false,
+      isPlanGrouped = false,
+      isPlanContinuation = false,
+      isToolContinuation = false,
+    } = options;
+
+    return (
+    <article
+      className={[
+        "account-table-row tool-table-row billing-tool-row",
+        isToolContinuation ? "is-tool-continuation" : "",
+        isAccountContinuation ? "is-account-continuation is-continuation" : "",
+        isPlanGrouped ? "is-plan-grouped" : "",
+        isPlanGroupStart ? "is-plan-group-start" : "",
+        isPlanGroupEnd ? "is-plan-group-end" : "",
+        isPlanContinuation ? "is-plan-continuation" : "",
+      ].filter(Boolean).join(" ")}
+      key={row.id}
+    >
+      <div data-label="Tool Name">{isToolContinuation ? null : renderBillingToolNameCell(row.tool, row.accountLabel)}</div>
+      <div data-label="Account">{isAccountContinuation ? null : renderBillingAccountCell(row.accountLabel)}</div>
+      <span className={isPlanGrouped ? "billing-plan-name is-grouped-plan" : "billing-plan-name"} data-label="Plan Name">
+        <input
+          aria-label={`${row.tool.name} ${row.accountLabel} plan name`}
+          className="billing-inline-field billing-plan-name-input"
+          defaultValue={row.planName}
+          key={row.planName || "empty-plan-name"}
+          onBlur={(event) => {
+            const nextPlanName = event.currentTarget.value.trim();
+            if (nextPlanName !== row.planName) {
+              updateBillingField(row.tool.id, row.accountLabel, { planName: nextPlanName });
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+          }}
+          placeholder="Not set"
+          type="text"
+        />
       </span>
       <span data-label="Amount">
         <span className="billing-amount-field">
@@ -3851,11 +4592,17 @@ function DashboardContent() {
                     ...(currentDetails[row.tool.id] ?? {}),
                     [row.accountLabel]: {
                       ...detail,
-                      billingAmounts: (detail.billingAmounts?.length ? detail.billingAmounts : [{
-                        amount: detail.amount,
-                        billingType: row.billingType,
-                        currency: detail.currency,
-                      }]).map((entry) =>
+                      billingAmounts: (detail.billingAmounts?.length
+                        ? detail.billingAmounts
+                        : normaliseBillingType(detail.billingType ?? "Monthly")
+                            .split(", ")
+                            .filter(Boolean)
+                            .map((billingType, index) => ({
+                              amount: index === 0 ? detail.amount : "",
+                              billingType,
+                              currency: normaliseCurrency(detail.currency),
+                              id: billingAmountId(),
+                            }))).map((entry) =>
                         entry.billingType === row.billingType ? { ...entry, currency } : entry),
                     },
                   },
@@ -3882,11 +4629,17 @@ function DashboardContent() {
                       ...(currentDetails[row.tool.id] ?? {}),
                       [row.accountLabel]: {
                         ...detail,
-                        billingAmounts: (detail.billingAmounts?.length ? detail.billingAmounts : [{
-                          amount: detail.amount,
-                          billingType: row.billingType,
-                          currency: detail.currency,
-                        }]).map((entry) =>
+                        billingAmounts: (detail.billingAmounts?.length
+                          ? detail.billingAmounts
+                          : normaliseBillingType(detail.billingType ?? "Monthly")
+                              .split(", ")
+                              .filter(Boolean)
+                              .map((billingType, index) => ({
+                                amount: index === 0 ? detail.amount : "",
+                                billingType,
+                                currency: normaliseCurrency(detail.currency),
+                                id: billingAmountId(),
+                              }))).map((entry) =>
                           entry.billingType === row.billingType ? { ...entry, amount: nextValue } : entry),
                       },
                     },
@@ -3900,85 +4653,131 @@ function DashboardContent() {
           />
         </span>
       </span>
+      <span data-label="Billing Type">
+        {renderDropdown({
+          ariaLabel: `${row.tool.name} ${row.accountLabel} billing type`,
+          className: "billing-type-dropdown",
+          id: `billing-type-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
+          onChange: (nextBillingType) =>
+            updateBillingField(row.tool.id, row.accountLabel, { billingType: normaliseBillingType(nextBillingType) }),
+          options: billingTypeOptions,
+          value: row.billingType,
+        })}
+      </span>
       <span data-label="Next Charge">
-        <label className="billing-date-picker">
-          <span>{formatBillingDate(row.nextChargeDate)}</span>
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <rect x="4" y="5.5" width="16" height="14" rx="2" />
-            <path d="M8 3.5v4M16 3.5v4M4 9.5h16" />
-          </svg>
+        <label
+          className={`billing-date-picker billing-date-picker-table ${row.nextChargeDate ? "has-value" : "is-empty"}`}
+          onClick={(event) => {
+            event.preventDefault();
+            const input = event.currentTarget.querySelector<HTMLInputElement>("input[type=date]");
+            if (typeof input?.showPicker === "function") input.showPicker();
+            else input?.focus();
+          }}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" && event.key !== " ") return;
+            event.preventDefault();
+            const input = event.currentTarget.querySelector<HTMLInputElement>("input[type=date]");
+            if (typeof input?.showPicker === "function") input.showPicker();
+            else input?.focus();
+          }}
+          role="button"
+          tabIndex={0}
+        >
+          {row.nextChargeDate ? (
+            <span className="billing-date-value">{formatBillingDate(row.nextChargeDate)}</span>
+          ) : (
+            <svg aria-hidden="true" viewBox="0 0 24 24">
+              <rect x="4" y="5.5" width="16" height="14" rx="2" />
+              <path d="M8 3.5v4M16 3.5v4M4 9.5h16" />
+            </svg>
+          )}
           <input
             aria-label={`${row.tool.name} ${row.accountLabel} next charge`}
+            className="billing-native-date-input"
             onChange={(event) => updateBillingField(row.tool.id, row.accountLabel, { nextChargeDate: event.target.value })}
+            tabIndex={-1}
             type="date"
             value={row.nextChargeDate}
           />
         </label>
       </span>
-      <span className="row-actions" data-label="Action">
+      <span className="row-actions billing-row-actions" data-label="Action">
         <button
-          aria-label={`Edit billing for ${row.tool.name} ${row.accountLabel}`}
-          className="row-icon-action tooltip-target"
-          data-tooltip="Edit billing"
-          onClick={() => openBillingEditModal(row.tool.id, row.accountLabel)}
+          className="action-btn"
+          onClick={() => openManageAccountModal(row.tool, row.accountLabel)}
           type="button"
         >
-          <svg aria-hidden="true" viewBox="0 0 24 24">
-            <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
-            <path d="m13.8 7.2 3 3" />
-          </svg>
+          Edit
         </button>
       </span>
     </article>
-  );
+    );
+  };
 
   const renderLinkedAccounts = (tool: ToolItem, options?: { removable?: boolean }) => (
     <div className={options?.removable ? "linked-accordion-panel" : "tool-accordion-panel"}>
-      {orderedLinkedAccountLabels(tool).map((accountLabel) => {
+      {linkedAccountLabelsForDisplay(tool).map((accountLabel) => {
         const plan = relationPlan(tool, accountLabel);
 
         if (options?.removable) {
           return (
-            <div className="tool-account-subrow linked-account-identity-row" key={`${tool.id}-${accountLabel}`}>
-              <span />
-              <span />
-              <span />
-              {renderLinkedAccountCell(accountLabel)}
-              <span className="linked-expanded-plan-cell" data-label="Plan">
-                {renderDropdown({
-                  ariaLabel: `Change ${accountLabel} plan`,
-                  className: `plan-pill-dropdown plan-pill-${plan.toLowerCase()}`,
-                  id: `relation-plan-${tool.id}-${accountLabel}`,
-                  onChange: (nextStatus) => updateRelationStatus(tool.id, accountLabel, nextStatus as ToolStatus),
-                  options: planStatusOptions,
-                  value: relationPlanStatusValue(tool, accountLabel),
-                })}
+            <div
+              className="tool-account-subrow linked-account-identity-row"
+              key={`${tool.id}-${accountLabel}`}
+              style={{
+                boxSizing: "border-box",
+                gridTemplateColumns: "var(--linked-table-columns)",
+                height: 54,
+                minHeight: 54,
+                padding: 0,
+              }}
+            >
+              <span style={{ padding: "8px 12px" }} />
+              <span style={{ padding: "8px 12px" }} />
+              <span style={{ padding: "8px 12px" }} />
+              {renderLinkedAccountCell(accountLabel, true)}
+              <span className="linked-expanded-plan-cell" data-label="Plan" style={{ padding: "8px 12px" }}>
+                <span className={`tool-status-chip ${linkedPlanPillTone(tool, accountLabel, plan)}`}>
+                  {linkedPlanPillText(tool, accountLabel, plan)}
+                </span>
               </span>
-              <span className="linked-row-actions">
+              <span
+                className="linked-row-actions"
+                style={{ padding: "8px 12px", transform: "translateX(-40px)" }}
+              >
+                {plan === "Trial" &&
+                Boolean(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate) &&
+                (daysUntilDate(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "") ?? 0) < 0 ? (
+                  renderDropdown({
+                    ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
+                    className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
+                    id: `linked-trial-status-${tool.id}-${accountLabel}`,
+                    onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
+                    options: [
+                      { disabled: true, label: "Confirm status", value: "" },
+                      { label: "Trial converted to paid", value: "converted" },
+                      { label: "Trial ended / cancelled", value: "ended" },
+                    ],
+                    value: "",
+                  })
+                ) : renderDropdown({
+                    ariaLabel: `Change ${tool.name} ${accountLabel} status`,
+                    className: "billing-type-dropdown linked-manage-status-dropdown",
+                    id: `linked-manage-status-${tool.id}-${accountLabel}`,
+                    onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
+                    options: [
+                      { label: "Active", value: "Active" },
+                      { label: "On a break", value: "On a Break" },
+                      { label: "Goodbye", value: "Goodbye" },
+                    ],
+                    value: toolAccountDetails[tool.id]?.[accountLabel]?.status ?? "Active",
+                  })}
                 <button
-                  aria-label={`Link another account to ${tool.name}`}
-                  className="row-icon-action tooltip-target"
-                  data-tooltip="Link another account"
-                  onClick={() => openLinkToolModal(tool)}
-                  type="button"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M9.5 14.5 14.5 9.5" />
-                    <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
-                    <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
-                  </svg>
-                </button>
-                <button
-                  aria-label={`Edit ${accountLabel}`}
-                  className="row-icon-action linked-manage-link tooltip-target"
-                  data-tooltip="Edit"
+                  className="linked-text-action"
                   onClick={() => openManageAccountModal(tool, accountLabel)}
                   type="button"
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
-                    <path d="m13.8 7.2 3 3" />
-                  </svg>
+                  Edit
                 </button>
               </span>
             </div>
@@ -4010,16 +4809,29 @@ function DashboardContent() {
   );
 
   const renderFavouriteLinkedAccounts = (tool: ToolItem) => (
-    <div className="linked-accordion-panel favourite-accordion-panel">
+    <div
+      className="linked-accordion-panel favourite-accordion-panel"
+      style={{ borderLeft: 0, borderRight: 0 }}
+    >
       {tool.accounts.map((accountLabel) => (
-        <div className="tool-account-subrow favourite-account-row" key={`${tool.id}-${accountLabel}`}>
-          <span />
-          <span />
-          <span />
-          <span />
-          {renderLinkedAccountCell(accountLabel)}
-          <span />
-          <span />
+        <div
+          className="tool-account-subrow favourite-account-row"
+          key={`${tool.id}-${accountLabel}`}
+          style={{
+            boxSizing: "border-box",
+            gridTemplateColumns: "var(--favorites-table-columns)",
+            height: 54,
+            minHeight: 54,
+            padding: 0,
+          }}
+        >
+          <span style={{ padding: "8px 12px" }} />
+          <span style={{ padding: "8px 12px" }} />
+          <span style={{ padding: "8px 12px" }} />
+          <span style={{ padding: "8px 12px" }} />
+          {renderLinkedAccountCell(accountLabel, true)}
+          <span style={{ padding: "8px 12px" }} />
+          <span style={{ padding: "8px 12px" }} />
         </div>
       ))}
     </div>
@@ -4031,8 +4843,10 @@ function DashboardContent() {
     const hasManyAccounts = tool.accounts.length > 1;
 
     if (activeSection === "linked") {
-      const accountLabel = tool.accounts[0] ?? "";
+      const displayedAccountLabels = linkedAccountLabelsForDisplay(tool);
+      const accountLabel = displayedAccountLabels[0] ?? "";
       const plan = accountLabel ? relationPlan(tool, accountLabel) : "Free";
+      const hasManyAccounts = displayedAccountLabels.length > 1;
       return (
         <Fragment key={tool.id}>
           <article
@@ -4074,7 +4888,7 @@ function DashboardContent() {
             <div className={hasManyAccounts ? "linked-account-summary-cell" : undefined} data-label="Account">
               {hasManyAccounts ? (
                 <>
-                  <span className="linked-account-count-pill">{tool.accounts.length} accounts</span>
+                  <span className="linked-account-count-pill">{displayedAccountLabels.length} accounts</span>
                   <button
                     aria-label={isExpanded ? `Collapse ${tool.name}` : `Expand ${tool.name}`}
                     aria-expanded={isExpanded}
@@ -4098,50 +4912,53 @@ function DashboardContent() {
               ) : null}
             </div>
             <span data-label="Plan">
-              {!hasManyAccounts && accountLabel ? renderDropdown({
-                ariaLabel: `Change ${accountLabel} plan`,
-                className: `plan-pill-dropdown plan-pill-${plan.toLowerCase()}`,
-                id: `relation-plan-${tool.id}-${accountLabel}`,
-                onChange: (nextStatus) => updateRelationStatus(tool.id, accountLabel, nextStatus as ToolStatus),
-                options: planStatusOptions,
-                value: relationPlanStatusValue(tool, accountLabel),
-              }) : null}
+              {!hasManyAccounts && accountLabel ? (
+                <span className={`tool-status-chip ${linkedPlanPillTone(tool, accountLabel, plan)}`}>
+                  {linkedPlanPillText(tool, accountLabel, plan)}
+                </span>
+              ) : null}
             </span>
             <span className="linked-tool-action-cell" data-label="Action">
               {hasManyAccounts ? (
                 null
               ) : accountLabel ? (
                 <span className="linked-row-actions">
+                  {plan === "Trial" &&
+                  Boolean(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate) &&
+                  (daysUntilDate(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "") ?? 0) < 0 ? (
+                    renderDropdown({
+                      ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
+                      className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
+                      id: `linked-trial-status-${tool.id}-${accountLabel}`,
+                      onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
+                      options: [
+                        { disabled: true, label: "Confirm status", value: "" },
+                        { label: "Trial converted to paid", value: "converted" },
+                        { label: "Trial ended / cancelled", value: "ended" },
+                      ],
+                      value: "",
+                    })
+                  ) : renderDropdown({
+                      ariaLabel: `Change ${tool.name} ${accountLabel} status`,
+                      className: "billing-type-dropdown linked-manage-status-dropdown",
+                      id: `linked-manage-status-${tool.id}-${accountLabel}`,
+                      onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
+                      options: [
+                        { label: "Active", value: "Active" },
+                        { label: "On a break", value: "On a Break" },
+                        { label: "Goodbye", value: "Goodbye" },
+                      ],
+                      value: toolAccountDetails[tool.id]?.[accountLabel]?.status ?? "Active",
+                    })}
                   <button
-                    aria-label={`Link another account to ${tool.name}`}
-                    className="row-icon-action tooltip-target"
-                    data-tooltip="Link another account"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openLinkToolModal(tool);
-                    }}
-                    type="button"
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 24 24">
-                      <path d="M9.5 14.5 14.5 9.5" />
-                      <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
-                      <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
-                    </svg>
-                  </button>
-                  <button
-                    aria-label={`Edit ${accountLabel}`}
-                    className="row-icon-action linked-manage-link tooltip-target"
-                    data-tooltip="Edit"
+                    className="linked-text-action"
                     onClick={(event) => {
                       event.stopPropagation();
                       openManageAccountModal(tool, accountLabel);
                     }}
                     type="button"
                   >
-                    <svg aria-hidden="true" viewBox="0 0 24 24">
-                      <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
-                      <path d="m13.8 7.2 3 3" />
-                    </svg>
+                    Edit
                   </button>
                 </span>
               ) : null}
@@ -4168,7 +4985,8 @@ function DashboardContent() {
               className="notion-star-checkbox is-checked"
               onClick={(event) => {
                 event.stopPropagation();
-                setConfirmToolStateChange({ action: "unfavorite", tool });
+                toggleToolFavorite(tool.name);
+                showToast("Removed from Favourites.");
               }}
               type="button"
             >
@@ -4216,36 +5034,18 @@ function DashboardContent() {
             <span data-label="URL">{renderUrlIcon(tool)}</span>
             <span className="row-actions" data-label="Action">
               <button
-                aria-label={tool.accounts.length > 0 ? `${tool.name} already has linked accounts` : `Link account to ${tool.name}`}
-                className={
-                  tool.accounts.length > 0
-                    ? "row-icon-action link-state-action is-linked tooltip-target"
-                    : "row-icon-action link-state-action tooltip-target"
-                }
-                data-tooltip={tool.accounts.length > 0 ? "Already linked" : "Link account"}
-                disabled={tool.accounts.length > 0}
+                className="action-btn"
                 onClick={(event) => {
                   event.stopPropagation();
                   if (tool.accounts.length > 0) {
+                    openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
                     return;
                   }
-
                   openLinkToolModal(tool);
                 }}
                 type="button"
               >
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <path d="M9.5 14.5 14.5 9.5" />
-                  <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
-                  <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
-                  {tool.accounts.length === 0 ? <path d="m4.5 4.5 15 15" /> : null}
-                </svg>
-              </button>
-              <button aria-label={`Edit ${tool.name}`} className="row-icon-action" onClick={() => openEditToolModal(tool)} type="button">
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
-                  <path d="m13.8 7.2 3 3" />
-                </svg>
+                {tool.accounts.length > 0 ? "Linked" : "Not linked"}
               </button>
             </span>
           </article>
@@ -4269,8 +5069,8 @@ function DashboardContent() {
           <div data-label="Tool Name">{renderToolNameCell(tool)}</div>
           <div className="category-cell" data-label="Category">{renderCategoryCell(tool)}</div>
           <div className="status-cell" data-label="Last Status">
-            <span className={`tool-status-chip ${archivedStatusTone(tool.archivedStatus ?? tool.status)}`}>
-              {archivedStatusLabel(tool.archivedStatus ?? tool.status)}
+            <span className={`tool-status-chip ${archivedStatusTone(linkedPlanSnapshot(tool))}`}>
+              {archivedStatusLabel(linkedPlanSnapshot(tool))}
             </span>
           </div>
           <span className="muted-cell small-date" data-label="Archived On">{formatArchiveDate(tool.archivedAt)}</span>
@@ -4328,65 +5128,129 @@ function DashboardContent() {
             aria-pressed={tool.status === "Considering"}
             className={tool.status === "Considering" ? "row-icon-action watchlist-action is-active tooltip-target" : "row-icon-action watchlist-action tooltip-target"}
             data-tooltip={tool.status === "Considering" ? "Remove from Watchlist" : "Add to Watchlist"}
-            onClick={() => toggleToolWatchlist(tool.id)}
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              {tool.status === "Considering" ? (
-                <>
-                  <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
-                  <circle cx="12" cy="12" r="2.45" />
-                </>
-              ) : (
-                <>
-                  <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
-                  <circle cx="12" cy="12" r="2.2" />
-                  <path d="m4.5 4.5 15 15" />
-                </>
-              )}
-            </svg>
-          </button>
-        </span>
-        <span className="row-actions" data-label="Action">
-          <button
-            aria-label={tool.accounts.length > 0 ? `${tool.name} already has linked accounts` : `Link account to ${tool.name}`}
-            className={
-              tool.accounts.length > 0
-                ? "row-icon-action link-state-action is-linked tooltip-target"
-                : "row-icon-action link-state-action tooltip-target"
-            }
-            data-tooltip={tool.accounts.length > 0 ? "Already linked" : "Link account"}
-            disabled={tool.accounts.length > 0}
             onClick={() => {
-              if (tool.accounts.length > 0) {
+              if (activeSection === "watchlist" && tool.status === "Considering") {
+                setConfirmToolStateChange({ action: "unwatchlist", tool });
                 return;
               }
-
-              activeSection === "watchlist"
-                ? openLinkToolModal(tool, { activateToolOnSave: true })
-                : openLinkToolModal(tool);
+              toggleToolWatchlist(tool.id);
             }}
             type="button"
           >
             <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M9.5 14.5 14.5 9.5" />
-              <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" />
-              <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" />
-              {tool.accounts.length === 0 ? <path d="m4.5 4.5 15 15" /> : null}
+              <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
+              <circle cx="12" cy="12" r="2.3" />
             </svg>
           </button>
-          <button aria-label={`Edit ${tool.name}`} className="row-icon-action" onClick={() => openEditToolModal(tool)} type="button">
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M5 19h4l9.2-9.2a2.1 2.1 0 0 0-3-3L6 16v3Z" />
-              <path d="m13.8 7.2 3 3" />
-            </svg>
-          </button>
+        </span>
+        <span
+          className={`row-actions tool-link-state-actions${activeSection === "tools" && tool.accounts.length > 0 ? " has-account-count" : ""}`}
+          data-label="Action"
+        >
+          {activeSection === "tools" && tool.accounts.length > 0 ? (
+            <button
+              className="linked-account-count-pill toolbox-account-count-badge"
+              onClick={() => openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0])}
+              type="button"
+            >
+              {tool.accounts.length} {tool.accounts.length === 1 ? "account" : "accounts"}
+            </button>
+          ) : (
+            <button
+              className="action-btn"
+              disabled={tool.status === "Considering"}
+              onClick={() => {
+                if (tool.accounts.length > 0) {
+                  openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
+                  return;
+                }
+
+                activeSection === "watchlist"
+                  ? openLinkToolModal(tool, { activateToolOnSave: true })
+                  : openLinkToolModal(tool);
+              }}
+              title={tool.status === "Considering" ? "Remove from Watchlist before linking an account" : undefined}
+              type="button"
+            >
+              {tool.accounts.length > 0 ? "Link" : "Not linked"}
+            </button>
+          )}
+          {activeSection !== "watchlist" ? (
+            <button className="action-btn" onClick={() => openEditToolModal(tool)} type="button">
+              Edit
+            </button>
+          ) : null}
         </span>
       </article>
     );
   };
 
+  const renderToolCategoryGroup = (group: { category: string; tools: ToolItem[] }) => {
+    const categoryPreset = presetCategoryByLabel.get(group.category);
+    const subgroupToolNames = new Set(
+      categoryPreset?.subgroups?.flatMap((subgroup) => subgroup.tools.map((toolName) => toolName.toLowerCase())) ?? [],
+    );
+    const toggleGroupSelection = () => {
+      const groupToolIds = group.tools.map((tool) => tool.id);
+      const areAllGroupToolsSelected = groupToolIds.every((toolId) => selectedToolIds.includes(toolId));
+      setSelectedToolIds((currentIds) => {
+        const groupIds = new Set(groupToolIds);
+        return areAllGroupToolsSelected
+          ? currentIds.filter((toolId) => !groupIds.has(toolId))
+          : Array.from(new Set([...currentIds, ...groupToolIds]));
+      });
+    };
+
+    return (
+      <Fragment key={group.category}>
+        <div className="tool-category-row-header">
+          <span className="category-row-label">
+            <span>{group.category}</span>
+            <span>{group.tools.length}</span>
+          </span>
+          {group.tools.length > 0 ? (
+            <button onClick={toggleGroupSelection} type="button">
+              Select all
+            </button>
+          ) : null}
+        </div>
+        {categoryPreset?.subgroups ? (
+          <>
+            {categoryPreset.subgroups.map((subgroup) => {
+              const subgroupNames = new Set(subgroup.tools.map((toolName) => toolName.toLowerCase()));
+              const subgroupTools = group.tools.filter((tool) => subgroupNames.has(tool.name.trim().toLowerCase()));
+              if (subgroupTools.length === 0) return null;
+              return (
+                <Fragment key={`${group.category}-${subgroup.label}`}>
+                  <div className="tool-subgroup-label">{subgroup.label}</div>
+                  {subgroupTools.map((tool) => renderToolRow(tool))}
+                </Fragment>
+              );
+            })}
+            {group.tools
+              .filter((tool) => !subgroupToolNames.has(tool.name.trim().toLowerCase()))
+              .map((tool) => renderToolRow(tool))}
+          </>
+        ) : (
+          group.tools.map((tool) => renderToolRow(tool))
+        )}
+      </Fragment>
+    );
+  };
+
   const managedTool = managingLink ? toolList.find((tool) => tool.id === managingLink.toolId) : null;
+  const orderedToolDetailDrafts = managedTool
+    ? orderedLinkedAccountLabels(managedTool)
+        .map((accountLabel) => toolDetailDrafts[accountLabel])
+        .filter((draft): draft is ToolDetailAccountDraft => Boolean(draft))
+    : [];
+  useEffect(() => {
+    if (!managingLink) return;
+    const frameId = window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(".tool-detail-modal")?.scrollTo({ top: 0 });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [managingLink]);
   const managedAccount = accountList.find((account) => account.label === managedAccountLabel);
   const managedAccountOptions = managingLink
     ? orderedAccountOptions.map((accountOption) => ({
@@ -4399,12 +5263,14 @@ function DashboardContent() {
   const activeToolOptions = toolList.filter((tool) => !tool.archived);
   const linkToolSearchOptions = isLinkToolLocked
     ? activeToolOptions
-    : activeToolOptions.filter((tool) => tool.accounts.length === 0);
+    : activeToolOptions.filter((tool) => tool.accounts.length === 0 && tool.status !== "Considering");
   const filteredLinkToolOptions = linkToolSearchOptions.filter((tool) =>
     tool.name.toLowerCase().includes(linkToolSearchQuery.trim().toLowerCase()),
   );
   const selectedLinkTool = toolList.find((tool) => tool.id === linkToolId);
-  const selectedLinkToolAllowedPlans = selectedLinkTool ? toolCustomizationFor(selectedLinkTool.name)?.allowedPlans : undefined;
+  const selectedLinkToolAllowedPlans = selectedLinkTool
+    ? (toolPlanOverrideFor(selectedLinkTool)?.supported_tiers ?? toolPlanTiers.default_tiers)
+    : undefined;
   const selectedLinkAccountLabels = linkToolAccountBlocks.map((block) => block.accountLabel).filter(Boolean);
   const existingLinkAccountLabels = selectedLinkTool?.accounts ?? [];
   const remainingLinkAccountOptions = orderedAccountOptions.filter(
@@ -4415,20 +5281,16 @@ function DashboardContent() {
   const duplicateLinkAccountLabels = selectedLinkAccountLabels.filter(
     (accountLabel, index) => selectedLinkAccountLabels.indexOf(accountLabel) !== index,
   );
-  const isLinkToolSubmitBlocked =
-    !linkToolId ||
-    linkToolAccountBlocks.some((block) => !block.accountLabel || !block.plan) ||
-    linkToolAccountBlocks.some((block) => !isPlanAllowedForTool(selectedLinkTool, block.plan)) ||
-    linkToolAccountBlocks.some((block) => Boolean(block.accountLabel && selectedLinkTool?.accounts.includes(block.accountLabel))) ||
-    duplicateLinkAccountLabels.length > 0;
-
   useEffect(() => {
     if (!selectedLinkToolAllowedPlans?.length) return;
 
-    const firstAllowedStatus = statusForPlanKey(selectedLinkToolAllowedPlans[0]);
+    const isPaidOnly = selectedLinkToolAllowedPlans.length === 1 && selectedLinkToolAllowedPlans[0] === "paid";
+    const firstAllowedStatus: ToolStatus | "" = isPaidOnly
+      ? ""
+      : statusForPlanKey(selectedLinkToolAllowedPlans[0]);
     setLinkToolAccountBlocks((currentBlocks) => {
       const nextBlocks = currentBlocks.map((block) =>
-        selectedLinkToolAllowedPlans.includes(planKeyForStatus(block.plan))
+        block.plan && selectedLinkToolAllowedPlans.includes(planKeyForStatus(block.plan))
           ? block
           : { ...block, plan: firstAllowedStatus },
       );
@@ -4437,6 +5299,171 @@ function DashboardContent() {
     });
   }, [selectedLinkToolAllowedPlans]);
 
+  const billingHistoryToolName = billingHistoryTarget
+    ? displayToolName(toolList.find((tool) => tool.id === billingHistoryTarget.toolId)?.name ?? "Tool")
+    : "Tool";
+  const billingHistoryTool = billingHistoryTarget
+    ? toolList.find((tool) => tool.id === billingHistoryTarget.toolId)
+    : undefined;
+  const billingHistorySections: BillingHistorySection[] = billingHistoryTool
+    ? orderedLinkedAccountLabels(billingHistoryTool)
+        .filter((accountLabel) => relationPlan(billingHistoryTool, accountLabel) === "Paid")
+        .map((accountLabel) => {
+          const detail = toolAccountDetails[billingHistoryTool.id]?.[accountLabel];
+          const recordKey = `${billingHistoryTool.id}::${accountLabel}`;
+          const amounts = detail
+            ? (detail.billingAmounts?.length
+                ? detail.billingAmounts
+                : normaliseBillingType(detail.billingType ?? "Monthly")
+                    .split(", ")
+                    .filter(Boolean)
+                    .map((billingType, index) => ({
+                      amount: index === 0 ? detail.amount : "",
+                      billingType,
+                      currency: normaliseCurrency(detail.currency),
+                    })))
+            : [];
+          const generatedEntries: BillingHistoryEntry[] = amounts.map((billingAmount, index) => {
+            const id = `generated-${normaliseBillingType(billingAmount.billingType)}-${index}`;
+            return {
+              amount: billingAmount.amount
+                ? `${normaliseCurrency(billingAmount.currency)} ${billingAmount.amount}`
+                : undefined,
+              billingType: normaliseBillingType(billingAmount.billingType),
+              date: detail?.nextChargeDate ? formatBillingDate(detail.nextChargeDate) : "—",
+              event: "Charged",
+              id,
+              note: billingHistoryNotes[`${recordKey}::${id}`] ?? [detail?.planName, normaliseBillingType(billingAmount.billingType)]
+                .filter(Boolean)
+                .join(" · "),
+              planName: detail?.planName ?? "",
+              source: "generated",
+            };
+          });
+          return {
+            accountLabel,
+            entries: [...generatedEntries, ...(manualBillingHistory[recordKey] ?? [])],
+            planName: detail?.planName ?? "",
+          };
+        })
+    : [];
+  const updateBillingHistoryNote = (recordKey: string, entry: BillingHistoryEntry, note: string) => {
+    if (entry.source === "generated") {
+      setBillingHistoryNotes((current) => ({
+        ...current,
+        [`${recordKey}::${entry.id}`]: note,
+      }));
+      return;
+    }
+    setManualBillingHistory((current) => ({
+      ...current,
+      [recordKey]: (current[recordKey] ?? []).map((item) => (
+        item.id === entry.id ? { ...item, note, saved: false } : item
+      )),
+    }));
+  };
+
+  const pendingBillingActions = Object.entries(manualBillingHistory).flatMap(([recordKey, entries]) => {
+    const separatorIndex = recordKey.indexOf("::");
+    const toolId = separatorIndex >= 0 ? recordKey.slice(0, separatorIndex) : recordKey;
+    const accountLabel = separatorIndex >= 0 ? recordKey.slice(separatorIndex + 2) : "Account";
+    const tool = toolList.find((item) => item.id === toolId);
+
+    return entries
+      .filter((entry) => entry.event === "Double Charged")
+      .filter((entry) => !entries.some((candidate) => candidate.resolvesEntryId === entry.id))
+      .map((entry) => ({ accountLabel, entry, recordKey, tool }));
+  });
+
+  const todayInputValue = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, "0");
+    const day = String(today.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  const startResolvingPendingAction = (entryId: string) => {
+    setResolvingPendingActionId(entryId);
+    setPendingResolutionOutcome("Charged");
+    setPendingResolutionDate(todayInputValue());
+  };
+
+  const pendingResolutionOptions = (entry: BillingHistoryEntry): BillingHistoryEvent[] => {
+    if (entry.event === "Double Charged") return ["Charged", "Refunded"];
+    return ["Charged", "Refunded", "Plan Changed", "Cancelled"];
+  };
+
+  const confirmPendingActionResolution = (recordKey: string, entry: BillingHistoryEntry) => {
+    if (!pendingResolutionDate) return;
+
+    const resolutionEntry: BillingHistoryEntry = {
+      amount: entry.amount,
+      billingType: entry.billingType,
+      currency: entry.currency,
+      date: pendingResolutionDate,
+      event: pendingResolutionOutcome,
+      id: `resolution-${entry.id}-${Date.now()}`,
+      note: `Resolved ${entry.event}`,
+      planName: entry.planName,
+      resolvesEntryId: entry.id,
+      saved: true,
+      source: "manual",
+    };
+
+    setManualBillingHistory((current) => ({
+      ...current,
+      [recordKey]: [...(current[recordKey] ?? []), resolutionEntry],
+    }));
+    setPendingResolutionConfirmation(null);
+    setResolvingPendingActionId("");
+  };
+
+  const resolveExpiredTrialStatus = async (
+    tool: ToolItem,
+    accountLabel: string,
+    outcome: "converted" | "ended",
+  ) => {
+    const detail = toolAccountDetails[tool.id]?.[accountLabel];
+    const nextPlan: ToolStatus = outcome === "converted" ? "Active" : "Free Tier";
+    await updateRelationStatus(tool.id, accountLabel, nextPlan);
+    setToolAccountDetails((current) => ({
+      ...current,
+      [tool.id]: {
+        ...(current[tool.id] ?? {}),
+        [accountLabel]: {
+          amount: detail?.amount ?? "",
+          billingAmounts: detail?.billingAmounts,
+          billingType: normaliseBillingType(detail?.billingType ?? "Monthly"),
+          currency: normaliseCurrency(detail?.currency),
+          nextChargeDate: detail?.nextChargeDate ?? "",
+          planName: detail?.planName ?? "",
+          status: detail?.status ?? "Active",
+          trialExpiryDate: "",
+        },
+      },
+    }));
+
+    if (outcome === "converted") {
+      const recordKey = `${tool.id}::${accountLabel}`;
+      const conversionEntry: BillingHistoryEntry = {
+        amount: detail?.amount ?? "",
+        billingType: normaliseBillingType(detail?.billingType ?? "Monthly"),
+        currency: normaliseCurrency(detail?.currency),
+        date: todayInputValue(),
+        event: "Trial Converted to Paid",
+        id: `trial-converted-${tool.id}-${accountLabel}-${Date.now()}`,
+        note: "Trial status confirmed",
+        planName: detail?.planName ?? "",
+        saved: true,
+        source: "manual",
+      };
+      setManualBillingHistory((current) => ({
+        ...current,
+        [recordKey]: [...(current[recordKey] ?? []), conversionEntry],
+      }));
+    }
+  };
   return (
     <main className="app-shell" data-theme="dark" data-dark-variant="cool">
       <button
@@ -4450,6 +5477,11 @@ function DashboardContent() {
         <span />
         <span />
       </button>
+
+      <Link className="mobile-header-brand" href="/">
+        <span className="sidebar-logo-icon">AI</span>
+        <span>AI Subprise</span>
+      </Link>
 
       <button
         aria-label="Close dashboard navigation"
@@ -4483,6 +5515,15 @@ function DashboardContent() {
               onClick={() => setIsSidebarCollapsed((isCollapsed) => !isCollapsed)}
               type="button"
             >
+              <span />
+            </button>
+            <button
+              aria-label="Close dashboard navigation"
+              className="mobile-drawer-close"
+              onClick={() => setIsSidebarOpen(false)}
+              type="button"
+            >
+              <span />
               <span />
             </button>
           </div>
@@ -4528,26 +5569,31 @@ function DashboardContent() {
                   {isToolsNavOpen ? (
                     <div className="nav-subitems">
                       {hasConfirmedCategories ? (
-                        visibleWorkspaceCategories.map((category) => (
-                          <button
-                            aria-current={!showRecoveryPanel && activeSection === "tools" && activeCategory === category ? "page" : undefined}
-                            className={
-                              !showRecoveryPanel && activeSection === "tools" && activeCategory === category
-                                ? "nav-subitem active"
-                                : "nav-subitem"
-                            }
-                            key={category}
-                            onClick={() => {
-                              setActiveSection("tools");
-                              setActiveCategory(category);
-                              setSelectedToolSort("All");
-                              setShowRecoveryPanel(false);
-                              setIsSidebarOpen(false);
-                            }}
-                            type="button"
-                          >
-                            {category}
-                          </button>
+                        sidebarClusterGroups.map((cluster) => (
+                          <Fragment key={cluster.id}>
+                            <div className="nav-subitem-cluster">{cluster.label}</div>
+                            {cluster.categories.map((category) => (
+                              <button
+                                aria-current={!showRecoveryPanel && activeSection === "tools" && activeCategory === category ? "page" : undefined}
+                                className={
+                                  !showRecoveryPanel && activeSection === "tools" && activeCategory === category
+                                    ? "nav-subitem active"
+                                    : "nav-subitem"
+                                }
+                                key={category}
+                                onClick={() => {
+                                  setActiveSection("tools");
+                                  setActiveCategory(category);
+                                  setSelectedToolSort("All");
+                                  setShowRecoveryPanel(false);
+                                  setIsSidebarOpen(false);
+                                }}
+                                type="button"
+                              >
+                                {category}
+                              </button>
+                            ))}
+                          </Fragment>
                         ))
                       ) : null}
                     </div>
@@ -4780,9 +5826,9 @@ function DashboardContent() {
               <h1 className={activeSection === "providers" ? "main-title main-title-with-back" : "main-title"}>
                 {activeSection === "providers" ? (
                   <button
-                    aria-label="Back to My Account"
+                    aria-label="Back to Logins"
                     className="title-back-button tooltip-target"
-                    data-tooltip="Back to My Account"
+                    data-tooltip="Back to Logins"
                     onClick={() => setActiveSection("account")}
                     type="button"
                   >
@@ -4809,6 +5855,22 @@ function DashboardContent() {
               </p>
             </div>
             <div className="header-actions">
+              {activeSection === "billing" && pendingBillingActions.length > 0 ? (
+                <button
+                  aria-expanded={isPendingActionsExpanded}
+                  className="pending-actions-indicator"
+                  onClick={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
+                  type="button"
+                >
+                  <span aria-hidden="true">⚠</span>
+                  {pendingBillingActions.length} {pendingBillingActions.length === 1 ? "item needs" : "items need"} attention
+                </button>
+              ) : null}
+              {activeSection === "account" && isDemoMode ? (
+                <button className="btn-sm btn-sm-ghost" onClick={() => reseedDemoWorkspace()} type="button">
+                  Reseed demo data
+                </button>
+              ) : null}
               {activeSection === "account" ? (
                 <button className="btn-sm btn-sm-charcoal" onClick={() => setActiveSection("providers")} type="button">
                   + Edit Provider
@@ -4824,6 +5886,11 @@ function DashboardContent() {
                   </button>
                 </>
               ) : null}
+              {activeSection === "tools" ? (
+                <button className="btn-sm btn-sm-ghost" onClick={openPresetToolPicker} type="button">
+                  Presets
+                </button>
+              ) : null}
               {activeSection !== "dashboard" && activeSection !== "billing" ? (
                 <button
                   className="btn-sm btn-sm-primary"
@@ -4831,7 +5898,7 @@ function DashboardContent() {
                   type="button"
                 >
                   {activeSection === "account" || activeSection === "providers"
-                    ? "+ Add Account"
+                    ? "+ Add Logins"
                     : activeSection === "linked"
                       ? "+ Link AI Tool"
                       : "+ AI Tool"}
@@ -4839,6 +5906,69 @@ function DashboardContent() {
               ) : null}
             </div>
           </header>
+
+          {activeSection === "billing" && isPendingActionsExpanded && pendingBillingActions.length > 0 ? (
+            <section aria-label="Pending billing actions" className="pending-actions-panel">
+              <div className="pending-actions-panel-heading">
+                <strong>Pending actions</strong>
+                <span>Confirm the outcome without changing the original Billing History entry.</span>
+              </div>
+              <div className="pending-actions-list">
+                {pendingBillingActions.map(({ accountLabel, entry, recordKey, tool }) => {
+                  const isResolving = resolvingPendingActionId === entry.id;
+                  return (
+                    <article className="pending-action-row" key={`${recordKey}-${entry.id}`}>
+                      <div className="pending-action-copy">
+                        <div className="pending-action-title-row">
+                          <strong>{entry.event === "Double Charged" ? "Double charged" : entry.event}</strong>
+                          <span className="pending-action-status">Unresolved</span>
+                        </div>
+                        <span>
+                          {displayToolName(tool?.name ?? "Tool")} · {accountLabel} · {billingHistoryDisplayDate(entry.date)} · Original entry stays unchanged
+                        </span>
+                      </div>
+                      {isResolving ? (
+                        <div className="pending-action-resolution">
+                          {renderDropdown({
+                            ariaLabel: `Resolution outcome for ${displayToolName(tool?.name ?? "Tool")} ${accountLabel}`,
+                            className: "pending-action-outcome",
+                            id: `pending-action-outcome-${entry.id}`,
+                            onChange: (outcome) => setPendingResolutionOutcome(outcome as BillingHistoryEvent),
+                            options: pendingResolutionOptions(entry).map((outcome) => ({
+                              label: outcome,
+                              value: outcome,
+                            })),
+                            value: pendingResolutionOutcome,
+                          })}
+                          <DateFieldControl
+                            ariaLabel={`Resolution date for ${displayToolName(tool?.name ?? "Tool")} ${accountLabel}`}
+                            className="pending-action-date"
+                            onChange={setPendingResolutionDate}
+                            value={pendingResolutionDate}
+                          />
+                          <button
+                            className="btn-sm btn-sm-primary"
+                            disabled={!pendingResolutionDate}
+                            onClick={() => setPendingResolutionConfirmation({ entry, recordKey })}
+                            type="button"
+                          >
+                            Confirm
+                          </button>
+                          <button className="btn-sm btn-sm-ghost" onClick={() => setResolvingPendingActionId("")} type="button">
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button className="pending-action-resolve" onClick={() => startResolvingPendingAction(entry.id)} type="button">
+                          Resolve
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           {activeSection === "account" ? (
             <section className="account-page">
@@ -4947,7 +6077,7 @@ function DashboardContent() {
                       <strong>Your accounts list is empty</strong>
                       <span>
                         <button className="inline-text-link" onClick={openAddAccountModal} type="button">
-                          Add account
+                          + Add Logins
                         </button>{" "}
                         to start grouping your AI logins in one place.
                       </span>
@@ -5002,7 +6132,7 @@ function DashboardContent() {
                       <span>
                         Add one from{" "}
                         <button className="inline-text-link" onClick={openAddAccountModal} type="button">
-                          Add Account
+                          + Add Logins
                         </button>
                         .
                       </span>
@@ -5014,105 +6144,113 @@ function DashboardContent() {
           ) : activeSection === "settings" ? (
             <section className="account-page settings-page">
               <div className="settings-profile">
-                <section className="settings-section">
-                  <header>
-                    <h2>Profile</h2>
-                    <p>Manage your AI Subprise login.</p>
-                  </header>
-                  <form className="modal-form" onSubmit={saveNewPassword}>
-                    <label className="form-field">
-                      <span>Email</span>
-                      <input readOnly type="email" value={currentUserEmail || "Not signed in"} />
-                    </label>
-                    <label className="form-field">
-                      <span>New password</span>
-                      <input
-                        autoComplete="new-password"
-                        onChange={(event) => setNewPassword(event.target.value)}
-                        placeholder="Enter a new password"
-                        type="password"
-                        value={newPassword}
-                      />
-                    </label>
-                    {profileError ? (
-                      <div className="data-state-message error" role="alert">
-                        {profileError}
+                <div className="category-view-tab-list settings-tabs" role="tablist" aria-label="Settings sections">
+                  <button
+                    aria-selected={settingsTab === "profile"}
+                    className={settingsTab === "profile" ? "category-view-tab active" : "category-view-tab"}
+                    onClick={() => setSettingsTab("profile")}
+                    role="tab"
+                    type="button"
+                  >
+                    Profile
+                  </button>
+                  <button
+                    aria-selected={settingsTab === "preferences"}
+                    className={settingsTab === "preferences" ? "category-view-tab active" : "category-view-tab"}
+                    onClick={() => setSettingsTab("preferences")}
+                    role="tab"
+                    type="button"
+                  >
+                    Preferences
+                  </button>
+                </div>
+
+                {settingsTab === "profile" ? (
+                  <section className="settings-section settings-content-card settings-account-card" role="tabpanel">
+                    <header>
+                      <h2>Account</h2>
+                      <p>Manage your AI Subprise login.</p>
+                    </header>
+                    <form className="modal-form" onSubmit={saveNewPassword}>
+                      <label className="form-field">
+                        <span>Email</span>
+                        <input readOnly type="email" value={currentUserEmail || "Not signed in"} />
+                      </label>
+                      <label className="form-field">
+                        <span>New password</span>
+                        <input
+                          autoComplete="new-password"
+                          onChange={(event) => setNewPassword(event.target.value)}
+                          placeholder="Enter a new password"
+                          type="password"
+                          value={newPassword}
+                        />
+                      </label>
+                      {profileError ? <div className="data-state-message error" role="alert">{profileError}</div> : null}
+                      {profileMessage ? <div className="data-state-message" role="status">{profileMessage}</div> : null}
+                      <div className="welcome-modal-actions settings-profile-actions">
+                        <button className="quiet-danger-link" onClick={signOut} type="button">Sign out</button>
+                        <button className="btn-sm btn-sm-primary" disabled={isSavingProfile} type="submit">
+                          {isSavingProfile ? "Saving..." : "Change password"}
+                        </button>
                       </div>
-                    ) : null}
-                    {profileMessage ? (
-                      <div className="data-state-message" role="status">
-                        {profileMessage}
-                      </div>
-                    ) : null}
-                    <div className="welcome-modal-actions settings-profile-actions">
-                      <button className="quiet-danger-link" onClick={signOut} type="button">
-                        Sign out
-                      </button>
-                      <button className="btn-sm btn-sm-primary" disabled={isSavingProfile} type="submit">
-                        {isSavingProfile ? "Saving..." : "Change password"}
+                    </form>
+                  </section>
+                ) : (
+                  <section className="settings-section settings-content-card" role="tabpanel">
+                    <header>
+                      <h2>Notifications</h2>
+                      <p>Stay ahead of renewals and trials.</p>
+                    </header>
+                    <div className="settings-toggle-row">
+                      <span>Trial &amp; renewal reminders</span>
+                      <button
+                        aria-pressed={remindersEnabled}
+                        className={remindersEnabled ? "settings-toggle is-on" : "settings-toggle"}
+                        onClick={() => {
+                          const nextValue = !remindersEnabled;
+                          setRemindersEnabled(nextValue);
+                          window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
+                        }}
+                        type="button"
+                      >
+                        <span />
+                        {remindersEnabled ? "On" : "Off"}
                       </button>
                     </div>
-                  </form>
-                </section>
-
-                <section className="settings-section">
-                  <header>
-                    <h2>Preferences</h2>
-                    <p>App-wide defaults.</p>
-                  </header>
-                  <label className="form-field settings-compact-field">
-                    <span>Default currency</span>
-                    {renderDropdown({
-                      id: "settings-default-currency",
-                      onChange: (currency) => {
-                        const nextCurrency = normaliseCurrency(currency);
-                        setDefaultCurrency(nextCurrency);
-                        window.localStorage.setItem("ai-subprise-default-currency", nextCurrency);
-                      },
-                      options: currencyOptions,
-                      value: defaultCurrency,
-                    })}
-                  </label>
-                </section>
-
-                <section className="settings-section">
-                  <header>
-                    <h2>Notifications</h2>
-                    <p>Stay ahead of renewals and trials.</p>
-                  </header>
-                  <div className="settings-toggle-row">
-                    <span>Trial &amp; renewal reminders</span>
-                    <button
-                      aria-pressed={remindersEnabled}
-                      className={remindersEnabled ? "settings-toggle is-on" : "settings-toggle"}
-                      onClick={() => {
-                        const nextValue = !remindersEnabled;
-                        setRemindersEnabled(nextValue);
-                        window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
-                      }}
-                      type="button"
-                    >
-                      <span />
-                      {remindersEnabled ? "On" : "Off"}
-                    </button>
-                  </div>
-                  <label className="form-field settings-compact-field">
-                    <span>Remind me</span>
-                    {renderDropdown({
-                      id: "settings-reminder-days",
-                      onChange: (days) => {
-                        setReminderDays(days);
-                        window.localStorage.setItem("ai-subprise-reminder-days", days);
-                      },
-                      options: [3, 7, 14].map((days) => ({ label: `${days} days before`, value: String(days) })),
-                      value: reminderDays,
-                    })}
-                  </label>
-                </section>
+                    <label className="form-field settings-compact-field">
+                      <span>Remind me</span>
+                      {renderDropdown({
+                        id: "settings-reminder-days",
+                        onChange: (days) => {
+                          setReminderDays(days);
+                          window.localStorage.setItem("ai-subprise-reminder-days", days);
+                        },
+                        options: [3, 7, 14].map((days) => ({ label: `${days} days before`, value: String(days) })),
+                        value: reminderDays,
+                      })}
+                    </label>
+                  </section>
+                )}
               </div>
             </section>
           ) : activeSection === "dashboard" ? (
             <section className="dashboard-overview" aria-label="Dashboard summary">
+              {trialsNeedingConfirmation.length > 0 ? (
+                <aside className="trial-alert-banner trial-confirmation-banner" aria-label="Trials needing status confirmation">
+                  <div>
+                    <strong>{trialsNeedingConfirmation.length} {trialsNeedingConfirmation.length === 1 ? "trial needs" : "trials need"} confirmation</strong>
+                    <span>Confirm whether each ended trial became Paid or was not continued.</span>
+                  </div>
+                  <div className="trial-alert-list">
+                    {trialsNeedingConfirmation.slice(0, 3).map((trial) => (
+                      <span key={`${trial.tool.id}-${trial.accountLabel}`}>
+                        {trial.tool.name} · {trial.accountLabel} · Confirm status
+                      </span>
+                    ))}
+                  </div>
+                </aside>
+              ) : null}
               {trialsEndingSoon.length > 0 ? (
                 <aside className="trial-alert-banner" aria-label="Trials ending soon">
                   <div>
@@ -5153,6 +6291,7 @@ function DashboardContent() {
             </section>
           ) : (
             <>
+              {activeSection !== "billing" || !isPendingActionsExpanded || pendingBillingActions.length === 0 ? (
               <section className="table-section">
                 {activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist" || activeSection === "billing" ? (
                   <div className="table-controls">
@@ -5200,20 +6339,35 @@ function DashboardContent() {
                             ))}
                           </div>
                         )}
-                        <label className="search-box">
-                          <span className="search-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24">
-                              <circle cx="11" cy="11" r="6" />
-                              <path d="m16 16 4 4" />
-                            </svg>
-                          </span>
-                          <input
-                            onChange={(event) => setToolSearchQuery(event.target.value)}
-                            placeholder="search tool"
-                            type="search"
-                            value={toolSearchQuery}
-                          />
-                        </label>
+                        <div className="table-search-filter-group">
+                          {activeSection === "linked"
+                            ? renderDropdown({
+                                ariaLabel: "Filter linked tools by plan",
+                                className: "linked-plan-filter",
+                                id: "linked-plan-filter",
+                                onChange: (nextPlan) => setLinkedPlanFilter(nextPlan as LinkedPlanFilter),
+                                options: (["All", "Paid", "Trial", "Free"] as LinkedPlanFilter[]).map((plan) => ({
+                                  label: `Plan: ${plan}`,
+                                  value: plan,
+                                })),
+                                value: linkedPlanFilter,
+                              })
+                            : null}
+                          <label className="search-box">
+                            <span className="search-icon" aria-hidden="true">
+                              <svg viewBox="0 0 24 24">
+                                <circle cx="11" cy="11" r="6" />
+                                <path d="m16 16 4 4" />
+                              </svg>
+                            </span>
+                            <input
+                              onChange={(event) => setToolSearchQuery(event.target.value)}
+                              placeholder="search tool"
+                              type="search"
+                              value={toolSearchQuery}
+                            />
+                          </label>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -5270,8 +6424,8 @@ function DashboardContent() {
                         <span>Tool Name</span>
                         <span>Account</span>
                         <span>Plan Name</span>
-                        <span>Billing Type</span>
                         <span>Amount</span>
+                        <span>Billing Type</span>
                         <span>Next Charge</span>
                         <span>Action</span>
                       </div>
@@ -5283,12 +6437,44 @@ function DashboardContent() {
                       ) : billingRows.length > 0 ? (
                         billingRows.map((row, rowIndex) => {
                           const previousRow = billingRows[rowIndex - 1];
-                          const isContinuation = Boolean(
+                          const nextRow = billingRows[rowIndex + 1];
+                          const monthLabel = billingMonthLabel(row.nextChargeDate);
+                          const previousMonthLabel = previousRow ? billingMonthLabel(previousRow.nextChargeDate) : "";
+                          const nextMonthLabel = nextRow ? billingMonthLabel(nextRow.nextChargeDate) : "";
+                          const showMonthHeader = selectedBillingView === "Month" && monthLabel !== previousMonthLabel;
+                          const isToolContinuation = Boolean(
                             previousRow &&
+                            !showMonthHeader &&
                             previousRow.tool.id === row.tool.id &&
                             previousRow.accountLabel === row.accountLabel,
                           );
-                          return renderBillingRow(row, isContinuation);
+                          const isAccountContinuation = Boolean(
+                            isToolContinuation && previousRow?.accountLabel === row.accountLabel,
+                          );
+                          const matchesPlanGroup = (candidate: typeof row | undefined) => Boolean(
+                            candidate &&
+                            candidate.tool.id === row.tool.id &&
+                            candidate.accountLabel === row.accountLabel &&
+                            candidate.planName === row.planName,
+                          );
+                          const isPlanContinuation = !showMonthHeader && matchesPlanGroup(previousRow);
+                          const isPlanGroupStart = matchesPlanGroup(nextRow) &&
+                            (selectedBillingView !== "Month" || monthLabel === nextMonthLabel);
+                          const isPlanGrouped = isPlanContinuation || isPlanGroupStart;
+                          const isPlanGroupEnd = isPlanGrouped && !matchesPlanGroup(nextRow);
+                          return (
+                            <Fragment key={row.id}>
+                              {showMonthHeader ? <div className="billing-month-row-header">{monthLabel}</div> : null}
+                              {renderBillingRow(row, {
+                                isAccountContinuation,
+                                isPlanGroupEnd,
+                                isPlanGrouped,
+                                isPlanContinuation,
+                                isPlanGroupStart: isPlanGroupStart && !isPlanContinuation,
+                                isToolContinuation,
+                              })}
+                            </Fragment>
+                          );
                         })
                       ) : (
                         <div className="empty-state tool-onboarding-empty">
@@ -5329,56 +6515,35 @@ function DashboardContent() {
                             <span>Tool Name</span>
                             <span>Category</span>
                             <span>URL</span>
-                            <span aria-label="Watchlist" className="tool-head-icon">
-                              <svg aria-hidden="true" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8"><path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" /><circle cx="12" cy="12" r="2.2" /></g></svg>
-                            </span>
+                            <span>Watchlist</span>
                             <span>Action</span>
                           </>
                         )}
                       </div>
                       {groupedToolCategories.length > 0 ? (
-                        groupedToolCategories.map((group) => (
-                          <Fragment key={group.category}>
-                            <div className="tool-category-row-header">
-                              <span className="category-row-label">
-                                <span>{group.category}</span>
-                                <span>{group.tools.length}</span>
-                              </span>
-                              {group.tools.length > 0 ? (
-                                <button
-                                  onClick={() => {
-                                    const groupToolIds = group.tools.map((tool) => tool.id);
-                                    const areAllGroupToolsSelected = groupToolIds.every((toolId) => selectedToolIds.includes(toolId));
-                                    setSelectedToolIds((currentIds) => {
-                                      const groupIds = new Set(groupToolIds);
-                                      if (areAllGroupToolsSelected) {
-                                        return currentIds.filter((toolId) => !groupIds.has(toolId));
-                                      }
-
-                                      return Array.from(new Set([...currentIds, ...groupToolIds]));
-                                    });
-                                  }}
-                                  type="button"
-                                >
-                                  Select all
-                                </button>
+                        activeSection === "tools" ? (
+                          toolboxClusterGroups.map((cluster) => (
+                            <Fragment key={cluster.id}>
+                              <div className="tool-cluster-row-header">{cluster.label}</div>
+                              {cluster.groups.map((group) => renderToolCategoryGroup(group))}
+                            </Fragment>
+                          ))
+                        ) : (
+                          groupedToolCategories.map((group) => (
+                            <Fragment key={group.category}>
+                              {renderToolCategoryGroup(group)}
+                              {group.tools.length === 0 ? (
+                                <div className="empty-state compact-empty category-empty-state">
+                                  <span className="plain-empty-copy">
+                                    {activeSection === "watchlist"
+                                      ? `Nothing on your ${group.category} radar yet`
+                                      : "No linked tools yet"}
+                                  </span>
+                                </div>
                               ) : null}
-                            </div>
-                            {group.tools.length > 0 ? (
-                              group.tools.map((tool) => renderToolRow(tool))
-                            ) : (
-                              <div className="empty-state compact-empty category-empty-state">
-                                <span className="plain-empty-copy">
-                                  {activeSection === "watchlist"
-                                    ? `Nothing on your ${group.category} radar yet`
-                                    : activeSection === "linked"
-                                      ? "No linked tools yet"
-                                      : `No tools on your ${group.category} yet`}
-                                </span>
-                              </div>
-                            )}
-                          </Fragment>
-                        ))
+                            </Fragment>
+                          ))
+                        )
                       ) : (
                         <div className="empty-state tool-onboarding-empty">
                           <strong>{toolboxEmptyState.title}</strong>
@@ -5460,14 +6625,7 @@ function DashboardContent() {
                             <span>Tool Name</span>
                             <span>Category</span>
                           <span>URL</span>
-                          <span aria-label="Watchlist" className="tool-head-icon">
-                            <svg aria-hidden="true" viewBox="0 0 24 24">
-                              <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
-                                <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
-                                <circle cx="12" cy="12" r="2.2" />
-                              </g>
-                            </svg>
-                          </span>
+                          <span>Watchlist</span>
                           <span>Action</span>
                           </>
                         )}
@@ -5521,10 +6679,90 @@ function DashboardContent() {
                   )}
                 </div>
               </section>
+              ) : null}
             </>
           )}
         </section>
       </div>
+
+      {billingHistoryTarget ? (
+        <div
+          className="billing-history-backdrop"
+          onClick={() => setBillingHistoryTarget(null)}
+          role="presentation"
+        >
+          <aside
+            aria-label="Billing History"
+            className="billing-history-panel"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="billing-history-panel-actions">
+              <button
+                aria-label="Close billing history"
+                className="modal-close-button"
+                onClick={() => setBillingHistoryTarget(null)}
+                type="button"
+              >
+                x
+              </button>
+            </div>
+            <h2 className="billing-history-heading">Billing History</h2>
+            <h3 className="billing-history-tool-heading">{billingHistoryToolName}</h3>
+            <div className="billing-history-sections">
+              {billingHistorySections.map((section) => {
+                const recordKey = `${billingHistoryTarget.toolId}::${section.accountLabel}`;
+                return (
+                  <section className="billing-history-account-section" key={section.accountLabel}>
+                    <p className="billing-history-account-context">
+                      {section.accountLabel}{section.planName ? ` · ${section.planName}` : ""}
+                    </p>
+                    <div className="billing-history-table-wrap">
+                      <table className="billing-history-table">
+                        <thead>
+                          <tr>
+                            <th scope="col">Date</th>
+                            <th scope="col">Plan Name</th>
+                            <th scope="col">Billing Type</th>
+                            <th scope="col">Status</th>
+                            <th scope="col">Amount</th>
+                            <th scope="col">Note</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {section.entries.map((entry) => (
+                            <tr key={entry.id}>
+                              <td>{billingHistoryDisplayDate(entry.date)}</td>
+                              <td>{entry.planName || section.planName || "—"}</td>
+                              <td>{entry.billingType || "—"}</td>
+                              <td>{entry.event}</td>
+                              <td>{billingHistoryDisplayAmount(entry)}</td>
+                              <td>
+                                <span className="billing-history-note-editor">
+                                  <input
+                                    aria-label={`Note for ${entry.event}`}
+                                    className="billing-history-note-input"
+                                    onChange={(event) => updateBillingHistoryNote(recordKey, entry, event.target.value)}
+                                    placeholder="Add note"
+                                    type="text"
+                                    value={entry.note ?? ""}
+                                  />
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                          {section.entries.length === 0 ? (
+                            <tr><td className="billing-history-empty" colSpan={6}>No billing history yet.</td></tr>
+                          ) : null}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       {showCreateAccountModal && (
         <div className="welcome-modal-overlay" role="presentation">
@@ -5539,7 +6777,7 @@ function DashboardContent() {
                 Not now
               </button>
               <button className="btn-sm btn-sm-primary" onClick={openAccountSetup} type="button">
-                Go to My Account
+                Go to Logins
               </button>
             </div>
           </section>
@@ -5684,32 +6922,25 @@ function DashboardContent() {
       )}
 
       {showEditCategoryModal && (
-        <div className="welcome-modal-overlay" role="presentation">
+        <div
+          className="welcome-modal-overlay"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) requestCloseEditCategoryModal();
+          }}
+          role="presentation"
+        >
           <section
             aria-labelledby="edit-category-modal-title"
             aria-modal="true"
             className={
               categoryDeleteWarning
                 ? "welcome-modal compact-copy-modal delete-account-modal category-delete-danger-modal"
+                : categoryDiscardWarning
+                  ? "welcome-modal compact-copy-modal delete-account-modal category-discard-warning-modal"
                 : "welcome-modal compact-copy-modal"
             }
             role="dialog"
           >
-            <button
-              aria-label="Close edit category modal"
-              className="modal-close-button"
-              onClick={() => {
-                if (categoryDeleteWarning) {
-                  setCategoryDeleteWarning(null);
-                  return;
-                }
-
-                persistCategoryDrafts(categoryDrafts, { closeModal: true });
-              }}
-              type="button"
-            >
-              x
-            </button>
             {categoryDeleteWarning ? (
               <div className="category-delete-confirmation">
                 <div className="delete-account-icon" aria-hidden="true">
@@ -5734,6 +6965,26 @@ function DashboardContent() {
                   </button>
                   <button className="btn-sm btn-sm-danger" onClick={confirmCategoryDraftDelete} type="button">
                     Delete category
+                  </button>
+                </div>
+              </div>
+            ) : categoryDiscardWarning ? (
+              <div className="category-delete-confirmation">
+                <div className="delete-account-icon category-discard-warning-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M12 3 2.8 19h18.4L12 3Z" />
+                    <path d="M12 9v4.5" />
+                    <path d="M12 17h.01" />
+                  </svg>
+                </div>
+                <h2 id="edit-category-modal-title">Discard unsaved changes?</h2>
+                <p>Your category changes have not been saved.</p>
+                <div className="welcome-modal-actions category-delete-confirmation-actions category-discard-actions">
+                  <button className="btn-sm btn-sm-ghost" onClick={() => setCategoryDiscardWarning(false)} type="button">
+                    Keep Editing
+                  </button>
+                  <button className="btn-sm btn-sm-danger" onClick={discardCategoryDrafts} type="button">
+                    Discard &amp; Close
                   </button>
                 </div>
               </div>
@@ -5809,11 +7060,16 @@ function DashboardContent() {
                         type="text"
                         value={newCategoryName}
                       />
-                      <button className="btn-sm btn-sm-primary" onClick={addCategoryDraft} type="button">
+                      <button className="btn-sm btn-sm-charcoal" onClick={addCategoryDraft} type="button">
                         Add
                       </button>
                     </div>
                   </label>
+                  <div className="welcome-modal-actions category-save-actions">
+                    <button className="btn-sm btn-sm-primary" type="submit">
+                      Save &amp; Close
+                    </button>
+                  </div>
                 </form>
               </>
             )}
@@ -5905,13 +7161,55 @@ function DashboardContent() {
         </div>
       ) : null}
 
+      {pendingResolutionConfirmation ? (
+        <div className="welcome-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="pending-resolution-confirmation-title"
+            aria-modal="true"
+            className="welcome-modal pending-resolution-confirmation-modal"
+            role="dialog"
+          >
+            <h2 id="pending-resolution-confirmation-title">
+              Mark as {pendingResolutionOutcome}, dated {billingHistoryDisplayDate(pendingResolutionDate)}?
+            </h2>
+            <p>
+              This will add a new entry to Billing History. The original {pendingResolutionConfirmation.entry.event} entry will stay unchanged.
+            </p>
+            <div className="welcome-modal-actions">
+              <button
+                className="btn-sm btn-sm-ghost"
+                onClick={() => setPendingResolutionConfirmation(null)}
+                type="button"
+              >
+                Go back
+              </button>
+              <button
+                className="btn-sm btn-sm-primary"
+                onClick={() => confirmPendingActionResolution(
+                  pendingResolutionConfirmation.recordKey,
+                  pendingResolutionConfirmation.entry,
+                )}
+                type="button"
+              >
+                Confirm
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {confirmToolStateChange ? (
         <div className="welcome-modal-overlay" role="presentation">
           <section
             aria-labelledby="tool-state-confirm-modal-title"
             aria-modal="true"
-            className="welcome-modal"
+            className={
+              confirmToolStateChange.action === "unwatchlist"
+                ? "welcome-modal delete-account-modal watchlist-removal-modal"
+                : "welcome-modal delete-account-modal"
+            }
             role="dialog"
+            style={confirmToolStateChange.action === "unwatchlist" ? { border: "none" } : undefined}
           >
             <button
               aria-label="Close confirmation modal"
@@ -5922,13 +7220,11 @@ function DashboardContent() {
               x
             </button>
             <h2 id="tool-state-confirm-modal-title">
-              {confirmToolStateChange.action === "unfavorite" ? "Remove from Favourites?" : "Unarchive Tool?"}
+              {confirmToolStateChange.action === "unwatchlist" ? "Remove from Watchlist?" : "Unarchive Tool?"}
             </h2>
             <p>
-              {confirmToolStateChange.action === "unfavorite" ? (
-                <>
-                  <strong>{confirmToolStateChange.tool.name}</strong> will no longer appear on your Favourites page.
-                </>
+              {confirmToolStateChange.action === "unwatchlist" ? (
+                <>You can still find this tool in AI Toolbox.</>
               ) : (
                 <>
                   <strong>{confirmToolStateChange.tool.name}</strong> will return to AI Toolbox.
@@ -5940,7 +7236,7 @@ function DashboardContent() {
                 Cancel
               </button>
               <button className="btn-sm btn-sm-primary" onClick={confirmPendingToolStateChange} type="button">
-                {confirmToolStateChange.action === "unfavorite" ? "Remove" : "Unarchive"}
+                {confirmToolStateChange.action === "unwatchlist" ? "Confirm" : "Unarchive"}
               </button>
             </div>
           </section>
@@ -6148,7 +7444,7 @@ function DashboardContent() {
                   </button>
                 ) : null}
                 <button className="btn-sm btn-sm-primary" disabled={isSavingAccount} type="submit">
-                  {isSavingAccount ? "Saving..." : editingAccount ? "Save changes" : "Save account"}
+                  {isSavingAccount ? "Saving..." : editingAccount ? "Save changes" : "Save"}
                 </button>
               </div>
             </form>
@@ -6158,9 +7454,128 @@ function DashboardContent() {
 
       {accountToast ? (
         <div className="app-toast app-toast-success" role="status">
-          {accountToast}
+          <span aria-hidden="true" className="toast-success-check">✓</span>
+          <span>{accountToast.replace(/^✅\s*/, "")}</span>
         </div>
       ) : null}
+
+      {showPresetToolPicker && (
+        <div className="welcome-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="preset-tool-picker-title"
+            aria-modal="true"
+            className="welcome-modal preset-tool-picker-modal"
+            role="dialog"
+          >
+            <button
+              aria-label="Close tool suggestions"
+              className="modal-close-button"
+              onClick={() => setShowPresetToolPicker(false)}
+              type="button"
+            >
+              x
+            </button>
+            <h2 id="preset-tool-picker-title">Add AI tools</h2>
+            <p>Choose as many as you use. Added tools stay visible so you can keep browsing.</p>
+            <div className="preset-tool-picker-filter">
+              <span>
+                {showAllPresetCategories
+                  ? "Showing all categories"
+                  : `Showing categories from ${selectedRole === "Custom" ? "your selection" : selectedRole}`}
+              </span>
+              <button
+                aria-pressed={showAllPresetCategories}
+                className={showAllPresetCategories ? "btn-sm btn-sm-charcoal" : "btn-sm btn-sm-ghost"}
+                onClick={() => setShowAllPresetCategories((showAll) => !showAll)}
+                type="button"
+              >
+                {showAllPresetCategories ? "Show selected categories" : "Show all categories"}
+              </button>
+            </div>
+            <div className="preset-tool-picker-content">
+              {toolboxPresets.clusters.map((cluster) => {
+                const categories = cluster.categories
+                  .map((categoryId) => presetCategoryById.get(categoryId))
+                  .filter((category): category is ToolboxPresetCategory => Boolean(category))
+                  .filter(
+                    (category) =>
+                      showAllPresetCategories ||
+                      (workspaceCategories.length > 0
+                        ? workspaceCategories.includes(category.label)
+                        : selectedRoleCategories.includes(category.label)),
+                  );
+                if (categories.length === 0) return null;
+
+                return (
+                  <section className="preset-tool-cluster" key={cluster.id}>
+                    <h3>{cluster.label}</h3>
+                    {categories.map((category) => {
+                      const renderPresetPill = (presetName: string) => {
+                        const isAdded = toolList.some(
+                          (tool) => tool.name.trim().toLowerCase() === presetName.trim().toLowerCase(),
+                        );
+                        return (
+                          <button
+                            aria-label={`${isAdded ? "Added" : "Add"} ${presetName}`}
+                            className={isAdded ? "preset-tool-pill is-added" : "preset-tool-pill"}
+                            disabled={isAdded || isSavingTool}
+                            key={`${category.id}-${presetName}`}
+                            onClick={() => void addPresetTool(presetName, category.label)}
+                            type="button"
+                          >
+                            <span aria-hidden="true">{isAdded ? "✓" : "+"}</span>
+                            {presetName}
+                          </button>
+                        );
+                      };
+                      const categoryTools = category.tools ?? [];
+                      const isExpanded = expandedPresetCategories.includes(category.id);
+                      const visibleCategoryTools = isExpanded ? categoryTools : categoryTools.slice(0, 8);
+
+                      return (
+                        <div className="preset-tool-category" key={category.id}>
+                          <h4>{category.label}</h4>
+                          {category.subgroups ? (
+                            category.subgroups.map((subgroup) => (
+                              <div className="preset-tool-subgroup" key={`${category.id}-${subgroup.label}`}>
+                                <span>{subgroup.label}</span>
+                                <div className="preset-tool-pills">{subgroup.tools.map(renderPresetPill)}</div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="preset-tool-pills">
+                              {visibleCategoryTools.map(renderPresetPill)}
+                              {categoryTools.length === 0 ? (
+                                <span className="preset-tool-empty">No preset tools yet</span>
+                              ) : null}
+                              {!isExpanded && categoryTools.length > 8 ? (
+                                <button
+                                  className="preset-tool-pill preset-tool-more"
+                                  onClick={() =>
+                                    setExpandedPresetCategories((currentCategories) => [...currentCategories, category.id])
+                                  }
+                                  type="button"
+                                >
+                                  +{categoryTools.length - 8} more
+                                </button>
+                              ) : null}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </section>
+                );
+              })}
+            </div>
+            <div className="welcome-modal-actions preset-tool-picker-actions">
+              <button className="btn-sm btn-sm-primary" onClick={() => setShowPresetToolPicker(false)} type="button">
+                Done
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {showAddToolModal && (
         <div className="welcome-modal-overlay" role="presentation">
@@ -6301,11 +7716,11 @@ function DashboardContent() {
               <label className="form-field">
                 <span>Tool</span>
                 {isLinkToolLocked && selectedLinkTool ? (
-                  <div className="link-tool-locked-field">
+                  <div className="link-tool-locked-field modal-tool-identity">
                     <span className="tool-avatar" style={{ background: selectedLinkTool.logoBg }}>
                       {toolInitials(selectedLinkTool.name)}
                     </span>
-                    <span>{displayToolName(selectedLinkTool.name)}</span>
+                    <span className="modal-tool-name">{displayToolName(selectedLinkTool.name)}</span>
                   </div>
                 ) : (
                   <div
@@ -6423,10 +7838,13 @@ function DashboardContent() {
                           </button>
                         ) : null}
                       </div>
-                      <div className="link-account-row">
+                      <div className="link-account-layout">
                         <div className="form-field link-account-field">
                           {renderDropdown({
-                            className: "modal-dropdown",
+                            className:
+                              hasSubmittedLinkToolForm && !block.accountLabel
+                                ? "modal-dropdown has-field-error"
+                                : "modal-dropdown",
                             id: `link-tool-account-${block.id}`,
                             onChange: (nextAccountLabel) =>
                               setLinkToolAccountBlocks((currentBlocks) =>
@@ -6449,43 +7867,86 @@ function DashboardContent() {
                             <small className="field-feedback error">Already linked to this account</small>
                           ) : isDuplicateInSubmission ? (
                             <small className="field-feedback error">This account is already selected above</small>
+                          ) : hasSubmittedLinkToolForm && !block.accountLabel ? (
+                            <small className="field-feedback error">Select an account</small>
                           ) : null}
                         </div>
-                        <div className="form-field link-plan-field">
-                          {blockIndex === 0 ? <span>Plan</span> : null}
-                          {renderPlanSelector(
-                            block.plan,
-                            (nextPlan) =>
-                              setLinkToolAccountBlocks((currentBlocks) =>
-                                currentBlocks.map((currentBlock) =>
-                                  currentBlock.id === block.id
-                                    ? { ...currentBlock, plan: nextPlan }
-                                    : currentBlock,
+                        <div className="link-account-plan-billing-row">
+                          <div className="form-field link-plan-field">
+                            <span>Plan</span>
+                            {renderPlanSelector(
+                              block.plan,
+                              (nextPlan) =>
+                                setLinkToolAccountBlocks((currentBlocks) =>
+                                  currentBlocks.map((currentBlock) =>
+                                    currentBlock.id === block.id
+                                      ? { ...currentBlock, plan: nextPlan }
+                                      : currentBlock,
+                                  ),
                                 ),
-                              ),
-                            selectedLinkTool,
-                          )}
+                              selectedLinkTool,
+                            )}
+                          </div>
+                          {block.plan === "Active" ? (
+                            <label className="form-field link-account-paid-billing">
+                              <span>Billing type</span>
+                              {renderMultiSelectDropdown({
+                                className: "modal-dropdown",
+                                id: `link-tool-billing-type-${block.id}`,
+                                onChange: (nextBillingTypes) =>
+                                  setLinkToolAccountBlocks((currentBlocks) =>
+                                    currentBlocks.map((currentBlock) =>
+                                      currentBlock.id === block.id
+                                        ? { ...currentBlock, billingType: nextBillingTypes.join(", ") }
+                                        : currentBlock,
+                                    ),
+                                  ),
+                                options: linkBillingTypeOptions,
+                                placeholder: "Select billing type",
+                                toggleSelection: toggleBillingTypeSelection,
+                                values: block.billingType ? block.billingType.split(", ") : [],
+                              })}
+                            </label>
+                          ) : null}
+                          {block.plan === "Trial" ? (
+                            <label className="form-field link-account-trial-date">
+                              <span>Trial end date</span>
+                              <DateFieldControl
+                                ariaLabel="Trial end date"
+                                onChange={(trialExpiryDate) =>
+                                  setLinkToolAccountBlocks((currentBlocks) =>
+                                    currentBlocks.map((currentBlock) =>
+                                      currentBlock.id === block.id
+                                        ? { ...currentBlock, trialExpiryDate }
+                                        : currentBlock,
+                                    ),
+                                  )
+                                }
+                                value={block.trialExpiryDate}
+                              />
+                            </label>
+                          ) : null}
                         </div>
+                        {block.plan === "Active" ? (
+                            <label className="form-field link-account-paid-plan-name">
+                              <span>Plan Name</span>
+                              <input
+                                onChange={(event) =>
+                                  setLinkToolAccountBlocks((currentBlocks) =>
+                                    currentBlocks.map((currentBlock) =>
+                                      currentBlock.id === block.id
+                                        ? { ...currentBlock, planName: formatNickname(event.target.value) }
+                                        : currentBlock,
+                                    ),
+                                  )
+                                }
+                                placeholder="Basic, Plus, Pro, Team, Business, Pay as you go..."
+                                type="text"
+                                value={block.planName}
+                              />
+                            </label>
+                        ) : null}
                       </div>
-                      {block.plan === "Active" ? (
-                        <label className="form-field">
-                          <span>Plan Name</span>
-                          <input
-                            onChange={(event) =>
-                              setLinkToolAccountBlocks((currentBlocks) =>
-                                currentBlocks.map((currentBlock) =>
-                                  currentBlock.id === block.id
-                                    ? { ...currentBlock, planName: formatNickname(event.target.value) }
-                                    : currentBlock,
-                                ),
-                              )
-                            }
-                            placeholder="Basic, Plus, Pro, Team, Business, Enterprise, Pay as you go..."
-                            type="text"
-                            value={block.planName}
-                          />
-                        </label>
-                      ) : null}
                     </div>
                   );
                 })}
@@ -6498,9 +7959,11 @@ function DashboardContent() {
                       ...currentBlocks,
                       {
                         accountLabel: "",
+                        billingType: "Monthly",
                         id: `link-account-${Date.now().toString(36)}-${currentBlocks.length + 1}`,
-                        plan: "Free Tier",
+                        plan: defaultLinkPlanForTool(selectedLinkTool),
                         planName: "",
+                        trialExpiryDate: "",
                       },
                     ])
                   }
@@ -6512,7 +7975,12 @@ function DashboardContent() {
               <div className="welcome-modal-actions">
                 <button
                   className="btn-sm btn-sm-primary"
-                  disabled={isLinkToolSubmitBlocked}
+                  disabled={
+                    !linkToolId ||
+                    linkToolAccountBlocks.some((block) => !isPlanAllowedForTool(selectedLinkTool, block.plan)) ||
+                    linkToolAccountBlocks.some((block) => Boolean(block.accountLabel && selectedLinkTool?.accounts.includes(block.accountLabel))) ||
+                    duplicateLinkAccountLabels.length > 0
+                  }
                   type="submit"
                 >
                   Save
@@ -6525,7 +7993,143 @@ function DashboardContent() {
 
       {managingLink && managedTool ? (
         <div className="welcome-modal-overlay" role="presentation">
+          <section aria-labelledby="tool-detail-modal-title" aria-modal="true" className="welcome-modal tool-detail-modal" role="dialog">
+            <button
+              aria-label="Archive AI tool"
+              className="modal-tool-action-button modal-tool-archive-button"
+              onClick={archiveManagedLinkTool}
+              type="button"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24"><ArchiveBoxIconPaths /></svg>
+            </button>
+            <button aria-label="Close tool detail modal" className="modal-close-button" onClick={closeManageAccountModal} type="button">x</button>
+            <h2 id="tool-detail-modal-title">Tool Detail</h2>
+            <div className="modal-tool-identity manage-modal-tool-identity">
+              <span className="tool-avatar" style={{ background: managedTool.logoBg }}>{toolInitials(managedTool.name)}</span>
+              <span className="modal-tool-name">{displayToolName(managedTool.name)}</span>
+            </div>
+            <div className="tool-detail-account-grid">
+              {orderedToolDetailDrafts.map((draft) => (
+                <form
+                  className="tool-detail-account-block"
+                  data-tool-detail-account={draft.accountLabel}
+                  key={draft.accountLabel}
+                  onSubmit={(event) => { event.preventDefault(); saveToolDetailAccount(managedTool, draft); }}
+                >
+                  <div className="tool-detail-account-heading">
+                    <span className={`email-tag ${accountTag(draft.accountLabel, accountList)}`}><span className="tag-dot" />{draft.accountLabel}</span>
+                  </div>
+                  <div className="form-field">
+                    <span>Plan</span>
+                    {renderPlanSelector(draft.plan, (nextPlan) => {
+                      if (!nextPlan) return;
+                      updateToolDetailDraft(draft.accountLabel, { plan: nextPlan });
+                    }, managedTool)}
+                  </div>
+
+                  {draft.plan === "Trial" ? (
+                    <label className="form-field">
+                      <span>Trial end date</span>
+                      <DateFieldControl ariaLabel="Trial end date" onChange={(trialExpiryDate) => updateToolDetailDraft(draft.accountLabel, { trialExpiryDate })} value={draft.trialExpiryDate} />
+                    </label>
+                  ) : null}
+
+                  {draft.plan === "Active" ? (
+                    <>
+                      <label className="form-field">
+                        <span>Plan Name</span>
+                        <input onChange={(event) => updateToolDetailDraft(draft.accountLabel, { planName: formatNickname(event.target.value) })} placeholder="Basic, Plus, Pro, Team, Business..." type="text" value={draft.planName} />
+                      </label>
+                      <label className="form-field">
+                        <span>Billing Type</span>
+                        {renderMultiSelectDropdown({
+                          className: "modal-dropdown",
+                          id: `detail-billing-${managedTool.id}-${draft.accountLabel}`,
+                          onChange: (nextBillingTypes) => updateToolDetailDraft(draft.accountLabel, {
+                            billingType: nextBillingTypes.join(", "),
+                            billingAmounts: nextBillingTypes.map((billingType) =>
+                              draft.billingAmounts.find((entry) => entry.billingType === billingType) ?? {
+                                amount: "",
+                                billingType,
+                                currency: defaultCurrency,
+                                id: billingAmountId(),
+                              }),
+                          }),
+                          options: billingTypeOptions,
+                          placeholder: "Select billing type",
+                          toggleSelection: toggleBillingTypeSelection,
+                          values: draft.billingType ? draft.billingType.split(", ") : [],
+                        })}
+                      </label>
+                      {draft.billingAmounts.map((billingAmount) => (
+                        <label className="form-field" key={billingAmount.billingType}>
+                          <span>Amount - {billingAmount.billingType}</span>
+                          <span className="billing-amount-field modal-amount-field managed-amount-field">
+                            {renderDropdown({
+                              ariaLabel: `${draft.accountLabel} ${billingAmount.billingType} currency`,
+                              className: "billing-currency-dropdown",
+                              id: `detail-currency-${managedTool.id}-${draft.accountLabel}-${billingAmount.billingType}`,
+                              onChange: (currency) => updateToolDetailDraft(draft.accountLabel, {
+                                billingAmounts: draft.billingAmounts.map((entry) => entry.billingType === billingAmount.billingType ? { ...entry, currency } : entry),
+                              }),
+                              options: currencyOptions,
+                              value: billingAmount.currency,
+                            })}
+                            <input inputMode="decimal" onChange={(event) => updateToolDetailDraft(draft.accountLabel, {
+                              billingAmounts: draft.billingAmounts.map((entry) => entry.billingType === billingAmount.billingType ? { ...entry, amount: event.target.value } : entry),
+                            })} placeholder="0.00" step="0.01" type="number" value={billingAmount.amount} />
+                          </span>
+                        </label>
+                      ))}
+                      <label className="form-field">
+                        <span>Next Charge</span>
+                        <DateFieldControl ariaLabel="Next charge date" onChange={(nextChargeDate) => updateToolDetailDraft(draft.accountLabel, { nextChargeDate })} value={draft.nextChargeDate} />
+                      </label>
+                      <label className="form-field">
+                        <span>Status</span>
+                        {renderDropdown({
+                          className: "modal-dropdown",
+                          id: `detail-status-${managedTool.id}-${draft.accountLabel}`,
+                          onChange: (status) => updateToolDetailDraft(draft.accountLabel, { status: status as ManageStatus }),
+                          options: (["Active", "On a Break", "Goodbye"] as ManageStatus[]).map((status) => ({ label: status, value: status })),
+                          value: draft.status,
+                        })}
+                      </label>
+                    </>
+                  ) : null}
+
+                  <div className="welcome-modal-actions manage-modal-actions tool-detail-account-actions">
+                    <button className="quiet-danger-link" onClick={async () => {
+                      await removeLinkedAccount(managedTool.id, draft.accountLabel);
+                      if (orderedToolDetailDrafts.length === 1) closeManageAccountModal();
+                      else setToolDetailDrafts((current) => { const next = { ...current }; delete next[draft.accountLabel]; return next; });
+                    }} type="button">Unlink this account</button>
+                    <button className="btn-sm btn-sm-primary" type="submit">Save</button>
+                  </div>
+                </form>
+              ))}
+            </div>
+            <button className="inline-text-link tool-detail-add-account" onClick={() => {
+              closeManageAccountModal();
+              openLinkToolModal(managedTool);
+            }} type="button">+ Add another account</button>
+          </section>
+        </div>
+      ) : null}
+
+      {false && managingLink && managedTool ? (
+        <div className="welcome-modal-overlay" role="presentation">
           <section aria-labelledby="manage-account-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
+            <button
+              aria-label="Archive AI tool"
+              className="modal-tool-action-button modal-tool-archive-button"
+              onClick={archiveManagedLinkTool}
+              type="button"
+            >
+              <svg aria-hidden="true" viewBox="0 0 24 24">
+                <ArchiveBoxIconPaths />
+              </svg>
+            </button>
             <button
               aria-label="Close manage account modal"
               className="modal-close-button"
@@ -6534,8 +8138,13 @@ function DashboardContent() {
             >
               x
             </button>
-            <h2 id="manage-account-modal-title">Edit Link</h2>
-            <p>{managedTool.name}</p>
+            <h2 id="manage-account-modal-title">Edit</h2>
+            <div className="modal-tool-identity manage-modal-tool-identity">
+              <span className="tool-avatar" style={{ background: managedTool!.logoBg }}>
+                {toolInitials(managedTool!.name)}
+              </span>
+              <span className="modal-tool-name">{displayToolName(managedTool!.name)}</span>
+            </div>
             <form className="modal-form" onSubmit={saveManagedAccount}>
               <label className="form-field manage-account-field">
                 <span>Account</span>
@@ -6558,7 +8167,11 @@ function DashboardContent() {
                   className: "modal-dropdown",
                   id: "manage-plan",
                   onChange: (nextPlan) => setManagedPlan(nextPlan as ToolStatus),
-                  options: planStatusOptions,
+                  options: planStatusOptionsForTool(managedTool ?? undefined),
+                  selectedLabel:
+                    managedTool && !isPlanAllowedForTool(managedTool!, managedPlan)
+                      ? notPaidPlanLabelForTool(managedTool ?? undefined)
+                      : undefined,
                   value: managedPlan,
                 })}
               </label>
@@ -6587,12 +8200,14 @@ function DashboardContent() {
                               amount: "",
                               billingType,
                               currency: defaultCurrency,
+                              id: billingAmountId(),
                             },
                           ),
                         );
                       },
                       options: billingTypeOptions,
                       placeholder: "Select billing type",
+                      toggleSelection: toggleBillingTypeSelection,
                       values: managedBillingType ? managedBillingType.split(", ") : [],
                     })}
                   </label>
@@ -6626,11 +8241,7 @@ function DashboardContent() {
                   ))}
                   <label className="form-field">
                     <span>Next charge</span>
-                    <input
-                      onChange={(event) => setManagedNextChargeDate(event.target.value)}
-                      type="date"
-                      value={managedNextChargeDate}
-                    />
+                    <DateFieldControl ariaLabel="Next charge date" onChange={setManagedNextChargeDate} value={managedNextChargeDate} />
                   </label>
                 </div>
               ) : null}
@@ -6639,11 +8250,7 @@ function DashboardContent() {
                 <div className="manage-billing-block">
                   <label className="form-field">
                     <span>Trial expiry date</span>
-                    <input
-                      onChange={(event) => setManagedTrialExpiryDate(event.target.value)}
-                      type="date"
-                      value={managedTrialExpiryDate}
-                    />
+                    <DateFieldControl ariaLabel="Trial expiry date" onChange={setManagedTrialExpiryDate} value={managedTrialExpiryDate} />
                   </label>
                 </div>
               ) : null}
@@ -6666,7 +8273,7 @@ function DashboardContent() {
                 <button
                   className="quiet-danger-link"
                   onClick={() => {
-                    removeLinkedAccount(managingLink.toolId, managingLink.accountLabel);
+                    removeLinkedAccount(managingLink!.toolId, managingLink!.accountLabel);
                     closeManageAccountModal();
                   }}
                   type="button"
@@ -6674,84 +8281,6 @@ function DashboardContent() {
                   Unlink this account
                 </button>
                 <button className="btn-sm btn-sm-primary" disabled={isDuplicateManagedAccount} type="submit">
-                  Save
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      ) : null}
-
-      {editingBillingLink ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="billing-edit-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            <button
-              aria-label="Close billing modal"
-              className="modal-close-button"
-              onClick={closeBillingEditModal}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="billing-edit-modal-title">Edit Billing</h2>
-            <form className="modal-form" onSubmit={saveBillingDetails}>
-              <label className="form-field">
-                <span>Plan name</span>
-                <input
-                  onChange={(event) => setBillingPlanName(formatNickname(event.target.value))}
-                  placeholder="Basic, Plus, Pro, Team, Business, Enterprise, Pay as you go..."
-                  type="text"
-                  value={billingPlanName}
-                />
-              </label>
-              <label className="form-field">
-                <span>Billing type</span>
-                {renderMultiSelectDropdown({
-                  className: "modal-dropdown",
-                  id: "billing-edit-type",
-                  onChange: (nextBillingTypes) => setBillingBillingType(nextBillingTypes.join(", ")),
-                  options: billingTypeOptions,
-                  placeholder: "Select billing type",
-                  values: billingBillingType ? billingBillingType.split(", ") : [],
-                })}
-              </label>
-              <label className="form-field">
-                <span>Amount</span>
-                <span className="billing-amount-field modal-amount-field">
-                  {renderDropdown({
-                    ariaLabel: "Billing currency",
-                    className: "billing-currency-dropdown",
-                    id: "billing-edit-currency",
-                    onChange: (nextCurrency) => setBillingCurrency(normaliseCurrency(nextCurrency)),
-                    options: currencyOptions,
-                    value: billingCurrency,
-                  })}
-                  <input
-                    onChange={(event) => setBillingAmount(event.target.value)}
-                    placeholder="29"
-                    type="text"
-                    value={billingAmount}
-                  />
-                </span>
-              </label>
-              <label className="form-field">
-                <span>Next charge</span>
-                <span className="billing-date-picker billing-date-picker-modal">
-                  <span>{formatBillingDate(billingNextChargeDate)}</span>
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <rect x="4" y="5.5" width="16" height="14" rx="2" />
-                    <path d="M8 3.5v4M16 3.5v4M4 9.5h16" />
-                  </svg>
-                  <input
-                    aria-label="Next charge date"
-                    onChange={(event) => setBillingNextChargeDate(event.target.value)}
-                    type="date"
-                    value={billingNextChargeDate}
-                  />
-                </span>
-              </label>
-              <div className="welcome-modal-actions">
-                <button className="btn-sm btn-sm-primary" type="submit">
                   Save
                 </button>
               </div>

@@ -1,8 +1,6 @@
 {
   "midjourney": {
-    "displayInitials": "MJ",
-    "allowedPlans": ["paid"],
-    "planLockedReason": "Midjourney does not offer a free or trial tier"
+    "displayInitials": "MJ"
   },
   "n8n": {
     "preserveNameCase": true

@@ -4,6 +4,15 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function updateSession(request: NextRequest) {
   const supabaseResponse = NextResponse.next({ request });
   const pathname = request.nextUrl.pathname;
+  const isDashboardRoute = pathname.startsWith("/dashboard");
+  const isDemoDashboard =
+    isDashboardRoute && request.nextUrl.searchParams.get("demo") === "1";
+
+  // Demo mode has no authenticated session to refresh. Bypass Supabase before
+  // making a network request so the local demo stays fast and works offline.
+  if (isDemoDashboard) {
+    return supabaseResponse;
+  }
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -39,11 +48,9 @@ export async function updateSession(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    const isDashboardRoute = pathname.startsWith("/dashboard");
-    const isDemoDashboard = isDashboardRoute && request.nextUrl.searchParams.get("demo") === "1";
     const isLoginRoute = pathname.startsWith("/login");
 
-    if (isDashboardRoute && !isDemoDashboard && !user) {
+    if (isDashboardRoute && !user) {
       const redirectUrl = request.nextUrl.clone();
       redirectUrl.pathname = "/login";
       redirectUrl.search = "";

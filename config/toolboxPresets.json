@@ -1,0 +1,131 @@
+{
+  "_readme": "AI Subprise — AI Toolbox preset configuration. Edit this file directly to add/remove tools, categories, or adjust which categories each template checks. No need to re-explain structure to Codex — just point it at this file.",
+  "clusters": [
+    { "id": "everyday", "label": "Everyday", "categories": ["ai-assistant"] },
+    { "id": "create", "label": "Create", "categories": ["visual-audio", "design-edit"] },
+    { "id": "work", "label": "Work", "categories": ["productivity", "meetings", "research"] },
+    { "id": "automate", "label": "Automate", "categories": ["ai-agents", "automation"] },
+    { "id": "build", "label": "Build", "categories": ["vibe-coding", "coding-dev"] },
+    { "id": "business", "label": "Business", "categories": ["website-funnels"] },
+    { "id": "other", "label": "Other", "categories": ["niche"] }
+  ],
+  "categories": [
+    {
+      "id": "ai-assistant",
+      "label": "AI Assistant",
+      "description": "Chat & reasoning tools",
+      "tools": ["ChatGPT", "Claude", "Co-pilot", "Deepseek", "Gemini", "Grok"]
+    },
+    {
+      "id": "visual-audio",
+      "label": "Visual & Audio",
+      "description": "Image, video & audio creation",
+      "subgroups": [
+        { "label": "Image", "tools": ["Flux.2", "Ideogram", "Krea", "Midjourney", "Seedream"] },
+        { "label": "Hybrid", "tools": ["ElevenLabs", "Hailuo AI", "Kling AI", "Lovart", "Magnific", "Qwen", "Runway", "Wan AI"] },
+        { "label": "Video", "tools": ["Seedance", "Veo 3"] },
+        { "label": "Music", "tools": ["Suno", "Udio"] }
+      ]
+    },
+    {
+      "id": "design-edit",
+      "label": "Design & Edit",
+      "description": "Edit & assemble your content",
+      "tools": ["Canva", "Capcut", "Figma", "Gamma", "Picsart"]
+    },
+    {
+      "id": "research",
+      "label": "Research",
+      "description": "Search & knowledge tools",
+      "tools": ["Notebook LM", "Perplexity"]
+    },
+    {
+      "id": "productivity",
+      "label": "Productivity",
+      "description": "Notes & workspace tools",
+      "tools": ["Airtable", "Notion", "Obsidian", "Xmind"]
+    },
+    {
+      "id": "meetings",
+      "label": "Meetings",
+      "description": "Notes & transcription",
+      "tools": ["Fathom", "Fireflies", "Granola", "Otter.ai", "Tactiq"]
+    },
+    {
+      "id": "ai-agents",
+      "label": "AI Agents",
+      "description": "Plans & executes independently",
+      "tools": ["Emergent", "GLM", "Kimi", "Manus", "MiniMax", "OpenClaw", "Pickaxe"]
+    },
+    {
+      "id": "automation",
+      "label": "Automation",
+      "description": "Triggers & repeats tasks",
+      "tools": ["Botpress", "Manychat", "n8n", "Slack", "Zapier"]
+    },
+    {
+      "id": "vibe-coding",
+      "label": "Vibe Coding",
+      "description": "Build apps from a prompt",
+      "tools": ["Base44", "Bolt", "Lovable", "Replit", "v0"]
+    },
+    {
+      "id": "coding-dev",
+      "label": "Coding & Dev",
+      "description": "Dev & coding assistants",
+      "tools": ["Cursor", "Github", "Hostinger", "Openrouter", "Pinecone", "Supabase", "Vercel", "Windsurf"],
+      "pendingTools": ["Warp", "Cline", "Aider", "Zed", "Amazon Q Developer"],
+      "_note": "pendingTools are proposed but not yet confirmed — move into 'tools' once approved"
+    },
+    {
+      "id": "website-funnels",
+      "label": "Website & Funnels",
+      "description": "Sites & landing pages",
+      "tools": ["10Web", "ClickFunnels", "Mixo", "Systeme", "Wordpress"]
+    },
+    {
+      "id": "niche",
+      "label": "Niche",
+      "description": "Industry-specific tools",
+      "tools": []
+    }
+  ],
+  "excludedTools": [
+    { "name": "Nano Banana", "reason": "No standalone product or pricing page — lives inside Gemini/AI Studio" },
+    { "name": "OnlyAI", "reason": "Not publicly searchable/verifiable" },
+    { "name": "Codex", "reason": "Bundled into ChatGPT subscription, not a separate signup" },
+    { "name": "Claude Code", "reason": "Bundled into Claude subscription, not a separate signup" },
+    { "name": "Antigravity", "reason": "Bundled into Gemini/Google AI Pro subscription, not a separate signup" },
+    { "name": "Hermes Agent", "reason": "Uses Nous Research's own account system — not a supported login provider (Gmail/iCloud/Yahoo/Outlook/Github)" }
+  ],
+  "templates": {
+    "creator": {
+      "label": "Creator",
+      "categories": ["ai-assistant", "visual-audio", "design-edit"]
+    },
+    "designer": {
+      "label": "Designer",
+      "categories": ["ai-assistant", "visual-audio", "design-edit", "research", "meetings", "niche"]
+    },
+    "developer": {
+      "label": "Developer",
+      "categories": ["ai-assistant", "ai-agents", "automation", "vibe-coding", "coding-dev"]
+    },
+    "business": {
+      "label": "Business",
+      "categories": ["ai-assistant", "productivity", "meetings", "ai-agents", "automation", "website-funnels"]
+    },
+    "researcher": {
+      "label": "Researcher",
+      "categories": ["ai-assistant", "research", "productivity", "meetings", "niche"]
+    },
+    "ai-explorer": {
+      "label": "AI Explorer",
+      "categories": ["ai-assistant", "visual-audio", "productivity", "ai-agents", "automation", "vibe-coding", "coding-dev", "website-funnels"]
+    },
+    "custom": {
+      "label": "Custom",
+      "categories": []
+    }
+  }
+}
