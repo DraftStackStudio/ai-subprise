@@ -6,6 +6,7 @@ import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import EditCategoryModal from "@/components/EditCategoryModal";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
 import ToolDetailModal from "@/components/ToolDetailModal";
 import {
@@ -61,7 +62,6 @@ import {
 } from "@/lib/supabase/tools";
 import {
   Fragment,
-  type CSSProperties,
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
@@ -77,6 +77,7 @@ type Section = "dashboard" | "tools" | "linked" | "billing" | "watchlist" | "acc
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 type LinkedPlanFilter = "All" | "Paid" | "Trial" | "Free";
 type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "AI Explorer" | "Custom";
+const toolboxSidebarClusterIds = new Set(["everyday", "create", "work", "automate", "build", "business"]);
 type ToolboxPresetCategory = {
   description: string;
   id: string;
@@ -897,6 +898,7 @@ function DashboardContent() {
   const initialView = searchParams.get("view") === "account" ? "account" : "dashboard";
   const [activeSection, setActiveSection] = useState<Section>(initialView);
   const [activeCategory, setActiveCategory] = useState("");
+  const [activeToolboxClusterId, setActiveToolboxClusterId] = useState("everyday");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isToolsNavOpen, setIsToolsNavOpen] = useState(true);
@@ -904,8 +906,10 @@ function DashboardContent() {
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [showAddToolModal, setShowAddToolModal] = useState(false);
   const [showPresetToolPicker, setShowPresetToolPicker] = useState(false);
+  const [showPresetSelectionWarning, setShowPresetSelectionWarning] = useState(false);
   const [showAllPresetCategories, setShowAllPresetCategories] = useState(false);
   const [expandedPresetCategories, setExpandedPresetCategories] = useState<string[]>([]);
+  const [selectedPresetToolNames, setSelectedPresetToolNames] = useState<string[]>([]);
   const [showRoleQuestionModal, setShowRoleQuestionModal] = useState(false);
   const [showCategoryPreviewModal, setShowCategoryPreviewModal] = useState(false);
   const [showCategoryInfoModal, setShowCategoryInfoModal] = useState(false);
@@ -1031,11 +1035,11 @@ function DashboardContent() {
   const [roleQuestionChoice, setRoleQuestionChoice] = useState<RoleOption | "">("");
   const nicknameInputRef = useRef<HTMLInputElement | null>(null);
   const toolNameInputRef = useRef<HTMLInputElement | null>(null);
+  const mainContentRef = useRef<HTMLElement | null>(null);
   const accountToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRoleCategories, setSelectedRoleCategories] = useState<string[]>(roleCategoryMap.Creator);
   const [draggedAccountLogin, setDraggedAccountLogin] = useState<string | null>(null);
   const [draggedToolName, setDraggedToolName] = useState<string | null>(null);
-  const [draggedCategoryIndex, setDraggedCategoryIndex] = useState<number | null>(null);
   const [editingToolName, setEditingToolName] = useState<string | null>(null);
   const [editingToolCategoryId, setEditingToolCategoryId] = useState<string | null>(null);
   const [toolNameDraft, setToolNameDraft] = useState("");
@@ -1825,6 +1829,11 @@ function DashboardContent() {
   const openPresetToolPicker = () => {
     setExpandedPresetCategories([]);
     setShowAllPresetCategories(false);
+    setSelectedPresetToolNames(
+      toolList
+        .map((tool) => tool.name.trim().toLowerCase())
+        .filter((toolName) => presetToolCategoryByName.has(toolName)),
+    );
     setShowPresetToolPicker(true);
   };
 
@@ -2018,34 +2027,9 @@ function DashboardContent() {
       nextCategories.splice(targetIndex, 0, draggedCategory);
       return nextCategories;
     });
-    setDraggedCategoryIndex(targetIndex);
   };
 
-  const handleCategoryDraftDragStart = (event: DragEvent<HTMLButtonElement>, index: number) => {
-    setDraggedCategoryIndex(index);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", String(index));
-  };
-
-  const handleCategoryDraftPointerDown = (_event: PointerEvent<HTMLButtonElement>, index: number) => {
-    setDraggedCategoryIndex(index);
-  };
-
-  const handleCategoryDraftDragEnter = (event: DragEvent<HTMLDivElement>, index: number) => {
-    event.preventDefault();
-    if (draggedCategoryIndex !== null && draggedCategoryIndex !== index) {
-      moveCategoryDraft(draggedCategoryIndex, index);
-    }
-  };
-
-  const handleCategoryDraftDrop = (event: DragEvent<HTMLDivElement>, index: number) => {
-    event.preventDefault();
-    if (draggedCategoryIndex !== null) moveCategoryDraft(draggedCategoryIndex, index);
-    setDraggedCategoryIndex(null);
-  };
-
-  const saveEditedCategories = (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
+  const saveEditedCategories = () => {
     persistCategoryDrafts(categoryDrafts, { closeModal: true });
   };
 
@@ -2579,46 +2563,103 @@ function DashboardContent() {
     setShowAddToolModal(false);
   };
 
-  const addPresetTool = async (presetName: string, category: string) => {
-    if (toolList.some((tool) => tool.name.trim().toLowerCase() === presetName.trim().toLowerCase())) return;
+  const togglePresetTool = (presetName: string) => {
+    const normalizedName = presetName.trim().toLowerCase();
+    setSelectedPresetToolNames((currentNames) =>
+      currentNames.includes(normalizedName)
+        ? currentNames.filter((name) => name !== normalizedName)
+        : [...currentNames, normalizedName],
+    );
+  };
 
-    const toolDetails: ToolItem = {
-      id: createToolId(presetName),
-      name: presetName,
-      category,
-      status: "Free",
-      accounts: [],
-      billing: "None",
-      notes: "",
-      favorite: false,
-      archived: false,
-      pricingUrl: "#",
-      logo: toolInitials(presetName),
-      logoBg: "#F0F4FF",
-    };
+  const savePresetToolSelection = async () => {
+    if (selectedPresetToolNames.length === 0) {
+      setShowPresetSelectionWarning(true);
+      return;
+    }
+
+    const finalSelection = new Set(selectedPresetToolNames);
+    const existingPresetTools = toolList.filter((tool) =>
+      presetToolCategoryByName.has(tool.name.trim().toLowerCase()),
+    );
+    const existingPresetNames = new Set(
+      existingPresetTools.map((tool) => tool.name.trim().toLowerCase()),
+    );
+    const toolsToRemove = existingPresetTools.filter(
+      (tool) => !finalSelection.has(tool.name.trim().toLowerCase()),
+    );
+    const toolsToAdd = Array.from(finalSelection)
+      .filter((toolName) => !existingPresetNames.has(toolName))
+      .map((toolName) => {
+        const presetName =
+          toolboxPresets.categories
+            .flatMap((category) =>
+              category.subgroups
+                ? category.subgroups.flatMap((subgroup) => subgroup.tools)
+                : (category.tools ?? []),
+            )
+            .find((name) => name.trim().toLowerCase() === toolName) ?? toolName;
+        const category = presetToolCategoryByName.get(toolName) ?? "Niche";
+        return {
+          id: createToolId(presetName),
+          name: presetName,
+          category,
+          status: "Free" as ToolStatus,
+          accounts: [],
+          billing: "None",
+          notes: "",
+          favorite: false,
+          archived: false,
+          pricingUrl: "#",
+          logo: toolInitials(presetName),
+          logoBg: "#F0F4FF",
+        };
+      });
 
     setIsSavingTool(true);
+    setToolDataError("");
     try {
-      const savedTool = shouldUseSupabase
-        ? toolFromRecord(await createToolRecord(toolToInput(toolDetails), accountList))
-        : toolDetails;
-      setToolList((currentTools) => insertToolAlphabetically(currentTools, savedTool));
-      setWorkspaceCategories((currentCategories) => {
-        if (currentCategories.includes(category)) return currentCategories;
-        const nextCategories = defaultToolCategories.filter(
-          (defaultCategory) => defaultCategory === category || currentCategories.includes(defaultCategory),
-        );
-        try {
-          window.localStorage.setItem("ai-subprise-workspace-categories", JSON.stringify(nextCategories));
-        } catch {
-          // Local storage can be unavailable in private or embedded browser contexts.
-        }
-        return nextCategories;
+      const savedTools = shouldUseSupabase
+        ? await Promise.all(
+            toolsToAdd.map(async (tool) =>
+              toolFromRecord(await createToolRecord(toolToInput(tool), accountList)),
+            ),
+          )
+        : toolsToAdd;
+
+      if (shouldUseSupabase && toolsToRemove.length > 0) {
+        await deleteToolRecords(toolsToRemove.map((tool) => tool.id));
+      }
+
+      const removedIds = new Set(toolsToRemove.map((tool) => tool.id));
+      setToolList((currentTools) => {
+        let nextTools = currentTools.filter((tool) => !removedIds.has(tool.id));
+        savedTools.forEach((tool) => {
+          nextTools = insertToolAlphabetically(nextTools, tool);
+        });
+        return nextTools;
       });
-      setIsToolsNavOpen(true);
-      showToast(`${presetName} added to AI Toolbox.`);
+      setSelectedToolIds((currentIds) => currentIds.filter((id) => !removedIds.has(id)));
+
+      const addedCategories = new Set(toolsToAdd.map((tool) => tool.category));
+      if (addedCategories.size > 0) {
+        setWorkspaceCategories((currentCategories) => {
+          const nextCategories = defaultToolCategories.filter(
+            (category) => currentCategories.includes(category) || addedCategories.has(category),
+          );
+          try {
+            window.localStorage.setItem("ai-subprise-workspace-categories", JSON.stringify(nextCategories));
+          } catch {
+            // Local storage can be unavailable in private or embedded browser contexts.
+          }
+          return nextCategories;
+        });
+        setIsToolsNavOpen(true);
+      }
+
+      setShowPresetToolPicker(false);
     } catch (error) {
-      setToolDataError(error instanceof Error ? error.message : "Could not add AI tool.");
+      setToolDataError(error instanceof Error ? error.message : "Could not update AI tools.");
     } finally {
       setIsSavingTool(false);
     }
@@ -3802,31 +3843,6 @@ function DashboardContent() {
     };
   }, [draggedToolName]);
 
-  useEffect(() => {
-    if (draggedCategoryIndex === null) return;
-
-    const handlePointerMove = (event: globalThis.PointerEvent) => {
-      const hoveredRow = document
-        .elementFromPoint(event.clientX, event.clientY)
-        ?.closest<HTMLElement>("[data-category-index]");
-      const targetIndex = Number(hoveredRow?.dataset.categoryIndex);
-
-      if (Number.isInteger(targetIndex) && targetIndex !== draggedCategoryIndex) {
-        moveCategoryDraft(draggedCategoryIndex, targetIndex);
-      }
-    };
-
-    const handlePointerUp = () => setDraggedCategoryIndex(null);
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-
-    return () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-  }, [draggedCategoryIndex]);
-
   const visibleTools = useMemo(() => {
     const selectedRange = toolSortOptions.find((option) => option.value === selectedToolSort) ?? toolSortOptions[0];
     const isInSelectedRange = (name: string) => {
@@ -4002,7 +4018,7 @@ function DashboardContent() {
 
     return clusters;
   }, [groupedToolCategories]);
-  const sidebarClusterGroups = useMemo(() => {
+  const toolboxSidebarCategoryGroups = useMemo(() => {
     const populated = new Set(populatedToolboxCategories);
     const configuredCategoryLabels = new Set(defaultToolCategories);
     const clusters = toolboxPresets.clusters
@@ -4016,7 +4032,9 @@ function DashboardContent() {
           ),
       }))
       .filter((cluster) => cluster.categories.length > 0);
-    const customCategories = populatedToolboxCategories.filter((category) => !configuredCategoryLabels.has(category));
+    const customCategories = populatedToolboxCategories.filter(
+      (category) => !configuredCategoryLabels.has(category),
+    );
 
     if (customCategories.length > 0) {
       const otherCluster = clusters.find((cluster) => cluster.id === "other");
@@ -4026,6 +4044,59 @@ function DashboardContent() {
 
     return clusters;
   }, [populatedToolboxCategories]);
+  const toolboxSidebarClusters = useMemo(
+    () => toolboxPresets.clusters.filter((cluster) => toolboxSidebarClusterIds.has(cluster.id)),
+    [],
+  );
+
+  const scrollToToolboxCluster = (clusterId: string) => {
+    setActiveSection("tools");
+    setActiveCategory("");
+    setSelectedToolSort("Category");
+    setShowRecoveryPanel(false);
+    setIsSidebarOpen(false);
+    setActiveToolboxClusterId(clusterId);
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        document.getElementById(`toolbox-cluster-${clusterId}`)?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    });
+  };
+
+  useEffect(() => {
+    const scrollContainer = mainContentRef.current;
+    if (
+      !scrollContainer ||
+      activeSection !== "tools" ||
+      activeCategory ||
+      selectedToolSort !== "Category"
+    ) {
+      return;
+    }
+
+    const updateActiveCluster = () => {
+      const clusterHeaders = Array.from(
+        scrollContainer.querySelectorAll<HTMLElement>("[data-toolbox-cluster-anchor]"),
+      );
+      if (clusterHeaders.length === 0) return;
+
+      const activationLine = scrollContainer.getBoundingClientRect().top + 150;
+      const activeHeader =
+        [...clusterHeaders]
+          .reverse()
+          .find((header) => header.getBoundingClientRect().top <= activationLine) ??
+        clusterHeaders[0];
+      setActiveToolboxClusterId(activeHeader.dataset.toolboxClusterAnchor ?? "everyday");
+    };
+
+    updateActiveCluster();
+    scrollContainer.addEventListener("scroll", updateActiveCluster, { passive: true });
+    return () => scrollContainer.removeEventListener("scroll", updateActiveCluster);
+  }, [activeCategory, activeSection, selectedToolSort, toolboxClusterGroups]);
 
   const providerOptions = useMemo(() => [...defaultProviders, ...customProviders], [customProviders]);
   const toolCategoryOptions = useMemo(
@@ -5233,7 +5304,7 @@ function DashboardContent() {
             </button>
           ) : null}
         </div>
-        {categoryPreset?.subgroups ? (
+        {activeSection !== "tools" && categoryPreset?.subgroups ? (
           <>
             {categoryPreset.subgroups.map((subgroup) => {
               const subgroupNames = new Set(subgroup.tools.map((toolName) => toolName.toLowerCase()));
@@ -5576,32 +5647,33 @@ function DashboardContent() {
                   {isToolsNavOpen ? (
                     <div className="nav-subitems">
                       {hasConfirmedCategories ? (
-                        sidebarClusterGroups.map((cluster) => (
-                          <Fragment key={cluster.id}>
-                            <div className="nav-subitem-cluster">{cluster.label}</div>
-                            {cluster.categories.map((category) => (
-                              <button
-                                aria-current={!showRecoveryPanel && activeSection === "tools" && activeCategory === category ? "page" : undefined}
-                                className={
-                                  !showRecoveryPanel && activeSection === "tools" && activeCategory === category
-                                    ? "nav-subitem active"
-                                    : "nav-subitem"
-                                }
-                                key={category}
-                                onClick={() => {
-                                  setActiveSection("tools");
-                                  setActiveCategory(category);
-                                  setSelectedToolSort("All");
-                                  setShowRecoveryPanel(false);
-                                  setIsSidebarOpen(false);
-                                }}
-                                type="button"
-                              >
-                                {category}
-                              </button>
-                            ))}
-                          </Fragment>
-                        ))
+                        toolboxSidebarCategoryGroups.flatMap((cluster) =>
+                          cluster.categories.map((category) => (
+                            <button
+                              aria-current={
+                                !showRecoveryPanel && activeSection === "tools" && activeCategory === category
+                                  ? "page"
+                                  : undefined
+                              }
+                              className={
+                                !showRecoveryPanel && activeSection === "tools" && activeCategory === category
+                                  ? "nav-subitem active"
+                                  : "nav-subitem"
+                              }
+                              key={category}
+                              onClick={() => {
+                                setActiveSection("tools");
+                                setActiveCategory(category);
+                                setSelectedToolSort("All");
+                                setShowRecoveryPanel(false);
+                                setIsSidebarOpen(false);
+                              }}
+                              type="button"
+                            >
+                              {category}
+                            </button>
+                          )),
+                        )
                       ) : null}
                     </div>
                   ) : null}
@@ -5827,7 +5899,27 @@ function DashboardContent() {
           </div>
         ) : null}
 
-        <section className="main-content">
+        <section
+          ref={mainContentRef}
+          className={
+            (
+              [
+                "dashboard",
+                "account",
+                "providers",
+                "tools",
+                "linked",
+                "billing",
+                "watchlist",
+                "favorites",
+                "archive",
+                "settings",
+              ] as Section[]
+            ).includes(activeSection)
+              ? "main-content list-page-content"
+              : "main-content"
+          }
+        >
           <header className="main-header">
             <div>
               <h1 className={activeSection === "providers" ? "main-title main-title-with-back" : "main-title"}>
@@ -6529,12 +6621,7 @@ function DashboardContent() {
                       </div>
                       {groupedToolCategories.length > 0 ? (
                         activeSection === "tools" ? (
-                          toolboxClusterGroups.map((cluster) => (
-                            <Fragment key={cluster.id}>
-                              <div className="tool-cluster-row-header">{cluster.label}</div>
-                              {cluster.groups.map((group) => renderToolCategoryGroup(group))}
-                            </Fragment>
-                          ))
+                          groupedToolCategories.map((group) => renderToolCategoryGroup(group))
                         ) : (
                           groupedToolCategories.map((group) => (
                             <Fragment key={group.category}>
@@ -6772,8 +6859,12 @@ function DashboardContent() {
             <h2 id="category-preview-modal-title">Choose your categories</h2>
             <p>Review the suggested categories for your workspace.</p>
             <div className="category-matrix-wrap">
-              <div className="category-matrix" style={{ "--active-role-offset": roleOptions.indexOf(selectedRole) } as CSSProperties}>
-                <div className="category-matrix-highlight" aria-hidden="true" />
+              <div className="category-matrix">
+                <div
+                  className="category-matrix-highlight"
+                  aria-hidden="true"
+                  style={{ transform: `translate3d(${roleOptions.indexOf(selectedRole) * 100}%, 0, 0)` }}
+                />
                 <div className="category-matrix-head category-name-head">
                   <span>Category</span>
                   <button
@@ -6799,6 +6890,7 @@ function DashboardContent() {
                         {role === "Custom" && selectedRole === "Custom" ? (
                           <input
                             aria-label={`Custom category ${category}`}
+                            className="category-matrix-checkbox"
                             checked={selectedRoleCategories.includes(category)}
                             onChange={() => togglePreviewCategory(category)}
                             type="checkbox"
@@ -6810,7 +6902,12 @@ function DashboardContent() {
                     ))}
                   </Fragment>
                 ))}
-                <div className="category-matrix-radio-spacer" aria-hidden="true" />
+                <p className="category-matrix-role-hint">Select to change role</p>
+                <span
+                  aria-hidden="true"
+                  className="category-matrix-radio-indicator"
+                  style={{ transform: `translate3d(${roleOptions.indexOf(selectedRole) * 100}%, 0, 0)` }}
+                />
                 {roleOptions.map((role) => (
                   <label className="category-matrix-radio-cell" key={`role-radio-${role}`}>
                     <input
@@ -6860,159 +6957,25 @@ function DashboardContent() {
       )}
 
       {showEditCategoryModal && (
-        <div
-          className="welcome-modal-overlay"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) requestCloseEditCategoryModal();
-          }}
-          role="presentation"
-        >
-          <section
-            aria-labelledby="edit-category-modal-title"
-            aria-modal="true"
-            className={
-              categoryDeleteWarning
-                ? "welcome-modal compact-copy-modal delete-account-modal category-delete-danger-modal"
-                : categoryDiscardWarning
-                  ? "welcome-modal compact-copy-modal delete-account-modal category-discard-warning-modal"
-                : "welcome-modal compact-copy-modal"
-            }
-            role="dialog"
-          >
-            {categoryDeleteWarning ? (
-              <div className="category-delete-confirmation">
-                <div className="delete-account-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <TrashIconPaths />
-                  </svg>
-                </div>
-                <h2 id="edit-category-modal-title">Delete "{categoryDeleteWarning.category}"?</h2>
-                <p className="reset-danger-copy">
-                  <span>
-                    This category has {categoryDeleteWarning.toolCount} AI{" "}
-                    {categoryDeleteWarning.toolCount === 1 ? "tool" : "tools"} in it.
-                  </span>
-                  <span>
-                    Deleting the category will also delete{" "}
-                    {categoryDeleteWarning.toolCount === 1 ? "it" : "them"}. This can&apos;t be undone.
-                  </span>
-                </p>
-                <div className="welcome-modal-actions category-delete-confirmation-actions">
-                  <button className="btn-sm btn-sm-ghost" onClick={() => setCategoryDeleteWarning(null)} type="button">
-                    Cancel
-                  </button>
-                  <button className="btn-sm btn-sm-danger" onClick={confirmCategoryDraftDelete} type="button">
-                    Delete category
-                  </button>
-                </div>
-              </div>
-            ) : categoryDiscardWarning ? (
-              <div className="category-delete-confirmation">
-                <div className="delete-account-icon category-discard-warning-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M12 3 2.8 19h18.4L12 3Z" />
-                    <path d="M12 9v4.5" />
-                    <path d="M12 17h.01" />
-                  </svg>
-                </div>
-                <h2 id="edit-category-modal-title">Discard unsaved changes?</h2>
-                <p>Your category changes have not been saved.</p>
-                <div className="welcome-modal-actions category-delete-confirmation-actions category-discard-actions">
-                  <button className="btn-sm btn-sm-ghost" onClick={() => setCategoryDiscardWarning(false)} type="button">
-                    Keep Editing
-                  </button>
-                  <button className="btn-sm btn-sm-danger" onClick={discardCategoryDrafts} type="button">
-                    Discard &amp; Close
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <h2 id="edit-category-modal-title">Edit Category</h2>
-                <p>Hold and drag ⠿ to reorder. Rename or delete categories to fit your workflow</p>
-                <form className="modal-form" onSubmit={saveEditedCategories}>
-                  <div className="category-edit-list">
-                    {categoryDrafts.map((category, index) => (
-                      <div
-                        className={[
-                          "category-edit-row",
-                          "form-field",
-                          draggedCategoryIndex === index ? "is-dragging" : "",
-                        ].filter(Boolean).join(" ")}
-                        data-category-index={index}
-                        key={`category-draft-${index}`}
-                        onDragEnter={(event) => handleCategoryDraftDragEnter(event, index)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => handleCategoryDraftDrop(event, index)}
-                        onPointerEnter={(event) => {
-                          if (event.buttons === 1 && draggedCategoryIndex !== null) {
-                            moveCategoryDraft(draggedCategoryIndex, index);
-                          }
-                        }}
-                        onPointerUp={() => setDraggedCategoryIndex(null)}
-                      >
-                        <div className="category-edit-field">
-                          <button
-                            aria-label={`Reorder ${category}`}
-                            className="drag-handle category-drag-handle"
-                            draggable
-                            onDragEnd={() => setDraggedCategoryIndex(null)}
-                            onDragStart={(event) => handleCategoryDraftDragStart(event, index)}
-                            onPointerDown={(event) => handleCategoryDraftPointerDown(event, index)}
-                            type="button"
-                          >
-                            <span />
-                            <span />
-                            <span />
-                            <span />
-                            <span />
-                            <span />
-                          </button>
-                          <input
-                            aria-label={`Edit ${category}`}
-                            onChange={(event) => updateCategoryDraft(index, event.target.value)}
-                            placeholder="AI Assistant"
-                            type="text"
-                            value={category}
-                          />
-                          <button
-                            aria-label={`Delete ${category}`}
-                            className="category-icon-button danger"
-                            onClick={() => deleteCategoryDraft(index)}
-                            type="button"
-                          >
-                            <svg aria-hidden="true" viewBox="0 0 24 24">
-                              <TrashIconPaths />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  <label className="category-add-row form-field">
-                    <span>Add new category</span>
-                    <div className="category-add-controls">
-                      <input
-                        onChange={(event) => setNewCategoryName(formatNickname(event.target.value))}
-                        placeholder="Data & Analytics"
-                        type="text"
-                        value={newCategoryName}
-                      />
-                      <button className="btn-sm btn-sm-charcoal" onClick={addCategoryDraft} type="button">
-                        Add
-                      </button>
-                    </div>
-                  </label>
-                  <div className="welcome-modal-actions category-save-actions">
-                    <button className="btn-sm btn-sm-primary" type="submit">
-                      Save &amp; Close
-                    </button>
-                  </div>
-                </form>
-              </>
-            )}
-          </section>
-        </div>
+        <>
+          <EditCategoryModal
+            categoryDeleteWarning={categoryDeleteWarning}
+            categoryDiscardWarning={categoryDiscardWarning}
+            categoryDrafts={categoryDrafts}
+            newCategoryName={newCategoryName}
+            onAddCategory={addCategoryDraft}
+            onCancelDelete={() => setCategoryDeleteWarning(null)}
+            onCancelDiscard={() => setCategoryDiscardWarning(false)}
+            onConfirmDelete={confirmCategoryDraftDelete}
+            onDeleteCategory={deleteCategoryDraft}
+            onDiscard={discardCategoryDrafts}
+            onMoveCategory={moveCategoryDraft}
+            onNewCategoryNameChange={(value) => setNewCategoryName(formatNickname(value))}
+            onRequestClose={requestCloseEditCategoryModal}
+            onSave={saveEditedCategories}
+            onUpdateCategory={updateCategoryDraft}
+          />
+        </>
       )}
 
       {showResetArchiveWarning && archiveToolCount(toolResetArchives) > 0 ? (
@@ -7449,16 +7412,14 @@ function DashboardContent() {
                     <h3>{cluster.label}</h3>
                     {categories.map((category) => {
                       const renderPresetPill = (presetName: string) => {
-                        const isAdded = toolList.some(
-                          (tool) => tool.name.trim().toLowerCase() === presetName.trim().toLowerCase(),
-                        );
+                        const isAdded = selectedPresetToolNames.includes(presetName.trim().toLowerCase());
                         return (
                           <button
                             aria-label={`${isAdded ? "Added" : "Add"} ${presetName}`}
                             className={isAdded ? "preset-tool-pill is-added" : "preset-tool-pill"}
-                            disabled={isAdded || isSavingTool}
+                            disabled={isSavingTool}
                             key={`${category.id}-${presetName}`}
-                            onClick={() => void addPresetTool(presetName, category.label)}
+                            onClick={() => togglePresetTool(presetName)}
                             type="button"
                           >
                             <span aria-hidden="true">{isAdded ? "✓" : "+"}</span>
@@ -7507,8 +7468,36 @@ function DashboardContent() {
               })}
             </div>
             <div className="welcome-modal-actions preset-tool-picker-actions">
-              <button className="btn-sm btn-sm-primary" onClick={() => setShowPresetToolPicker(false)} type="button">
+              <button
+                className="btn-sm btn-sm-primary"
+                disabled={isSavingTool}
+                onClick={() => void savePresetToolSelection()}
+                type="button"
+              >
                 Done
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {showPresetSelectionWarning && (
+        <div className="welcome-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="preset-selection-warning-title"
+            aria-modal="true"
+            className="welcome-modal compact-copy-modal"
+            role="dialog"
+          >
+            <h2 id="preset-selection-warning-title">Select at least one AI tool</h2>
+            <p>Choose at least one tool before continuing.</p>
+            <div className="welcome-modal-actions">
+              <button
+                className="btn-sm btn-sm-primary"
+                onClick={() => setShowPresetSelectionWarning(false)}
+                type="button"
+              >
+                Continue selecting
               </button>
             </div>
           </section>

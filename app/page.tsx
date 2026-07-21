@@ -111,7 +111,7 @@ export default function Home() {
               and stop cycling through your different email inboxes.
             </p>
             <div className="marketing-actions">
-              <a className="btn-primary" href="/login">Get started</a>
+              <a className="btn-primary" href="/login?mode=signup">Get started</a>
               <a className="btn-outline" href="/dashboard?demo=1">Explore as guest</a>
             </div>
           </div>
@@ -207,7 +207,7 @@ export default function Home() {
             The login screen is no longer a guessing game. Try AI Subprise today.
           </p>
           <div className="marketing-actions">
-            <a className="btn-primary" href="/login">Create your account</a>
+            <a className="btn-primary" href="/login?mode=signup">Create your account</a>
           </div>
           <p className="final-login-copy">Already have an account? <a href="/login">Log in</a></p>
         </section>
