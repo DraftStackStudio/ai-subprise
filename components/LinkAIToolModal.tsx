@@ -200,6 +200,9 @@ export default function LinkAIToolModal({
                 block.accountLabel &&
                 blocks.some((otherBlock, otherIndex) => otherIndex !== blockIndex && otherBlock.accountLabel === block.accountLabel),
               );
+              const selectedBillingTypes = block.billingType.split(", ").filter(Boolean);
+              const hasTopUpCredit = selectedBillingTypes.includes("Top-up");
+              const hasPrimaryBillingType = selectedBillingTypes.some((billingType) => billingType !== "Top-up");
 
               return (
                 <div className="link-account-block" key={block.id}>
@@ -277,18 +280,44 @@ export default function LinkAIToolModal({
                       ) : null}
                     </div>
                     {block.plan === "Active" ? (
-                      <label className="form-field link-account-paid-plan-name">
-                        <span>Plan Name</span>
-                        <input
-                          onChange={(event) => setBlocks((current) =>
-                            current.map((item) => item.id === block.id
-                              ? { ...item, planName: formatPlanName(event.target.value) }
-                              : item))}
-                          placeholder="Basic, Plus, Pro, Team, Business, Pay as you go..."
-                          type="text"
-                          value={block.planName}
-                        />
-                      </label>
+                      <>
+                        <label className="form-field link-account-paid-plan-name">
+                          <span>Plan Name</span>
+                          <input
+                            onChange={(event) => setBlocks((current) =>
+                              current.map((item) => item.id === block.id
+                                ? { ...item, planName: formatPlanName(event.target.value) }
+                                : item))}
+                            placeholder="Basic, Plus, Pro, Team, Business, Pay as you go..."
+                            type="text"
+                            value={block.planName}
+                          />
+                        </label>
+                        <div className={`tool-detail-amount-row${hasPrimaryBillingType && hasTopUpCredit ? "" : " is-single"}`}>
+                          {hasPrimaryBillingType ? (
+                            <label className="form-field link-account-paid-plan-name">
+                              <span>Next Charge</span>
+                              <DateFieldControl
+                                ariaLabel="Next Charge"
+                                onChange={(nextChargeDate) => setBlocks((current) =>
+                                  current.map((item) => item.id === block.id ? { ...item, nextChargeDate } : item))}
+                                value={block.nextChargeDate}
+                              />
+                            </label>
+                          ) : null}
+                          {hasTopUpCredit ? (
+                            <label className="form-field link-account-paid-plan-name">
+                              <span>Last topped up</span>
+                              <DateFieldControl
+                                ariaLabel="Last topped up"
+                                onChange={(lastTopUpDate) => setBlocks((current) =>
+                                  current.map((item) => item.id === block.id ? { ...item, lastTopUpDate } : item))}
+                                value={block.lastTopUpDate}
+                              />
+                            </label>
+                          ) : null}
+                        </div>
+                      </>
                     ) : null}
                   </div>
                 </div>
@@ -305,6 +334,8 @@ export default function LinkAIToolModal({
                   accountLabel: "",
                   billingType: "Monthly",
                   id: `link-account-${Date.now().toString(36)}-${current.length + 1}`,
+                  lastTopUpDate: "",
+                  nextChargeDate: "",
                   plan: defaultPlanForTool(),
                   planName: "",
                   trialExpiryDate: "",

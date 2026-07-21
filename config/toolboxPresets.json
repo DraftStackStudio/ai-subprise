@@ -22,8 +22,8 @@
       "description": "Image, video & audio creation",
       "subgroups": [
         { "label": "Image", "tools": ["Flux.2", "Ideogram", "Krea", "Midjourney", "Seedream"] },
-        { "label": "Hybrid", "tools": ["ElevenLabs", "Hailuo AI", "Kling AI", "Lovart", "Magnific", "Qwen", "Runway", "Wan AI"] },
-        { "label": "Video", "tools": ["Seedance", "Veo 3"] },
+        { "label": "Hybrid", "tools": ["ElevenLabs", "Hailuo AI", "HeyGen", "Higgsfield AI", "Kling AI", "Lovart", "Magnific", "Qwen", "Runway", "Wan AI"] },
+        { "label": "Video", "tools": ["Pika", "Seedance", "Veo 3"] },
         { "label": "Music", "tools": ["Suno", "Udio"] }
       ]
     },
@@ -120,7 +120,7 @@
       "categories": ["ai-assistant", "research", "productivity", "meetings", "niche"]
     },
     "ai-explorer": {
-      "label": "AI Explorer",
+      "label": "AI Enthusiast",
       "categories": ["ai-assistant", "visual-audio", "productivity", "ai-agents", "automation", "vibe-coding", "coding-dev", "website-funnels"]
     },
     "custom": {

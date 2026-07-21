@@ -198,6 +198,8 @@ export default function ToolDetailModal({
     const selectedBillingTypes = draft.billingType
       .split(", ")
       .filter(Boolean);
+    const hasTopUp = selectedBillingTypes.includes("Top-up");
+    const hasPrimaryBillingType = selectedBillingTypes.some((billingType) => billingType !== "Top-up");
 
     return (
       <div
@@ -286,14 +288,28 @@ export default function ToolDetailModal({
                 </label>
               ))}
             </div>
-            <label className="form-field">
-              <span>Next Charge</span>
-              {renderDateField(
-                "Next charge date",
-                draft.nextChargeDate,
-                (nextChargeDate) => onUpdateDraft(draftId, { nextChargeDate }),
-              )}
-            </label>
+            <div className={`tool-detail-amount-row${hasPrimaryBillingType && hasTopUp ? "" : " is-single"}`}>
+              {hasPrimaryBillingType ? (
+                <label className="form-field">
+                  <span>Next Charge</span>
+                  {renderDateField(
+                    "Next charge date",
+                    draft.nextChargeDate,
+                    (nextChargeDate) => onUpdateDraft(draftId, { nextChargeDate }),
+                  )}
+                </label>
+              ) : null}
+              {hasTopUp ? (
+                <label className="form-field">
+                  <span>Last topped up</span>
+                  {renderDateField(
+                    "Last topped up date",
+                    draft.lastTopUpDate,
+                    (lastTopUpDate) => onUpdateDraft(draftId, { lastTopUpDate }),
+                  )}
+                </label>
+              ) : null}
+            </div>
           </>
         ) : null}
 

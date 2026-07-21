@@ -2066,6 +2066,28 @@ p {
   margin-top: -3px;
 }
 
+.account-reorder-helper {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+}
+
+.inline-drag-handle {
+  color: currentColor;
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  grid-template-columns: repeat(2, 2px);
+  grid-template-rows: repeat(3, 2px);
+}
+
+.inline-drag-handle > span {
+  background: currentColor;
+  border-radius: 50%;
+  height: 2px;
+  width: 2px;
+}
+
 .category-view-action-row {
   align-items: center;
   display: flex;
@@ -5724,6 +5746,28 @@ p {
   line-height: 1.45;
 }
 
+.category-selection-warning-icon {
+  align-items: center;
+  background: #333337;
+  border-radius: 50%;
+  color: #f0c846;
+  display: flex;
+  height: 44px;
+  justify-content: center;
+  margin-bottom: 14px;
+  width: 44px;
+}
+
+.category-selection-warning-icon svg {
+  fill: none;
+  height: 22px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 22px;
+}
+
 .compact-copy-modal .modal-form,
 .compact-copy-modal .reset-choice-list {
   margin-top: 14px;
@@ -5769,7 +5813,7 @@ p {
 }
 
 .category-preview-modal {
-  max-width: 900px;
+  max-width: 980px;
 }
 
 .category-matrix-wrap {
@@ -6068,6 +6112,22 @@ p {
   font-size: 12px;
 }
 
+.preset-tool-picker-filter-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.preset-role-tag {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1;
+  padding: 7px 10px;
+}
+
 .preset-tool-empty {
   color: var(--text-3);
   font-size: 12px;
@@ -6134,14 +6194,10 @@ p {
   padding: 6px 14px;
 }
 
-.preset-tool-pill > span {
-  align-items: center;
-  display: inline-flex;
+.preset-tool-pill-icon {
+  display: block;
   flex: 0 0 16px;
-  font-size: 16px;
   height: 16px;
-  justify-content: center;
-  line-height: 1;
   width: 16px;
 }
 
@@ -6159,7 +6215,7 @@ p {
   opacity: 1;
 }
 
-.preset-tool-pill.is-added > span {
+.preset-tool-pill.is-added .preset-tool-pill-icon {
   color: currentColor;
 }
 

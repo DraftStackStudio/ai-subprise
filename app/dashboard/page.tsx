@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -6,6 +6,8 @@ import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
+import AIToolModal from "@/components/AIToolModal";
 import EditCategoryModal from "@/components/EditCategoryModal";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
 import ToolDetailModal from "@/components/ToolDetailModal";
@@ -76,7 +78,7 @@ import {
 type Section = "dashboard" | "tools" | "linked" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 type LinkedPlanFilter = "All" | "Paid" | "Trial" | "Free";
-type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "AI Explorer" | "Custom";
+type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "AI Enthusiast" | "Custom";
 const toolboxSidebarClusterIds = new Set(["everyday", "create", "work", "automate", "build", "business"]);
 type ToolboxPresetCategory = {
   description: string;
@@ -161,6 +163,7 @@ type ToolAccountDetail = {
   billingAmounts?: BillingAmount[];
   billingType: BillingType;
   currency: string;
+  lastTopUpDate: string;
   nextChargeDate: string;
   planName: string;
   status: ManageStatus;
@@ -455,8 +458,8 @@ const currencyOptions: DropdownOption[] = ["USD", "SGD", "EUR", "GBP", "AUD"].ma
 
 const currencySymbols: Record<string, string> = {
   AUD: "A$",
-  EUR: "€",
-  GBP: "£",
+  EUR: "â‚¬",
+  GBP: "Â£",
   SGD: "S$",
   USD: "$",
 };
@@ -805,89 +808,6 @@ function sortCategoriesWithUncategorizedLast(categories: string[]) {
   });
 }
 
-function validateLogin(provider: string, login: string) {
-  const trimmedLogin = login.trim();
-  const emailProviders = ["Gmail", "iCloud", "Outlook", "Yahoo"];
-
-  if (!trimmedLogin) return null;
-
-  if (provider === "Github") {
-    if (/\s/.test(login)) {
-      return { message: "Username cannot contain spaces", type: "error" as const };
-    }
-
-    if (!/^[A-Za-z0-9-]+$/.test(trimmedLogin)) {
-      return {
-        message: "GitHub username: letters, numbers, hyphens (-) only",
-        type: "error" as const,
-      };
-    }
-
-    return { message: "Username format looks good", type: "success" as const };
-  }
-
-  if (/\s/.test(login)) {
-    return {
-      message: "Email address cannot contain spaces",
-      type: "error" as const,
-    };
-  }
-
-  if (!emailProviders.includes(provider)) {
-    const defaultProviderMatch = detectDefaultProviderLogin(trimmedLogin);
-
-    if (defaultProviderMatch) {
-      return {
-        message: `This looks like a ${defaultProviderMatch} login. Check if the provider should be ${defaultProviderMatch}.`,
-        type: "error" as const,
-      };
-    }
-
-    return null;
-  }
-
-  if (!trimmedLogin.includes("@")) {
-    return { message: "Please include an '@' in the email address.", type: "error" as const };
-  }
-
-  const emailParts = trimmedLogin.split("@");
-  if (emailParts.length !== 2 || !emailParts[0] || !emailParts[1]) {
-    return { message: "Please enter a complete email address", type: "error" as const };
-  }
-
-  const domain = emailParts[1].toLowerCase();
-
-  if (provider === "Gmail" && domain !== "gmail.com") {
-    return { message: "Gmail login must end with @gmail.com", type: "error" as const };
-  }
-
-  if (provider === "iCloud" && domain !== "icloud.com") {
-    return { message: "iCloud login must end with @icloud.com", type: "error" as const };
-  }
-
-  if (provider === "Outlook" && domain !== "outlook.com" && domain !== "hotmail.com") {
-    return { message: "Outlook login must end with @outlook.com or @hotmail.com", type: "error" as const };
-  }
-
-  if (provider === "Yahoo" && domain !== "yahoo.com" && !domain.startsWith("yahoo.com.")) {
-    return { message: "Yahoo login must end with @yahoo.com or a local Yahoo domain", type: "error" as const };
-  }
-
-  return { message: "Email format looks good", type: "success" as const };
-}
-
-function detectDefaultProviderLogin(login: string) {
-  const lowerLogin = login.toLowerCase();
-  const domain = lowerLogin.includes("@") ? lowerLogin.split("@").pop() ?? "" : lowerLogin;
-
-  if (domain === "gmail.com") return "Gmail";
-  if (domain === "icloud.com") return "iCloud";
-  if (domain === "outlook.com" || domain === "hotmail.com") return "Outlook";
-  if (domain === "yahoo.com" || domain.startsWith("yahoo.com.")) return "Yahoo";
-
-  return "";
-}
-
 function DashboardContent() {
   const searchParams = useSearchParams();
   const isDemoMode = searchParams.get("demo") === "1";
@@ -907,6 +827,7 @@ function DashboardContent() {
   const [showAddToolModal, setShowAddToolModal] = useState(false);
   const [showPresetToolPicker, setShowPresetToolPicker] = useState(false);
   const [showPresetSelectionWarning, setShowPresetSelectionWarning] = useState(false);
+  const [showCategorySelectionWarning, setShowCategorySelectionWarning] = useState(false);
   const [showAllPresetCategories, setShowAllPresetCategories] = useState(false);
   const [expandedPresetCategories, setExpandedPresetCategories] = useState<string[]>([]);
   const [selectedPresetToolNames, setSelectedPresetToolNames] = useState<string[]>([]);
@@ -982,19 +903,13 @@ function DashboardContent() {
   const [customToolCategories, setCustomToolCategories] = useState<string[]>([]);
   const [workspaceCategories, setWorkspaceCategories] = useState<string[]>([]);
   const [providerName, setProviderName] = useState("");
-  const [isCustomProviderMode, setIsCustomProviderMode] = useState(false);
   const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
-  const [nickname, setNickname] = useState("");
-  const [hasAttemptedNicknameOverflow, setHasAttemptedNicknameOverflow] = useState(false);
-  const [provider, setProvider] = useState("");
-  const providerRef = useRef("");
-  const [login, setLogin] = useState("");
   const [toolName, setToolName] = useState("");
   const [toolCategory, setToolCategory] = useState("");
   const [toolUrl, setToolUrl] = useState("");
   const [linkToolId, setLinkToolId] = useState("");
   const [linkToolAccountBlocks, setLinkToolAccountBlocks] = useState<LinkToolAccountBlock[]>([
-    { accountLabel: "", billingType: "Monthly", id: "link-account-1", plan: "Free Tier", planName: "", trialExpiryDate: "" },
+    { accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", plan: "Free Tier", planName: "", trialExpiryDate: "" },
   ]);
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
@@ -1013,8 +928,6 @@ function DashboardContent() {
   const [selectedRecoveryKeys, setSelectedRecoveryKeys] = useState<string[]>([]);
   const [expandedRecoveryIds, setExpandedRecoveryIds] = useState<string[]>([]);
   const [recoverySearch, setRecoverySearch] = useState("");
-  const [selectedColour, setSelectedColour] = useState(colourOptions[0]);
-  const [isColourMenuOpen, setIsColourMenuOpen] = useState(false);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [selectedToolSort, setSelectedToolSort] = useState<ToolSortRange>("Category");
   const [linkedPlanFilter, setLinkedPlanFilter] = useState<LinkedPlanFilter>("All");
@@ -1033,7 +946,6 @@ function DashboardContent() {
   const [hasCustomToolOrder, setHasCustomToolOrder] = useState(false);
   const [selectedRole, setSelectedRole] = useState<RoleOption>("Creator");
   const [roleQuestionChoice, setRoleQuestionChoice] = useState<RoleOption | "">("");
-  const nicknameInputRef = useRef<HTMLInputElement | null>(null);
   const toolNameInputRef = useRef<HTMLInputElement | null>(null);
   const mainContentRef = useRef<HTMLElement | null>(null);
   const accountToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1043,7 +955,6 @@ function DashboardContent() {
   const [editingToolName, setEditingToolName] = useState<string | null>(null);
   const [editingToolCategoryId, setEditingToolCategoryId] = useState<string | null>(null);
   const [toolNameDraft, setToolNameDraft] = useState("");
-  const [hasSubmittedAccountForm, setHasSubmittedAccountForm] = useState(false);
   const [hasSubmittedToolForm, setHasSubmittedToolForm] = useState(false);
   const hasConfirmedCategories = workspaceCategories.length > 0;
 
@@ -1100,6 +1011,7 @@ function DashboardContent() {
             billingAmounts: account.billingAmounts.map((amount) => ({ ...amount, id: billingAmountId(amount.id) })),
             billingType: account.billingType,
             currency: account.billingAmounts[0]?.currency ?? "USD",
+            lastTopUpDate: "",
             nextChargeDate: account.nextChargeDate,
             planName: account.planName,
             status: account.status as ManageStatus,
@@ -1135,11 +1047,6 @@ function DashboardContent() {
       setSelectedToolSort("Category");
     }
   }, [activeSection, selectedToolSort]);
-
-  const updateAccountProvider = (nextProvider: string) => {
-    providerRef.current = nextProvider;
-    setProvider(nextProvider);
-  };
 
   const renderDropdown = ({
     ariaLabel,
@@ -1396,6 +1303,7 @@ function DashboardContent() {
                         })),
                   billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
                   currency: normaliseCurrency(detail.currency),
+                  lastTopUpDate: detail.lastTopUpDate ?? "",
                   nextChargeDate: detail.nextChargeDate ?? "",
                   planName: detail.planName ?? "",
                   status: normaliseManageStatus(detail.status ?? "Active"),
@@ -1606,6 +1514,7 @@ function DashboardContent() {
               })),
               billingType: normaliseBillingType(detail.billingType),
               currency: normaliseCurrency(detail.currency),
+              lastTopUpDate: detail.lastTopUpDate,
               nextChargeDate: detail.nextChargeDate,
               planName: detail.planName,
               status: normaliseManageStatus(detail.status),
@@ -1785,32 +1694,13 @@ function DashboardContent() {
   };
 
   const openAddAccountModal = () => {
-    setNickname("");
-    setHasAttemptedNicknameOverflow(false);
-    updateAccountProvider("");
-    setIsCustomProviderMode(false);
-    setLogin("");
-    setSelectedColour(colourOptions[0]);
-    setIsColourMenuOpen(false);
     setEditingAccount(null);
-    setHasSubmittedAccountForm(false);
     setAccountDataError("");
     setShowAddAccountModal(true);
   };
 
   const openEditAccountModal = (account: Account) => {
-    const accountColour = colourOptions.find((option) => option.tag === account.tag) ?? colourOptions[0];
-    const isKnownProvider = defaultProviders.includes(account.provider) || customProviders.includes(account.provider);
-
-    setNickname(account.label);
-    setHasAttemptedNicknameOverflow(false);
-    updateAccountProvider(account.provider);
-    setIsCustomProviderMode(!isKnownProvider);
-    setLogin(account.login);
-    setSelectedColour(accountColour);
-    setIsColourMenuOpen(false);
     setEditingAccount(account);
-    setHasSubmittedAccountForm(false);
     setAccountDataError("");
     setShowAddAccountModal(true);
   };
@@ -2319,7 +2209,11 @@ function DashboardContent() {
 
   const saveRoleCategories = () => {
     const nextCategories = defaultToolCategories.filter((category) => selectedRoleCategories.includes(category));
-    const confirmedCategories = nextCategories.length > 0 ? nextCategories : ["AI Assistant"];
+    if (nextCategories.length === 0) {
+      setShowCategorySelectionWarning(true);
+      return;
+    }
+    const confirmedCategories = nextCategories;
     setWorkspaceCategories(confirmedCategories);
     setActiveSection("tools");
     setActiveCategory("");
@@ -2335,44 +2229,22 @@ function DashboardContent() {
     openPresetToolPicker();
   };
 
-  const saveAccount = async (event?: FormEvent<HTMLFormElement>, options?: { addAnother?: boolean }) => {
-    event?.preventDefault();
-    setHasSubmittedAccountForm(true);
+  const saveAccount = async (
+    values: AccountFormValues,
+    options?: { addAnother?: boolean },
+  ): Promise<boolean> => {
     setAccountDataError("");
 
-    const trimmedNickname = nickname.trim();
-    const trimmedProvider = providerRef.current.trim();
-    const trimmedLogin = login.trim();
-    const loginFeedback = validateLogin(trimmedProvider, login);
-    const isDuplicateNickname = accountList.some(
-      (account) =>
-        account.login !== editingAccount?.login &&
-        account.label.trim().toLowerCase() === trimmedNickname.toLowerCase(),
-    );
-    const isDuplicateLogin = accountList.some(
-      (account) =>
-        account.login !== editingAccount?.login &&
-        account.login.trim().toLowerCase() === trimmedLogin.toLowerCase(),
-    );
-
-    const isNicknameTooLong = trimmedNickname.length > accountNicknameMaxLength;
-
-    if (
-      !trimmedNickname ||
-      !trimmedProvider ||
-      !trimmedLogin ||
-      loginFeedback?.type === "error" ||
-      isDuplicateNickname ||
-      isDuplicateLogin ||
-      isNicknameTooLong
-    ) return;
+    const trimmedNickname = values.nickname.trim();
+    const trimmedProvider = values.provider.trim();
+    const trimmedLogin = values.login.trim();
 
     const accountDetails: Account = {
       id: editingAccount?.id,
       label: trimmedNickname,
       provider: trimmedProvider,
       login: trimmedLogin,
-      tag: selectedColour.tag,
+      tag: values.colourTag,
       linked: editingAccount?.linked ?? 0,
     };
 
@@ -2405,7 +2277,7 @@ function DashboardContent() {
       const message = error instanceof Error ? error.message : "Could not save account.";
       setAccountDataError(message);
       setIsSavingAccount(false);
-      return;
+      return false;
     }
     setIsSavingAccount(false);
 
@@ -2418,30 +2290,19 @@ function DashboardContent() {
           )
         : [...currentAccounts, savedAccount],
     );
-    setHasSubmittedAccountForm(false);
     showToast(
       editingAccount
-        ? "✅ Account updated."
+        ? "âœ… Account updated."
         : options?.addAnother
-          ? "✅ Account added. Keep going."
-          : "✅ Account added.",
+          ? "âœ… Account added. Keep going."
+          : "âœ… Account added.",
     );
 
-    if (options?.addAnother && !editingAccount) {
-      setNickname("");
-      setHasAttemptedNicknameOverflow(false);
-      setLogin("");
-      setSelectedColour(colourOptions[0]);
-      updateAccountProvider(trimmedProvider);
-      setIsCustomProviderMode(false);
-      setIsColourMenuOpen(false);
-      window.setTimeout(() => nicknameInputRef.current?.focus(), 0);
-      return;
+    if (!options?.addAnother || editingAccount) {
+      setEditingAccount(null);
+      setShowAddAccountModal(false);
     }
-
-    setEditingAccount(null);
-    setIsCustomProviderMode(false);
-    setShowAddAccountModal(false);
+    return true;
   };
 
   const insertToolAlphabetically = (currentTools: ToolItem[], toolDetails: ToolItem) => {
@@ -2693,7 +2554,7 @@ function DashboardContent() {
     setEditingProvider(null);
     setProviderName("");
     if (hasProviderNameChanged) {
-      showToast("✅ Provider updated.");
+      showToast("âœ… Provider updated.");
     }
   };
 
@@ -2843,7 +2704,7 @@ function DashboardContent() {
 
     if (confirmToolStateChange.action === "unarchive") {
       unarchiveToolIds([confirmToolStateChange.tool.id]);
-      showToast(`✅ ${confirmToolStateChange.tool.name} is back.`);
+      showToast(`âœ… ${confirmToolStateChange.tool.name} is back.`);
     }
 
     if (confirmToolStateChange.action === "unwatchlist") {
@@ -2993,7 +2854,7 @@ function DashboardContent() {
   };
 
   const resetLinkToolBlocks = (tool?: ToolItem) => {
-    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "Monthly", id: "link-account-1", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
+    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
     setHasSubmittedLinkToolForm(false);
   };
 
@@ -3041,6 +2902,7 @@ function DashboardContent() {
                 id: billingAmountId(),
               })),
           billingType,
+          lastTopUpDate: details?.lastTopUpDate ?? "",
           nextChargeDate: details?.nextChargeDate ?? "",
           plan: relationPlanStatusValue(tool, linkedAccountLabel),
           planName: details?.planName ?? toolAccountPlanNames[tool.id]?.[linkedAccountLabel] ?? "",
@@ -3081,6 +2943,8 @@ function DashboardContent() {
     const selectedPlan: ToolStatus = draft.plan;
     const validatedBillingType = normaliseBillingType(draft.billingType);
     const validatedBillingTypes = validatedBillingType.split(", ");
+    const hasTopUpCredit = validatedBillingTypes.includes("Top-up");
+    const hasPrimaryBillingType = validatedBillingTypes.some((billingType) => billingType !== "Top-up");
     const nextDetail: ToolAccountDetail = {
       amount: draft.plan === "Active" ? draft.billingAmounts[0]?.amount.trim() ?? "" : "",
       billingAmounts: draft.plan === "Active"
@@ -3088,7 +2952,8 @@ function DashboardContent() {
         : [],
       billingType: validatedBillingType,
       currency: normaliseCurrency(draft.billingAmounts[0]?.currency),
-      nextChargeDate: draft.plan === "Active" ? draft.nextChargeDate : "",
+      lastTopUpDate: draft.plan === "Active" && hasTopUpCredit ? draft.lastTopUpDate : "",
+      nextChargeDate: draft.plan === "Active" && hasPrimaryBillingType ? draft.nextChargeDate : "",
       planName: draft.plan === "Active" ? draft.planName.trim() : "",
       status: draft.status,
       trialExpiryDate: draft.plan === "Trial" ? draft.trialExpiryDate : "",
@@ -3113,6 +2978,7 @@ function DashboardContent() {
           amount: nextDetail.amount,
           billingType: nextDetail.billingType,
           currency: nextDetail.currency,
+          lastTopUpDate: nextDetail.lastTopUpDate,
           nextChargeDate: nextDetail.nextChargeDate,
           plan: draft.plan,
           planName: nextDetail.planName,
@@ -3142,6 +3008,7 @@ function DashboardContent() {
           id: billingAmountId(),
         }],
         billingType: "Monthly",
+        lastTopUpDate: "",
         nextChargeDate: "",
         plan: "",
         planName: "",
@@ -3256,6 +3123,7 @@ function DashboardContent() {
         billingAmounts: managedPlan === "Active" ? managedBillingAmounts : [],
         billingType: normaliseBillingType(managedBillingType),
         currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
+        lastTopUpDate: nextToolDetails[managedAccountLabel]?.lastTopUpDate ?? "",
         nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
         planName: managedPlan === "Active" ? managedPlanName.trim() : "",
         status: managedStatus,
@@ -3300,6 +3168,7 @@ function DashboardContent() {
       billingAmounts: currentDetail?.billingAmounts,
       billingType: normaliseBillingType(patch.billingType ?? currentDetail?.billingType ?? "Monthly"),
       currency: normaliseCurrency(patch.currency ?? currentDetail?.currency),
+      lastTopUpDate: currentDetail?.lastTopUpDate ?? "",
       nextChargeDate: patch.nextChargeDate ?? currentDetail?.nextChargeDate ?? "",
       planName: patch.planName ?? currentDetail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "",
       status: currentDetail?.status ?? "Active",
@@ -3354,6 +3223,7 @@ function DashboardContent() {
       billingAmounts: currentDetail?.billingAmounts,
       billingType: normaliseBillingType(currentDetail?.billingType ?? "Monthly"),
       currency: normaliseCurrency(currentDetail?.currency),
+      lastTopUpDate: currentDetail?.lastTopUpDate ?? "",
       nextChargeDate: currentDetail?.nextChargeDate ?? "",
       planName: currentDetail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
       status,
@@ -3447,7 +3317,12 @@ function DashboardContent() {
               : [],
             billingType: normaliseBillingType(block.billingType),
             currency: "USD",
-            nextChargeDate: "",
+            lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
+              ? block.lastTopUpDate
+              : "",
+            nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType !== "Top-up")
+              ? block.nextChargeDate
+              : "",
             planName: block.plan === "Active" ? block.planName.trim() : "",
             status: "Active",
             trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
@@ -3464,7 +3339,12 @@ function DashboardContent() {
             updateToolLinkDetails(selectedTool.id, block.accountLabel, accountList, {
               billingType: normaliseBillingType(block.billingType),
               currency: "USD",
-              nextChargeDate: "",
+              lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
+                ? block.lastTopUpDate
+                : "",
+              nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType !== "Top-up")
+                ? block.nextChargeDate
+                : "",
               plan: block.plan,
               planName: block.plan === "Active" ? block.planName.trim() : "",
               status: "Active",
@@ -4098,7 +3978,6 @@ function DashboardContent() {
     return () => scrollContainer.removeEventListener("scroll", updateActiveCluster);
   }, [activeCategory, activeSection, selectedToolSort, toolboxClusterGroups]);
 
-  const providerOptions = useMemo(() => [...defaultProviders, ...customProviders], [customProviders]);
   const toolCategoryOptions = useMemo(
     () => {
       const categoryOptions = normaliseCategoryList([
@@ -4115,8 +3994,6 @@ function DashboardContent() {
     },
     [customToolCategories, editingTool?.category, hasUncategorizedTools, sortedWorkspaceCategories, toolCategory],
   );
-  const loginFeedback = useMemo(() => validateLogin(provider, login), [login, provider]);
-  const visibleLoginFeedback = hasSubmittedAccountForm ? loginFeedback : null;
   const accountLinkCounts = useMemo(() => {
     const counts = new Map<string, number>();
 
@@ -4178,29 +4055,6 @@ function DashboardContent() {
     () => customProviders.map((customProvider) => ({ name: customProvider })),
     [customProviders],
   );
-  const nicknameRequiredError = hasSubmittedAccountForm && !nickname.trim() ? "Nickname is required" : "";
-  const nicknameDuplicateError =
-    hasSubmittedAccountForm &&
-    nickname.trim() &&
-    accountList.some(
-      (account) =>
-        account.login !== editingAccount?.login &&
-        account.label.trim().toLowerCase() === nickname.trim().toLowerCase(),
-    )
-      ? "This nickname already exists"
-      : "";
-  const providerRequiredError = hasSubmittedAccountForm && !provider.trim() ? "Provider is required" : "";
-  const loginRequiredError = hasSubmittedAccountForm && !login.trim() ? "Login is required" : "";
-  const loginDuplicateError =
-    hasSubmittedAccountForm &&
-    login.trim() &&
-    accountList.some(
-      (account) =>
-        account.login !== editingAccount?.login &&
-        account.login.trim().toLowerCase() === login.trim().toLowerCase(),
-    )
-      ? "This login already exists"
-      : "";
   const toolNameRequiredError = hasSubmittedToolForm && !toolName.trim() ? "AI tool name is required" : "";
   const toolNameDuplicateError =
     hasSubmittedToolForm &&
@@ -4296,8 +4150,8 @@ function DashboardContent() {
     account: "All the accounts you sign up with. Add them once, use them everywhere.",
     tools: "Every tool you use, paid or free. Nothing forgotten.",
     linked: "See which account belongs to which tool. No more guessing.",
-    billing: "Paid subscriptions by tool and account.",
-    watchlist: "Tools you are considering. Keep them close before you link an account.",
+    billing: "All your bills, one place, no surprises.",
+    watchlist: "Tools you're considering. Keep them close before you link an account.",
     favorites: "The tools you reach for every day. Right here.",
     archive: "Tools on pause. Still here if you need them back.",
     settings: "Your preferences. Your way.",
@@ -4599,7 +4453,7 @@ function DashboardContent() {
 
     const daysRemaining = linkedTrialDaysRemaining(tool, accountLabel);
     if (daysRemaining === null) return "Trial";
-    return daysRemaining < 0 ? "Trial · ended" : `Trial · ${daysRemaining}d left`;
+    return daysRemaining < 0 ? "Trial Â· ended" : `Trial Â· ${daysRemaining}d left`;
   };
 
   const linkedPlanPillTone = (tool: ToolItem, accountLabel: string, plan: string) => {
@@ -5425,12 +5279,12 @@ function DashboardContent() {
                 ? `${normaliseCurrency(billingAmount.currency)} ${billingAmount.amount}`
                 : undefined,
               billingType: normaliseBillingType(billingAmount.billingType),
-              date: detail?.nextChargeDate ? formatBillingDate(detail.nextChargeDate) : "—",
+              date: detail?.nextChargeDate ? formatBillingDate(detail.nextChargeDate) : "â€”",
               event: "Charged",
               id,
               note: billingHistoryNotes[`${recordKey}::${id}`] ?? [detail?.planName, normaliseBillingType(billingAmount.billingType)]
                 .filter(Boolean)
-                .join(" · "),
+                .join(" Â· "),
               planName: detail?.planName ?? "",
               source: "generated",
             };
@@ -5514,6 +5368,7 @@ function DashboardContent() {
           billingAmounts: detail?.billingAmounts,
           billingType: normaliseBillingType(detail?.billingType ?? "Monthly"),
           currency: normaliseCurrency(detail?.currency),
+          lastTopUpDate: detail?.lastTopUpDate ?? "",
           nextChargeDate: detail?.nextChargeDate ?? "",
           planName: detail?.planName ?? "",
           status: detail?.status ?? "Active",
@@ -5941,13 +5796,7 @@ function DashboardContent() {
               </h1>
               <p className="main-subtitle">
                 {activeSection === "linked" ? (
-                  <>
-                    Connect a tool to an account, or{" "}
-                    <button className="inline-text-link" onClick={() => openLinkToolModal()} type="button">
-                      Link AI Tool
-                    </button>{" "}
-                    to get started
-                  </>
+                  "Every tool, matched to the account behind it."
                 ) : (
                   subtitle
                 )}
@@ -5961,7 +5810,7 @@ function DashboardContent() {
                   onClick={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
                   type="button"
                 >
-                  <span aria-hidden="true">⚠</span>
+                  <span aria-hidden="true">âš </span>
                   {pendingBillingActions.length} {pendingBillingActions.length === 1 ? "item needs" : "items need"} attention
                 </button>
               ) : null}
@@ -6023,7 +5872,7 @@ function DashboardContent() {
                           <span className="pending-action-status">Unresolved</span>
                         </div>
                         <span>
-                          {displayToolName(tool?.name ?? "Tool")} · {accountLabel} · {billingHistoryDisplayDate(entry.date)} · Original entry stays unchanged
+                          {displayToolName(tool?.name ?? "Tool")} Â· {accountLabel} Â· {billingHistoryDisplayDate(entry.date)} Â· Original entry stays unchanged
                         </span>
                       </div>
                       {isResolving ? (
@@ -6073,7 +5922,18 @@ function DashboardContent() {
             <section className="account-page">
               {accountList.length > 0 ? (
                 <div className="account-page-guidance">
-                  <span className="category-view-helper">Hold and drag ⠿ to reorder your accounts.</span>
+                  <span className="category-view-helper account-reorder-helper">
+                    Hold and drag
+                    <span aria-hidden="true" className="inline-drag-handle">
+                      <span />
+                      <span />
+                      <span />
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    to reorder your accounts.
+                  </span>
                 </div>
               ) : null}
               {accountDataError ? (
@@ -6344,7 +6204,7 @@ function DashboardContent() {
                   <div className="trial-alert-list">
                     {trialsNeedingConfirmation.slice(0, 3).map((trial) => (
                       <span key={`${trial.tool.id}-${trial.accountLabel}`}>
-                        {trial.tool.name} · {trial.accountLabel} · Confirm status
+                        {trial.tool.name} Â· {trial.accountLabel} Â· Confirm status
                       </span>
                     ))}
                   </div>
@@ -6359,7 +6219,7 @@ function DashboardContent() {
                   <div className="trial-alert-list">
                     {trialsEndingSoon.slice(0, 3).map((trial) => (
                       <span key={`${trial.tool.id}-${trial.accountLabel}`}>
-                        {trial.tool.name} · {trial.accountLabel} · {formatShortDate(trial.expiryDate)}
+                        {trial.tool.name} Â· {trial.accountLabel} Â· {formatShortDate(trial.expiryDate)}
                       </span>
                     ))}
                   </div>
@@ -6956,6 +6816,38 @@ function DashboardContent() {
         </div>
       )}
 
+      {showCategorySelectionWarning && (
+        <div className="welcome-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="category-selection-warning-title"
+            aria-modal="true"
+            className="welcome-modal compact-copy-modal"
+            role="dialog"
+          >
+            <div className="category-selection-warning-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <rect x="4" y="4" width="16" height="16" rx="3" />
+                <path d="m8 9 1.5 1.5L12 8" />
+                <path d="M14 9h3" />
+                <path d="m8 14 1.5 1.5L12 13" />
+                <path d="M14 14h3" />
+              </svg>
+            </div>
+            <h2 id="category-selection-warning-title">Select at least one category</h2>
+            <p>You can always add more later from settings.</p>
+            <div className="welcome-modal-actions">
+              <button
+                className="btn-sm btn-sm-primary"
+                onClick={() => setShowCategorySelectionWarning(false)}
+                type="button"
+              >
+                Continue selecting
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {showEditCategoryModal && (
         <>
           <EditCategoryModal
@@ -7176,187 +7068,36 @@ function DashboardContent() {
         </div>
       ) : null}
 
-      {showAddAccountModal && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="add-account-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            <button
-              aria-label="Close add account modal"
-              className="modal-close-button"
-              onClick={() => {
-                setIsColourMenuOpen(false);
-                setEditingAccount(null);
-                setShowAddAccountModal(false);
-              }}
-              type="button"
-            >
-              ×
-            </button>
-            {editingAccount ? (
-              <button
-                aria-label="Delete account"
-                className="modal-trash-button"
-                onClick={() => {
-                  setShowAddAccountModal(false);
-                  setDeletingAccount(editingAccount);
-                }}
-                type="button"
-              >
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <TrashIconPaths />
-                </svg>
-              </button>
-            ) : null}
-            <h2 id="add-account-modal-title">{editingAccount ? "Edit Account" : "New Account Entry"}</h2>
-            <form className="modal-form" onSubmit={saveAccount}>
-              {accountDataError ? (
-                <div className="data-state-message error" role="alert">
-                  {accountDataError}
-                </div>
-              ) : null}
-              <label className="form-field">
-                <span>Nickname</span>
-                <input
-                  ref={nicknameInputRef}
-                  onChange={(event) => {
-                    const nextNickname = event.target.value;
-                    const isOverflowing = nextNickname.length > accountNicknameMaxLength;
-                    setHasAttemptedNicknameOverflow(isOverflowing || (
-                      hasAttemptedNicknameOverflow && nextNickname.length === accountNicknameMaxLength
-                    ));
-                    setNickname(formatNickname(nextNickname.slice(0, accountNicknameMaxLength)));
-                  }}
-                  placeholder="Personal, Work, Dev, Burner, Client..."
-                  type="text"
-                  value={nickname}
-                />
-                <span className="nickname-feedback-row">
-                  {nicknameRequiredError || nicknameDuplicateError || hasAttemptedNicknameOverflow ? (
-                    <small className="field-feedback error">
-                      {nicknameRequiredError || nicknameDuplicateError || `Max ${accountNicknameMaxLength} characters`}
-                    </small>
-                  ) : <span />}
-                  <small aria-live="polite" className="nickname-character-count">
-                    {nickname.length}/{accountNicknameMaxLength}
-                  </small>
-                </span>
-              </label>
-              <div className="form-field">
-                <span>Colour</span>
-                <div className={isColourMenuOpen ? "colour-menu is-open" : "colour-menu"}>
-                  <button
-                    aria-expanded={isColourMenuOpen}
-                    className="colour-menu-trigger"
-                    onClick={() => setIsColourMenuOpen((isOpen) => !isOpen)}
-                    type="button"
-                  >
-                    <span className={`colour-swatch ${selectedColour.className}`} />
-                    {selectedColour.label}
-                  </button>
-                  {isColourMenuOpen && (
-                    <div className="colour-options">
-                      {colourOptions.map((option) => (
-                        <button
-                          className={
-                            selectedColour.label === option.label
-                              ? "colour-option is-selected"
-                              : "colour-option"
-                          }
-                          key={option.label}
-                          onClick={() => {
-                            setSelectedColour(option);
-                            setIsColourMenuOpen(false);
-                          }}
-                          type="button"
-                        >
-                          <span className={`colour-swatch ${option.className}`} />
-                          {option.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <label className="form-field">
-                <span>Provider</span>
-                {isCustomProviderMode ? (
-                  <input
-                    onChange={(event) => updateAccountProvider(formatNickname(event.target.value))}
-                    placeholder="Provider name"
-                    type="text"
-                    value={provider}
-                  />
-                ) : (
-                  renderDropdown({
-                    id: "account-provider",
-                    onChange: (nextProvider) => {
-                      if (nextProvider === customProviderOption) {
-                        setIsCustomProviderMode(true);
-                        updateAccountProvider("");
-                        return;
-                      }
-
-                      updateAccountProvider(nextProvider);
-                    },
-                    options: [
-                      ...providerOptions.map((providerOption) => ({
-                        label: providerOption,
-                        value: providerOption,
-                      })),
-                      { label: customProviderOption, value: customProviderOption },
-                    ],
-                    placeholder: "Select provider",
-                    value: provider,
-                  })
-                )}
-                {providerRequiredError ? <small className="field-feedback error">{providerRequiredError}</small> : null}
-              </label>
-              <label className="form-field">
-                <span>Login</span>
-                <input
-                  onChange={(event) => setLogin(event.target.value)}
-                  placeholder="you@example.com or github.com/username"
-                  type="text"
-                  value={login}
-                />
-                {loginRequiredError ? (
-                  <small className="field-feedback error">{loginRequiredError}</small>
-                ) : loginDuplicateError ? (
-                  <small className="field-feedback error">{loginDuplicateError}</small>
-                ) : visibleLoginFeedback ? (
-                  <small
-                    className={visibleLoginFeedback.type === "error" ? "field-feedback error" : "field-feedback success"}
-                  >
-                    {visibleLoginFeedback.type === "success" ? (
-                      <span aria-hidden="true" className="field-check" />
-                    ) : null}
-                    {visibleLoginFeedback.message}
-                  </small>
-                ) : null}
-              </label>
-              <div className="welcome-modal-actions account-modal-actions">
-                {!editingAccount ? (
-                  <button
-                    className="btn-sm btn-sm-charcoal"
-                    disabled={isSavingAccount}
-                    onClick={() => saveAccount(undefined, { addAnother: true })}
-                    type="button"
-                  >
-                    + Add next
-                  </button>
-                ) : null}
-                <button className="btn-sm btn-sm-primary" disabled={isSavingAccount} type="submit">
-                  {isSavingAccount ? "Saving..." : editingAccount ? "Save changes" : "Save"}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
+      {showAddAccountModal ? (
+        <AccountModal
+          accountDataError={accountDataError}
+          accounts={accountList}
+          colourOptions={colourOptions}
+          customProviderOption={customProviderOption}
+          customProviders={customProviders}
+          defaultProviders={defaultProviders}
+          editingAccount={editingAccount}
+          formatNickname={formatNickname}
+          isSaving={isSavingAccount}
+          nicknameMaxLength={accountNicknameMaxLength}
+          onClose={() => {
+            setEditingAccount(null);
+            setShowAddAccountModal(false);
+          }}
+          onDelete={() => {
+            if (!editingAccount) return;
+            setShowAddAccountModal(false);
+            setDeletingAccount(editingAccount);
+          }}
+          onSave={saveAccount}
+          trashIcon={<TrashIconPaths />}
+        />
+      ) : null}
 
       {accountToast ? (
         <div className="app-toast app-toast-success" role="status">
-          <span aria-hidden="true" className="toast-success-check">✓</span>
-          <span>{accountToast.replace(/^✅\s*/, "")}</span>
+          <span aria-hidden="true" className="toast-success-check">âœ“</span>
+          <span>{accountToast.replace(/^âœ…\s*/, "")}</span>
         </div>
       ) : null}
 
@@ -7379,25 +7120,29 @@ function DashboardContent() {
             <h2 id="preset-tool-picker-title">Add AI tools</h2>
             <p>Choose as many as you use. Added tools stay visible so you can keep browsing.</p>
             <div className="preset-tool-picker-filter">
-              <span>
-                {showAllPresetCategories
-                  ? "Showing all categories"
-                  : `Showing categories from ${selectedRole === "Custom" ? "your selection" : selectedRole}`}
-              </span>
-              <button
-                aria-pressed={showAllPresetCategories}
-                className={showAllPresetCategories ? "btn-sm btn-sm-charcoal" : "btn-sm btn-sm-ghost"}
-                onClick={() => setShowAllPresetCategories((showAll) => !showAll)}
-                type="button"
-              >
-                {showAllPresetCategories ? "Show selected categories" : "Show all categories"}
-              </button>
+              <span className="preset-role-tag">{selectedRole}</span>
+              <div className="preset-tool-picker-filter-actions">
+                <button
+                  aria-pressed={showAllPresetCategories}
+                  className={showAllPresetCategories ? "btn-sm btn-sm-charcoal" : "btn-sm btn-sm-ghost"}
+                  onClick={() => setShowAllPresetCategories((showAll) => !showAll)}
+                  type="button"
+                >
+                  {showAllPresetCategories ? "Show selected categories" : "Show all categories"}
+                </button>
+              </div>
             </div>
             <div className="preset-tool-picker-content">
               {toolboxPresets.clusters.map((cluster) => {
                 const categories = cluster.categories
                   .map((categoryId) => presetCategoryById.get(categoryId))
                   .filter((category): category is ToolboxPresetCategory => Boolean(category))
+                  .filter(
+                    (category) =>
+                      Boolean(category.tools?.length) ||
+                      Boolean(category.subgroups?.some((subgroup) => subgroup.tools.length > 0)) ||
+                      toolList.some((tool) => normaliseToolCategory(tool.category) === category.label),
+                  )
                   .filter(
                     (category) =>
                       showAllPresetCategories ||
@@ -7422,12 +7167,52 @@ function DashboardContent() {
                             onClick={() => togglePresetTool(presetName)}
                             type="button"
                           >
-                            <span aria-hidden="true">{isAdded ? "✓" : "+"}</span>
+                            {isAdded ? (
+                              <svg
+                                aria-hidden="true"
+                                className="preset-tool-pill-icon"
+                                fill="none"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                width="16"
+                              >
+                                <path
+                                  d="m5 12 4 4L19 6"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="2"
+                                />
+                              </svg>
+                            ) : (
+                              <svg
+                                aria-hidden="true"
+                                className="preset-tool-pill-icon"
+                                fill="none"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                width="16"
+                              >
+                                <path
+                                  d="M12 5v14M5 12h14"
+                                  stroke="currentColor"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth="2"
+                                />
+                              </svg>
+                            )}
                             {presetName}
                           </button>
                         );
                       };
-                      const categoryTools = category.tools ?? [];
+                      const categoryTools =
+                        category.tools && category.tools.length > 0
+                          ? category.tools
+                          : toolList
+                              .filter((tool) => normaliseToolCategory(tool.category) === category.label)
+                              .map((tool) => tool.name)
+                              .sort((firstName, secondName) => firstName.localeCompare(secondName));
                       const isExpanded = expandedPresetCategories.includes(category.id);
                       const visibleCategoryTools = isExpanded ? categoryTools : categoryTools.slice(0, 8);
 
@@ -7504,128 +7289,44 @@ function DashboardContent() {
         </div>
       )}
 
-      {showAddToolModal && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="add-tool-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            {editingTool ? (
-              <>
-                <button
-                  aria-label="Delete AI tool"
-                  className="modal-tool-action-button modal-tool-trash-button"
-                  onClick={deleteEditingTool}
-                  type="button"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <TrashIconPaths />
-                  </svg>
-                </button>
-                <button
-                  aria-label="Archive AI tool"
-                  className="modal-tool-action-button modal-tool-archive-button"
-                  onClick={archiveEditingTool}
-                  type="button"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <ArchiveBoxIconPaths />
-                  </svg>
-                </button>
-              </>
-            ) : null}
-            <button
-              aria-label="Close AI tool modal"
-              className="modal-close-button"
-              onClick={() => {
-                setEditingTool(null);
-                setShowAddToolModal(false);
-              }}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="add-tool-modal-title">{editingTool ? "Edit AI Tool" : "New AI Tool"}</h2>
-            <form className="modal-form" onSubmit={saveTool}>
-              {toolDataError ? (
-                <div className="data-state-message error" role="alert">
-                  {toolDataError}
-                </div>
-              ) : null}
-              <label className="form-field">
-                <span>AI Tool Name</span>
-                <input
-                  ref={toolNameInputRef}
-                  onChange={(event) => setToolName(displayToolName(event.target.value))}
-                  placeholder="ChatGPT, Claude, Midjourney..."
-                  type="text"
-                  value={toolName}
-                />
-                {toolNameRequiredError ? (
-                  <small className="field-feedback error">{toolNameRequiredError}</small>
-                ) : toolNameDuplicateError ? (
-                  <small className="field-feedback error">{toolNameDuplicateError}</small>
-                ) : null}
-              </label>
-              <label className="form-field">
-                <span>Category</span>
-                {isCustomCategoryMode ? (
-                  <input
-                    onChange={(event) => setToolCategory(formatNickname(event.target.value))}
-                    placeholder="Category name"
-                    type="text"
-                    value={toolCategory}
-                  />
-                ) : (
-                  renderDropdown({
-                    id: "tool-category",
-                    onChange: (nextCategory) => {
-                      if (nextCategory === customCategoryOption) {
-                        setIsCustomCategoryMode(true);
-                        setToolCategory("");
-                        return;
-                      }
+      {showAddToolModal ? (
+        <AIToolModal
+          archiveIcon={<ArchiveBoxIconPaths />}
+          category={toolCategory}
+          categoryOptions={toolCategoryOptions}
+          categoryRequiredError={toolCategoryRequiredError}
+          customCategoryOption={customCategoryOption}
+          isCustomCategoryMode={isCustomCategoryMode}
+          isEditing={Boolean(editingTool)}
+          isSaving={isSavingTool}
+          name={toolName}
+          nameDuplicateError={toolNameDuplicateError}
+          nameInputRef={toolNameInputRef}
+          nameRequiredError={toolNameRequiredError}
+          onArchive={archiveEditingTool}
+          onCategoryChange={(nextCategory) => {
+            if (!isCustomCategoryMode && nextCategory === customCategoryOption) {
+              setIsCustomCategoryMode(true);
+              setToolCategory("");
+              return;
+            }
 
-                      setToolCategory(nextCategory);
-                    },
-                    options: [
-                      ...toolCategoryOptions.map((categoryOption) => ({
-                        label: categoryOption,
-                        value: categoryOption,
-                      })),
-                      { label: customCategoryOption, value: customCategoryOption },
-                    ],
-                    placeholder: "Select category",
-                    value: toolCategory,
-                  })
-                )}
-                {toolCategoryRequiredError ? <small className="field-feedback error">{toolCategoryRequiredError}</small> : null}
-              </label>
-              <label className="form-field">
-                <span>URL (optional)</span>
-                <input
-                  onChange={(event) => setToolUrl(event.target.value)}
-                  placeholder="https://example.com"
-                  type="url"
-                  value={toolUrl}
-                />
-              </label>
-              <div className="welcome-modal-actions account-modal-actions">
-                {!editingTool ? (
-                  <button
-                    className="btn-sm btn-sm-charcoal"
-                    disabled={isSavingTool}
-                    onClick={() => saveTool(undefined, { addAnother: true })}
-                    type="button"
-                  >
-                    + Add next
-                  </button>
-                ) : null}
-                <button className="btn-sm btn-sm-primary" disabled={isSavingTool} type="submit">
-                  {isSavingTool ? "Saving..." : editingTool ? "Save changes" : "Save AI tool"}
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
+            setToolCategory(isCustomCategoryMode ? formatNickname(nextCategory) : nextCategory);
+          }}
+          onClose={() => {
+            setEditingTool(null);
+            setShowAddToolModal(false);
+          }}
+          onDelete={deleteEditingTool}
+          onNameChange={(nextName) => setToolName(displayToolName(nextName))}
+          onSave={saveTool}
+          onUrlChange={setToolUrl}
+          renderDropdown={renderDropdown}
+          toolDataError={toolDataError}
+          trashIcon={<TrashIconPaths />}
+          url={toolUrl}
+        />
+      ) : null}
 
       {showLinkToolModal ? (
         <LinkAIToolModal
@@ -8106,4 +7807,3 @@ export default function DashboardPage() {
     </Suspense>
   );
 }
-

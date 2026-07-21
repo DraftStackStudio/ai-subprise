@@ -21,6 +21,7 @@ export type ToolDetailAccountDraft = {
   accountLabel: string;
   billingAmounts: BillingAmount[];
   billingType: string;
+  lastTopUpDate: string;
   nextChargeDate: string;
   draftId?: string;
   plan: ToolStatus | "";

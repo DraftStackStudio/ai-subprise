@@ -11,11 +11,12 @@ export function isPrimaryBillingType(value: string): value is (typeof primaryBil
 
 /**
  * Enforces the persisted billing-type invariant:
- * exactly one primary billing type, optionally followed by Top-up.
+ * zero or one primary billing type, optionally followed by Top-up.
+ * Top-up may also be used on its own for pay-as-you-go tools.
  */
 export function validateBillingTypeSelection(values: string[]): CanonicalBillingType[] {
   const primary = values.find(isPrimaryBillingType);
-  if (!primary) return [];
+  if (!primary) return values.includes(topUpBillingType) ? [topUpBillingType] : [];
   return values.includes(topUpBillingType) ? [primary, topUpBillingType] : [primary];
 }
 
@@ -28,12 +29,19 @@ export function toggleBillingTypeSelection(
 
   if (isPrimaryBillingType(toggledValue)) {
     const hasTopUp = current.includes(topUpBillingType);
+    const isAlreadySelected = current.includes(toggledValue);
+
+    // Checked primary options behave like normal checkboxes: unchecking a
+    // hybrid leaves Top-up selected, while unchecking a lone primary leaves
+    // the billing-type selection empty.
+    if (isAlreadySelected) return hasTopUp ? [topUpBillingType] : [];
+
     return hasTopUp ? [toggledValue, topUpBillingType] : [toggledValue];
   }
 
   if (toggledValue === topUpBillingType) {
     const primary = current.find(isPrimaryBillingType);
-    if (!primary) return current;
+    if (!primary) return current.includes(topUpBillingType) ? [] : [topUpBillingType];
     return current.includes(topUpBillingType) ? [primary] : [primary, topUpBillingType];
   }
 

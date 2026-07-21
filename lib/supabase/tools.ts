@@ -124,7 +124,7 @@ export async function getToolLinkDetailRecords() {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("tool_email_links")
-    .select("tool_id,plan,plan_name,status,billing_type,amount,currency,next_charge_date,trial_expiry_date,email_accounts(label)");
+    .select("tool_id,plan,plan_name,status,billing_type,amount,currency,next_charge_date,last_top_up_date,trial_expiry_date,email_accounts(label)");
 
   if (error) throw error;
 
@@ -138,6 +138,7 @@ export async function getToolLinkDetailRecords() {
       amount: typeof rawLink.amount === "string" ? rawLink.amount : "",
       billingType: typeof rawLink.billing_type === "string" && rawLink.billing_type ? rawLink.billing_type : "Monthly",
       currency: typeof rawLink.currency === "string" && rawLink.currency ? rawLink.currency : "USD",
+      lastTopUpDate: typeof rawLink.last_top_up_date === "string" ? rawLink.last_top_up_date : "",
       nextChargeDate: typeof rawLink.next_charge_date === "string" ? rawLink.next_charge_date : "",
       plan: typeof rawLink.plan === "string" && rawLink.plan ? rawLink.plan : "Free Tier",
       planName: typeof rawLink.plan_name === "string" ? rawLink.plan_name : "",
@@ -233,6 +234,7 @@ export async function updateToolLinkDetails(
     amount?: string;
     billingType?: string;
     currency?: string;
+    lastTopUpDate?: string;
     nextChargeDate?: string;
     plan?: string;
     planName?: string;
@@ -249,6 +251,7 @@ export async function updateToolLinkDetails(
   if (details.amount !== undefined) payload.amount = details.amount || null;
   if (details.billingType !== undefined) payload.billing_type = details.billingType || null;
   if (details.currency !== undefined) payload.currency = details.currency || "USD";
+  if (details.lastTopUpDate !== undefined) payload.last_top_up_date = details.lastTopUpDate || null;
   if (details.nextChargeDate !== undefined) payload.next_charge_date = details.nextChargeDate || null;
   if (details.plan !== undefined) payload.plan = details.plan;
   if (details.planName !== undefined) payload.plan_name = details.planName || null;

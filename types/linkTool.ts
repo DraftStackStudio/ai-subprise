@@ -4,6 +4,8 @@ export type LinkToolAccountBlock = {
   accountLabel: string;
   billingType: string;
   id: string;
+  lastTopUpDate: string;
+  nextChargeDate: string;
   plan: ToolStatus | "";
   planName: string;
   trialExpiryDate: string;
