@@ -6,6 +6,7 @@ import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import BillingView from "@/components/BillingView";
 import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
 import AIToolModal from "@/components/AIToolModal";
 import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
@@ -14,6 +15,7 @@ import DashboardSummaryView from "@/components/DashboardSummaryView";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
 import EditCategoryModal from "@/components/EditCategoryModal";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
+import ListPageToolbar from "@/components/ListPageToolbar";
 import LoginsView from "@/components/LoginsView";
 import PresetToolPickerModal from "@/components/PresetToolPickerModal";
 import ProviderManagementModals from "@/components/ProviderManagementModals";
@@ -5906,83 +5908,28 @@ function DashboardContent() {
               {activeSection !== "billing" || !isPendingActionsExpanded || pendingBillingActions.length === 0 ? (
               <section className="table-section">
                 {activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist" || activeSection === "billing" ? (
-                  <div className="table-controls">
-                    <div
-                      className={activeSection === "tools" && activeCategory ? "category-view-tabs subcategory-view-tabs" : "category-view-tabs"}
-                      aria-label={activeSection === "billing" ? "Billing views" : "Category views"}
-                    >
-                      <span className="category-view-helper" aria-hidden={activeSection === "tools" && Boolean(activeCategory)}>
-                        {activeSection === "tools" && activeCategory
-                          ? "\u00a0"
-                          : activeSection === "billing"
-                            ? "Browse by billing."
-                            : "Browse by type."}
-                      </span>
-                      <div className="category-view-action-row">
-                        {activeSection === "billing" ? (
-                          <div className="category-view-tab-list">
-                            {[
-                              { label: "All", value: "All" as const },
-                              { label: "By Month", value: "Month" as const },
-                            ].map((option) => (
-                              <button
-                                className={selectedBillingView === option.value ? "category-view-tab active" : "category-view-tab"}
-                                key={option.value}
-                                onClick={() => setSelectedBillingView(option.value)}
-                                type="button"
-                              >
-                                {option.label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : activeSection === "tools" && activeCategory ? (
-                          <span className="category-view-tab-spacer" aria-hidden="true" />
-                        ) : (
-                          <div className="category-view-tab-list">
-                            {availableToolSortOptions.map((option) => (
-                              <button
-                                className={selectedToolSort === option.value ? "category-view-tab active" : "category-view-tab"}
-                                key={option.value}
-                                onClick={() => setSelectedToolSort(option.value)}
-                                type="button"
-                              >
-                                {option.label}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        <div className="table-search-filter-group">
-                          {activeSection === "linked"
-                            ? renderDropdown({
-                                ariaLabel: "Filter linked tools by plan",
-                                className: "linked-plan-filter",
-                                id: "linked-plan-filter",
-                                onChange: (nextPlan) => setLinkedPlanFilter(nextPlan as LinkedPlanFilter),
-                                options: (["All", "Paid", "Trial", "Free"] as LinkedPlanFilter[]).map((plan) => ({
-                                  label: `Plan: ${plan}`,
-                                  value: plan,
-                                })),
-                                value: linkedPlanFilter,
-                              })
-                            : null}
-                          <label className="search-box">
-                            <span className="search-icon" aria-hidden="true">
-                              <svg viewBox="0 0 24 24">
-                                <circle cx="11" cy="11" r="6" />
-                                <path d="m16 16 4 4" />
-                              </svg>
-                            </span>
-                            <input
-                              onChange={(event) => setToolSearchQuery(event.target.value)}
-                              placeholder="search tool"
-                              type="search"
-                              value={toolSearchQuery}
-                            />
-                          </label>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <ListPageToolbar
+                    activeCategory={Boolean(activeCategory)}
+                    activeSection={activeSection}
+                    billingView={selectedBillingView}
+                    linkedPlanFilter={renderDropdown({
+                      ariaLabel: "Filter linked tools by plan",
+                      className: "linked-plan-filter",
+                      id: "linked-plan-filter",
+                      onChange: (nextPlan) => setLinkedPlanFilter(nextPlan as LinkedPlanFilter),
+                      options: (["All", "Paid", "Trial", "Free"] as LinkedPlanFilter[]).map((plan) => ({
+                        label: `Plan: ${plan}`,
+                        value: plan,
+                      })),
+                      value: linkedPlanFilter,
+                    })}
+                    onBillingViewChange={setSelectedBillingView}
+                    onSearchQueryChange={setToolSearchQuery}
+                    onToolSortChange={setSelectedToolSort}
+                    searchQuery={toolSearchQuery}
+                    selectedToolSort={selectedToolSort}
+                    toolSortOptions={availableToolSortOptions}
+                  />
                 ) : null}
 
                 {toolDataError ? (
@@ -6031,75 +5978,14 @@ function DashboardContent() {
                   }
                 >
                   {activeSection === "billing" ? (
-                    <>
-                      <div className="account-table-head tool-table-head">
-                        <span>Tool Name</span>
-                        <span>Account</span>
-                        <span>Plan Name</span>
-                        <span>Amount</span>
-                        <span>Billing Type</span>
-                        <span>Next Charge</span>
-                        <span>Action</span>
-                      </div>
-                      {isLoadingTools ? (
-                        <div className="empty-state tool-onboarding-empty">
-                          <strong>Loading billing</strong>
-                          <span>Getting your paid subscriptions ready.</span>
-                        </div>
-                      ) : billingRows.length > 0 ? (
-                        billingRows.map((row, rowIndex) => {
-                          const previousRow = billingRows[rowIndex - 1];
-                          const nextRow = billingRows[rowIndex + 1];
-                          const monthLabel = billingMonthLabel(row.nextChargeDate);
-                          const previousMonthLabel = previousRow ? billingMonthLabel(previousRow.nextChargeDate) : "";
-                          const nextMonthLabel = nextRow ? billingMonthLabel(nextRow.nextChargeDate) : "";
-                          const showMonthHeader = selectedBillingView === "Month" && monthLabel !== previousMonthLabel;
-                          const isToolContinuation = Boolean(
-                            previousRow &&
-                            !showMonthHeader &&
-                            previousRow.tool.id === row.tool.id &&
-                            previousRow.accountLabel === row.accountLabel,
-                          );
-                          const isAccountContinuation = Boolean(
-                            isToolContinuation && previousRow?.accountLabel === row.accountLabel,
-                          );
-                          const matchesPlanGroup = (candidate: typeof row | undefined) => Boolean(
-                            candidate &&
-                            candidate.tool.id === row.tool.id &&
-                            candidate.accountLabel === row.accountLabel &&
-                            candidate.planName === row.planName,
-                          );
-                          const isPlanContinuation = !showMonthHeader && matchesPlanGroup(previousRow);
-                          const isPlanGroupStart = matchesPlanGroup(nextRow) &&
-                            (selectedBillingView !== "Month" || monthLabel === nextMonthLabel);
-                          const isPlanGrouped = isPlanContinuation || isPlanGroupStart;
-                          const isPlanGroupEnd = isPlanGrouped && !matchesPlanGroup(nextRow);
-                          return (
-                            <Fragment key={row.id}>
-                              {showMonthHeader ? <div className="billing-month-row-header">{monthLabel}</div> : null}
-                              {renderBillingRow(row, {
-                                isAccountContinuation,
-                                isPlanGroupEnd,
-                                isPlanGrouped,
-                                isPlanContinuation,
-                                isPlanGroupStart: isPlanGroupStart && !isPlanContinuation,
-                                isToolContinuation,
-                              })}
-                            </Fragment>
-                          );
-                        })
-                      ) : (
-                        <div className="empty-state tool-onboarding-empty">
-                          <strong>No paid subscriptions yet</strong>
-                          <span>
-                            <button className="inline-text-link" onClick={() => openLinkToolModal()} type="button">
-                              Link an account
-                            </button>{" "}
-                            with a Paid plan to see it here.
-                          </span>
-                        </div>
-                      )}
-                    </>
+                    <BillingView
+                      billingMonthLabel={billingMonthLabel}
+                      billingRows={billingRows}
+                      isLoadingTools={isLoadingTools}
+                      onLinkAccount={() => openLinkToolModal()}
+                      renderBillingRow={renderBillingRow}
+                      selectedBillingView={selectedBillingView}
+                    />
                   ) : (activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist") &&
                     workspaceCategories.length > 0 &&
                     !activeCategory &&
