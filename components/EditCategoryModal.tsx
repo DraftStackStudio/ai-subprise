@@ -191,7 +191,7 @@ export default function EditCategoryModal({
         ) : (
           <>
             <h2 id="edit-category-modal-title">Edit Category</h2>
-            <p>Hold and drag â ¿ to reorder. Rename or delete categories to fit your workflow</p>
+            <p>Hold and drag the handle to reorder. Rename or delete categories to fit your workflow</p>
             <form className="modal-form" onSubmit={handleSubmit}>
               <div className="category-edit-list">
                 {categoryDrafts.map((category, index) => (
