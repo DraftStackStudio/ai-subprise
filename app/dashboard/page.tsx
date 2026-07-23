@@ -8,9 +8,17 @@ import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
 import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
 import AIToolModal from "@/components/AIToolModal";
+import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
+import DashboardConfirmationModals from "@/components/DashboardConfirmationModals";
+import DashboardSummaryView from "@/components/DashboardSummaryView";
+import DeleteAccountModal from "@/components/DeleteAccountModal";
 import EditCategoryModal from "@/components/EditCategoryModal";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
 import PresetToolPickerModal from "@/components/PresetToolPickerModal";
+import ProviderManagementModals from "@/components/ProviderManagementModals";
+import ProvidersView from "@/components/ProvidersView";
+import ResetAIToolsModals from "@/components/ResetAIToolsModals";
+import SettingsView from "@/components/SettingsView";
 import ToolDetailModal from "@/components/ToolDetailModal";
 import {
   toggleBillingTypeSelection,
@@ -79,7 +87,6 @@ import {
 type Section = "dashboard" | "tools" | "linked" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 type LinkedPlanFilter = "All" | "Paid" | "Trial" | "Free";
-type RoleOption = "Creator" | "Designer" | "Developer" | "Business" | "Researcher" | "AI Enthusiast" | "Custom";
 const toolboxSidebarClusterIds = new Set(["everyday", "create", "work", "automate", "build", "business"]);
 type ToolboxPresetCategory = {
   description: string;
@@ -459,8 +466,8 @@ const currencyOptions: DropdownOption[] = ["USD", "SGD", "EUR", "GBP", "AUD"].ma
 
 const currencySymbols: Record<string, string> = {
   AUD: "A$",
-  EUR: "â‚¬",
-  GBP: "Â£",
+  EUR: "€",
+  GBP: "£",
   SGD: "S$",
   USD: "$",
 };
@@ -2293,10 +2300,10 @@ function DashboardContent() {
     );
     showToast(
       editingAccount
-        ? "âœ… Account updated."
+        ? "Account updated."
         : options?.addAnother
-          ? "âœ… Account added. Keep going."
-          : "âœ… Account added.",
+          ? "Account added. Keep going."
+          : "Account added.",
     );
 
     if (!options?.addAnother || editingAccount) {
@@ -2555,7 +2562,7 @@ function DashboardContent() {
     setEditingProvider(null);
     setProviderName("");
     if (hasProviderNameChanged) {
-      showToast("âœ… Provider updated.");
+      showToast("Provider updated.");
     }
   };
 
@@ -2571,6 +2578,30 @@ function DashboardContent() {
     setDeletingProvider(null);
     setEditingProvider(null);
     setProviderName("");
+  };
+
+  const confirmDeleteAccount = async () => {
+    if (!deletingAccount) return;
+
+    setAccountDataError("");
+    setIsSavingAccount(true);
+    try {
+      if (shouldUseSupabase && deletingAccount.id) {
+        await deleteAccountRecord(deletingAccount.id);
+      }
+      setAccountList((currentAccounts) =>
+        currentAccounts.filter((account) =>
+          deletingAccount.id ? account.id !== deletingAccount.id : account.login !== deletingAccount.login,
+        ),
+      );
+      setDeletingAccount(null);
+      setEditingAccount(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not delete account.";
+      setAccountDataError(message);
+    } finally {
+      setIsSavingAccount(false);
+    }
   };
 
   const moveAccount = (draggedLogin: string, targetLogin: string) => {
@@ -2705,7 +2736,7 @@ function DashboardContent() {
 
     if (confirmToolStateChange.action === "unarchive") {
       unarchiveToolIds([confirmToolStateChange.tool.id]);
-      showToast(`âœ… ${confirmToolStateChange.tool.name} is back.`);
+      showToast(`${confirmToolStateChange.tool.name} is back.`);
     }
 
     if (confirmToolStateChange.action === "unwatchlist") {
@@ -4454,7 +4485,7 @@ function DashboardContent() {
 
     const daysRemaining = linkedTrialDaysRemaining(tool, accountLabel);
     if (daysRemaining === null) return "Trial";
-    return daysRemaining < 0 ? "Trial Â· ended" : `Trial Â· ${daysRemaining}d left`;
+    return daysRemaining < 0 ? "Trial · ended" : `Trial · ${daysRemaining}d left`;
   };
 
   const linkedPlanPillTone = (tool: ToolItem, accountLabel: string, plan: string) => {
@@ -5280,12 +5311,12 @@ function DashboardContent() {
                 ? `${normaliseCurrency(billingAmount.currency)} ${billingAmount.amount}`
                 : undefined,
               billingType: normaliseBillingType(billingAmount.billingType),
-              date: detail?.nextChargeDate ? formatBillingDate(detail.nextChargeDate) : "â€”",
+              date: detail?.nextChargeDate ? formatBillingDate(detail.nextChargeDate) : "—",
               event: "Charged",
               id,
               note: billingHistoryNotes[`${recordKey}::${id}`] ?? [detail?.planName, normaliseBillingType(billingAmount.billingType)]
                 .filter(Boolean)
-                .join(" Â· "),
+                .join(" · "),
               planName: detail?.planName ?? "",
               source: "generated",
             };
@@ -5811,7 +5842,10 @@ function DashboardContent() {
                   onClick={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
                   type="button"
                 >
-                  <span aria-hidden="true">âš </span>
+                  <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
+                    <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+                    <path d="M12 9v4M12 17h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
+                  </svg>
                   {pendingBillingActions.length} {pendingBillingActions.length === 1 ? "item needs" : "items need"} attention
                 </button>
               ) : null}
@@ -5873,7 +5907,7 @@ function DashboardContent() {
                           <span className="pending-action-status">Unresolved</span>
                         </div>
                         <span>
-                          {displayToolName(tool?.name ?? "Tool")} Â· {accountLabel} Â· {billingHistoryDisplayDate(entry.date)} Â· Original entry stays unchanged
+                          {displayToolName(tool?.name ?? "Tool")} · {accountLabel} · {billingHistoryDisplayDate(entry.date)} · Original entry stays unchanged
                         </span>
                       </div>
                       {isResolving ? (
@@ -6047,208 +6081,58 @@ function DashboardContent() {
               </article>
             </section>
           ) : activeSection === "providers" ? (
-            <section className="account-page">
-              <article className="form-card provider-page-card">
-                <div className="provider-table provider-database">
-                  <div className="provider-table-head" aria-hidden="true">
-                    <span>Provider Name</span>
-                    <span>Action</span>
-                  </div>
-
-                  <div className="provider-database-section-row">
-                    <span>Default</span>
-                    <span>{defaultProviderRows.length}</span>
-                  </div>
-
-                  {defaultProviderRows.map((providerRow) => (
-                    <div className="provider-table-row provider-table-row-default" key={providerRow.name}>
-                      <span data-label="Provider Name">{providerRow.name}</span>
-                    </div>
-                  ))}
-
-                  <div className="provider-database-section-row">
-                    <span>Custom</span>
-                    <span>{customProviderRows.length}</span>
-                  </div>
-
-                  {customProviderRows.length > 0 ? (
-                    customProviderRows.map((providerRow) => (
-                      <div className="provider-table-row" key={providerRow.name}>
-                        <span data-label="Provider Name">{providerRow.name}</span>
-                        <span data-label="Action">
-                          <button
-                            className="action-btn"
-                            onClick={() => openEditProviderModal(providerRow.name)}
-                            type="button"
-                          >
-                            Edit
-                          </button>
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="empty-state compact-empty provider-empty-row">
-                      <strong>No custom providers yet</strong>
-                      <span>
-                        Add one from{" "}
-                        <button className="inline-text-link" onClick={openAddAccountModal} type="button">
-                          + Add Logins
-                        </button>
-                        .
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </article>
-            </section>
+            <ProvidersView
+              customProviderRows={customProviderRows}
+              defaultProviderRows={defaultProviderRows}
+              onAddLogins={openAddAccountModal}
+              onEditProvider={openEditProviderModal}
+            />
           ) : activeSection === "settings" ? (
-            <section className="account-page settings-page">
-              <div className="settings-profile">
-                <div className="category-view-tab-list settings-tabs" role="tablist" aria-label="Settings sections">
-                  <button
-                    aria-selected={settingsTab === "profile"}
-                    className={settingsTab === "profile" ? "category-view-tab active" : "category-view-tab"}
-                    onClick={() => setSettingsTab("profile")}
-                    role="tab"
-                    type="button"
-                  >
-                    Profile
-                  </button>
-                  <button
-                    aria-selected={settingsTab === "preferences"}
-                    className={settingsTab === "preferences" ? "category-view-tab active" : "category-view-tab"}
-                    onClick={() => setSettingsTab("preferences")}
-                    role="tab"
-                    type="button"
-                  >
-                    Preferences
-                  </button>
-                </div>
-
-                {settingsTab === "profile" ? (
-                  <section className="settings-section settings-content-card settings-account-card" role="tabpanel">
-                    <header>
-                      <h2>Account</h2>
-                      <p>Manage your AI Subprise login.</p>
-                    </header>
-                    <form className="modal-form" onSubmit={saveNewPassword}>
-                      <label className="form-field">
-                        <span>Email</span>
-                        <input readOnly type="email" value={currentUserEmail || "Not signed in"} />
-                      </label>
-                      <label className="form-field">
-                        <span>New password</span>
-                        <input
-                          autoComplete="new-password"
-                          onChange={(event) => setNewPassword(event.target.value)}
-                          placeholder="Enter a new password"
-                          type="password"
-                          value={newPassword}
-                        />
-                      </label>
-                      {profileError ? <div className="data-state-message error" role="alert">{profileError}</div> : null}
-                      {profileMessage ? <div className="data-state-message" role="status">{profileMessage}</div> : null}
-                      <div className="welcome-modal-actions settings-profile-actions">
-                        <button className="quiet-danger-link" onClick={signOut} type="button">Sign out</button>
-                        <button className="btn-sm btn-sm-primary" disabled={isSavingProfile} type="submit">
-                          {isSavingProfile ? "Saving..." : "Change password"}
-                        </button>
-                      </div>
-                    </form>
-                  </section>
-                ) : (
-                  <section className="settings-section settings-content-card" role="tabpanel">
-                    <header>
-                      <h2>Notifications</h2>
-                      <p>Stay ahead of renewals and trials.</p>
-                    </header>
-                    <div className="settings-toggle-row">
-                      <span>Trial &amp; renewal reminders</span>
-                      <button
-                        aria-pressed={remindersEnabled}
-                        className={remindersEnabled ? "settings-toggle is-on" : "settings-toggle"}
-                        onClick={() => {
-                          const nextValue = !remindersEnabled;
-                          setRemindersEnabled(nextValue);
-                          window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
-                        }}
-                        type="button"
-                      >
-                        <span />
-                        {remindersEnabled ? "On" : "Off"}
-                      </button>
-                    </div>
-                    <label className="form-field settings-compact-field">
-                      <span>Remind me</span>
-                      {renderDropdown({
-                        id: "settings-reminder-days",
-                        onChange: (days) => {
-                          setReminderDays(days);
-                          window.localStorage.setItem("ai-subprise-reminder-days", days);
-                        },
-                        options: [3, 7, 14].map((days) => ({ label: `${days} days before`, value: String(days) })),
-                        value: reminderDays,
-                      })}
-                    </label>
-                  </section>
-                )}
-              </div>
-            </section>
+            <SettingsView
+              currentUserEmail={currentUserEmail}
+              isSavingProfile={isSavingProfile}
+              newPassword={newPassword}
+              onNewPasswordChange={setNewPassword}
+              onRemindersEnabledChange={(nextValue) => {
+                setRemindersEnabled(nextValue);
+                window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
+              }}
+              onSaveNewPassword={saveNewPassword}
+              onSettingsTabChange={setSettingsTab}
+              onSignOut={signOut}
+              profileError={profileError}
+              profileMessage={profileMessage}
+              reminderDaysDropdown={renderDropdown({
+                id: "settings-reminder-days",
+                onChange: (days) => {
+                  setReminderDays(days);
+                  window.localStorage.setItem("ai-subprise-reminder-days", days);
+                },
+                options: [3, 7, 14].map((days) => ({ label: `${days} days before`, value: String(days) })),
+                value: reminderDays,
+              })}
+              remindersEnabled={remindersEnabled}
+              settingsTab={settingsTab}
+            />
           ) : activeSection === "dashboard" ? (
-            <section className="dashboard-overview" aria-label="Dashboard summary">
-              {trialsNeedingConfirmation.length > 0 ? (
-                <aside className="trial-alert-banner trial-confirmation-banner" aria-label="Trials needing status confirmation">
-                  <div>
-                    <strong>{trialsNeedingConfirmation.length} {trialsNeedingConfirmation.length === 1 ? "trial needs" : "trials need"} confirmation</strong>
-                    <span>Confirm whether each ended trial became Paid or was not continued.</span>
-                  </div>
-                  <div className="trial-alert-list">
-                    {trialsNeedingConfirmation.slice(0, 3).map((trial) => (
-                      <span key={`${trial.tool.id}-${trial.accountLabel}`}>
-                        {trial.tool.name} Â· {trial.accountLabel} Â· Confirm status
-                      </span>
-                    ))}
-                  </div>
-                </aside>
-              ) : null}
-              {trialsEndingSoon.length > 0 ? (
-                <aside className="trial-alert-banner" aria-label="Trials ending soon">
-                  <div>
-                    <strong>{trialsEndingSoon.length} {trialsEndingSoon.length === 1 ? "trial" : "trials"} ending soon</strong>
-                    <span>Review trial accounts that expire within {reminderDays} days.</span>
-                  </div>
-                  <div className="trial-alert-list">
-                    {trialsEndingSoon.slice(0, 3).map((trial) => (
-                      <span key={`${trial.tool.id}-${trial.accountLabel}`}>
-                        {trial.tool.name} Â· {trial.accountLabel} Â· {formatShortDate(trial.expiryDate)}
-                      </span>
-                    ))}
-                  </div>
-                </aside>
-              ) : null}
-              <div className="stats-grid">
-                <article className="stat-card accent">
-                  <div className="stat-icon">A</div>
-                  <div className="stat-value">{toolsWithValidAccountLinks.length}</div>
-                  <div className="stat-label">Total AI tools</div>
-                </article>
-                <article className="stat-card">
-                  <div className="stat-icon">P</div>
-                  <div className="stat-value">{paidToolCount}</div>
-                  <div className="stat-label">Paid plans</div>
-                </article>
-                <article className="stat-card">
-                  <div className="stat-icon">T</div>
-                  <div className="stat-value">{trialToolCount}</div>
-                  <div className="stat-label">Active trials</div>
-                </article>
-                <article className="stat-card">
-                  <div className="stat-icon">E</div>
-                  <div className="stat-value">{accountList.length}</div>
-                  <div className="stat-label">Accounts</div>
-                </article>
-              </div>
-            </section>
+            <DashboardSummaryView
+              accountCount={accountList.length}
+              paidToolCount={paidToolCount}
+              reminderDays={reminderDays}
+              toolCount={toolsWithValidAccountLinks.length}
+              trialToolCount={trialToolCount}
+              trialsEndingSoon={trialsEndingSoon.map((trial) => ({
+                accountLabel: trial.accountLabel,
+                expiryDate: trial.expiryDate,
+                toolId: trial.tool.id,
+                toolName: trial.tool.name,
+              }))}
+              trialsNeedingConfirmation={trialsNeedingConfirmation.map((trial) => ({
+                accountLabel: trial.accountLabel,
+                toolId: trial.tool.id,
+                toolName: trial.tool.name,
+              }))}
+            />
           ) : (
             <>
               {activeSection !== "billing" || !isPendingActionsExpanded || pendingBillingActions.length === 0 ? (
@@ -6650,204 +6534,28 @@ function DashboardContent() {
         />
       ) : null}
 
-      {showCreateAccountModal && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="welcome-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            <div className="welcome-modal-icon">AI</div>
-            <h2 id="welcome-modal-title">Start by adding your first account.</h2>
-            <p>
-              Add the account you use most often, then link your AI tools to it as you build your directory.
-            </p>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-ghost" onClick={dismissCreateAccountModal} type="button">
-                Not now
-              </button>
-              <button className="btn-sm btn-sm-primary" onClick={openAccountSetup} type="button">
-                Go to Logins
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {showRoleQuestionModal && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="role-question-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            <button
-              aria-label="Close role question modal"
-              className="modal-close-button"
-              onClick={() => setShowRoleQuestionModal(false)}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="role-question-modal-title">Start with a template</h2>
-            <p>This just shapes your setup, you can always edit later.</p>
-            <div className="modal-question-label">What best describes you?</div>
-            <div className="role-radio-list">
-              {roleOptions.map((role) => (
-                <label className="role-radio-option" key={role}>
-                  <input
-                    checked={roleQuestionChoice === role}
-                    onChange={() => chooseRoleAndPreview(role)}
-                    type="radio"
-                    value={role}
-                  />
-                  <span>{role}</span>
-                </label>
-              ))}
-            </div>
-          </section>
-        </div>
-      )}
-
-      {showCategoryPreviewModal && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="category-preview-modal-title"
-            aria-modal="true"
-            className="welcome-modal category-preview-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Close category preview modal"
-              className="modal-close-button"
-              onClick={() => setShowCategoryPreviewModal(false)}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="category-preview-modal-title">Choose your categories</h2>
-            <p>Review the suggested categories for your workspace.</p>
-            <div className="category-matrix-wrap">
-              <div className="category-matrix">
-                <div
-                  className="category-matrix-highlight"
-                  aria-hidden="true"
-                  style={{ transform: `translate3d(${roleOptions.indexOf(selectedRole) * 100}%, 0, 0)` }}
-                />
-                <div className="category-matrix-head category-name-head">
-                  <span>Category</span>
-                  <button
-                    aria-label="View category descriptions"
-                    className="category-info-button tooltip-target"
-                    data-tooltip="Category guide"
-                    onClick={() => setShowCategoryInfoModal(true)}
-                    type="button"
-                  >
-                    i
-                  </button>
-                </div>
-                {roleOptions.map((role) => (
-                  <div className="category-matrix-head" key={role}>
-                    {role}
-                  </div>
-                ))}
-                {defaultToolCategories.map((category) => (
-                  <Fragment key={category}>
-                    <div className="category-matrix-cell category-name-cell">{category}</div>
-                    {roleOptions.map((role) => (
-                      <div className="category-matrix-cell category-role-cell" key={`${category}-${role}`}>
-                        {role === "Custom" && selectedRole === "Custom" ? (
-                          <input
-                            aria-label={`Custom category ${category}`}
-                            className="category-matrix-checkbox"
-                            checked={selectedRoleCategories.includes(category)}
-                            onChange={() => togglePreviewCategory(category)}
-                            type="checkbox"
-                          />
-                        ) : roleCategoryMap[role].includes(category) ? (
-                          <span className="matrix-tick">✓</span>
-                        ) : null}
-                      </div>
-                    ))}
-                  </Fragment>
-                ))}
-                <p className="category-matrix-role-hint">Select to change role</p>
-                <span
-                  aria-hidden="true"
-                  className="category-matrix-radio-indicator"
-                  style={{ transform: `translate3d(${roleOptions.indexOf(selectedRole) * 100}%, 0, 0)` }}
-                />
-                {roleOptions.map((role) => (
-                  <label className="category-matrix-radio-cell" key={`role-radio-${role}`}>
-                    <input
-                      aria-label={role}
-                      checked={selectedRole === role}
-                      onChange={() => switchPreviewRole(role)}
-                      type="radio"
-                      value={role}
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-primary" onClick={saveRoleCategories} type="button">
-                Confirm
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {showCategoryInfoModal && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="category-info-modal-title"
-            aria-modal="true"
-            className="welcome-modal category-info-modal"
-            role="dialog"
-          >
-            <h2 id="category-info-modal-title">Category guide</h2>
-            <div className="category-info-table">
-              {defaultToolCategories.map((category) => (
-                <Fragment key={`info-${category}`}>
-                  <span>{category}</span>
-                  <span>{categoryDescriptions[category]}</span>
-                </Fragment>
-              ))}
-            </div>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-primary" onClick={() => setShowCategoryInfoModal(false)} type="button">
-                Got it
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {showCategorySelectionWarning && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="category-selection-warning-title"
-            aria-modal="true"
-            className="welcome-modal compact-copy-modal"
-            role="dialog"
-          >
-            <div className="category-selection-warning-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <rect x="4" y="4" width="16" height="16" rx="3" />
-                <path d="m8 9 1.5 1.5L12 8" />
-                <path d="M14 9h3" />
-                <path d="m8 14 1.5 1.5L12 13" />
-                <path d="M14 14h3" />
-              </svg>
-            </div>
-            <h2 id="category-selection-warning-title">Select at least one category</h2>
-            <p>You can always add more later from settings.</p>
-            <div className="welcome-modal-actions">
-              <button
-                className="btn-sm btn-sm-primary"
-                onClick={() => setShowCategorySelectionWarning(false)}
-                type="button"
-              >
-                Continue selecting
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+      <CategorySetupModals
+        categoryDescriptions={categoryDescriptions}
+        defaultToolCategories={defaultToolCategories}
+        onChooseRole={chooseRoleAndPreview}
+        onCloseCategoryGuide={() => setShowCategoryInfoModal(false)}
+        onCloseCategoryPreview={() => setShowCategoryPreviewModal(false)}
+        onCloseRoleQuestion={() => setShowRoleQuestionModal(false)}
+        onContinueSelecting={() => setShowCategorySelectionWarning(false)}
+        onOpenCategoryGuide={() => setShowCategoryInfoModal(true)}
+        onSaveRoleCategories={saveRoleCategories}
+        onSwitchPreviewRole={switchPreviewRole}
+        onTogglePreviewCategory={togglePreviewCategory}
+        roleCategoryMap={roleCategoryMap}
+        roleOptions={roleOptions}
+        roleQuestionChoice={roleQuestionChoice}
+        selectedRole={selectedRole}
+        selectedRoleCategories={selectedRoleCategories}
+        showCategoryGuide={showCategoryInfoModal}
+        showCategoryPreview={showCategoryPreviewModal}
+        showCategorySelectionWarning={showCategorySelectionWarning}
+        showRoleQuestion={showRoleQuestionModal}
+      />
 
       {showEditCategoryModal && (
         <>
@@ -6871,203 +6579,53 @@ function DashboardContent() {
         </>
       )}
 
-      {showResetArchiveWarning && archiveToolCount(toolResetArchives) > 0 ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="reset-warning-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            <h2 id="reset-warning-modal-title">Previous Reset Found</h2>
-            <p>
-              You have {archiveToolCount(toolResetArchives)} tools from previous resets that have not been restored. Resetting
-              now will remove them permanently.
-            </p>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-ghost" onClick={() => setShowResetArchiveWarning(false)} type="button">
-                Cancel
-              </button>
-              <button className="btn-sm btn-sm-danger" onClick={continueResetAfterArchiveWarning} type="button">
-                Continue Reset
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <ResetAIToolsModals
+        archiveToolCount={archiveToolCount(toolResetArchives)}
+        onCancelArchiveWarning={() => setShowResetArchiveWarning(false)}
+        onCancelDanger={() => {
+          setPendingResetMode(null);
+          setShowResetDangerModal(false);
+        }}
+        onCloseTypeModal={() => setShowResetTypeModal(false)}
+        onConfirmDanger={confirmPendingReset}
+        onContinueArchiveWarning={continueResetAfterArchiveWarning}
+        onRequestReset={requestResetConfirmation}
+        pendingResetMode={pendingResetMode}
+        showArchiveWarning={showResetArchiveWarning}
+        showDangerModal={showResetDangerModal}
+        showTypeModal={showResetTypeModal}
+        trashIcon={<TrashIconPaths />}
+      />
 
-      {showResetTypeModal && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="reset-type-modal-title" aria-modal="true" className="welcome-modal compact-copy-modal" role="dialog">
-            <button
-              aria-label="Close reset modal"
-              className="modal-close-button"
-              onClick={() => setShowResetTypeModal(false)}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="reset-type-modal-title">Reset AI Tools</h2>
-            <p>Choose how to rebuild your AI tool directory.</p>
-            <div className="reset-choice-list">
-              <button className="reset-choice-card" onClick={() => requestResetConfirmation("blank")} type="button">
-                <strong>Start from scratch</strong>
-                <span>Clear active tools and categories so you can rebuild manually.</span>
-              </button>
-              <button className="reset-choice-card" onClick={() => requestResetConfirmation("template")} type="button">
-                <strong>Choose a new template</strong>
-                <span>Clear active tools, then reopen the role template selection flow.</span>
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {showResetDangerModal && pendingResetMode ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="reset-danger-modal-title"
-            aria-modal="true"
-            className="welcome-modal delete-account-modal"
-            role="dialog"
-          >
-            <div className="delete-account-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">
-                <TrashIconPaths />
-              </svg>
-            </div>
-            <h2 id="reset-danger-modal-title">Reset AI Tools?</h2>
-            <p className="reset-danger-copy">
-              <span>These tools will be removed from AI Subprise on all your devices.</span>
-              <span>They&apos;ll be in <strong>Recently Deleted</strong> for 30 days.</span>
-            </p>
-            <div className="welcome-modal-actions">
-              <button
-                className="btn-sm btn-sm-ghost"
-                onClick={() => {
-                  setPendingResetMode(null);
-                  setShowResetDangerModal(false);
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button className="btn-sm btn-sm-danger" onClick={confirmPendingReset} type="button">
-                Reset AI Tools
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {pendingResolutionConfirmation ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="pending-resolution-confirmation-title"
-            aria-modal="true"
-            className="welcome-modal pending-resolution-confirmation-modal"
-            role="dialog"
-          >
-            <h2 id="pending-resolution-confirmation-title">
-              Mark as {pendingResolutionOutcome}, dated {billingHistoryDisplayDate(pendingResolutionDate)}?
-            </h2>
-            <p>
-              This will add a new entry to Billing History. The original {pendingResolutionConfirmation.entry.event} entry will stay unchanged.
-            </p>
-            <div className="welcome-modal-actions">
-              <button
-                className="btn-sm btn-sm-ghost"
-                onClick={() => setPendingResolutionConfirmation(null)}
-                type="button"
-              >
-                Go back
-              </button>
-              <button
-                className="btn-sm btn-sm-primary"
-                onClick={() => confirmPendingActionResolution(
-                  pendingResolutionConfirmation.recordKey,
-                  pendingResolutionConfirmation.entry,
-                )}
-                type="button"
-              >
-                Confirm
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {confirmToolStateChange ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="tool-state-confirm-modal-title"
-            aria-modal="true"
-            className={
-              confirmToolStateChange.action === "unwatchlist"
-                ? "welcome-modal delete-account-modal watchlist-removal-modal"
-                : "welcome-modal delete-account-modal"
-            }
-            role="dialog"
-            style={confirmToolStateChange.action === "unwatchlist" ? { border: "none" } : undefined}
-          >
-            <button
-              aria-label="Close confirmation modal"
-              className="modal-close-button"
-              onClick={() => setConfirmToolStateChange(null)}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="tool-state-confirm-modal-title">
-              {confirmToolStateChange.action === "unwatchlist" ? "Remove from Watchlist?" : "Unarchive Tool?"}
-            </h2>
-            <p>
-              {confirmToolStateChange.action === "unwatchlist" ? (
-                <>You can still find this tool in AI Toolbox.</>
-              ) : (
-                <>
-                  <strong>{confirmToolStateChange.tool.name}</strong> will return to AI Toolbox.
-                </>
-              )}
-            </p>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-ghost" onClick={() => setConfirmToolStateChange(null)} type="button">
-                Cancel
-              </button>
-              <button className="btn-sm btn-sm-primary" onClick={confirmPendingToolStateChange} type="button">
-                {confirmToolStateChange.action === "unwatchlist" ? "Confirm" : "Unarchive"}
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {watchlistMoveTool ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="watchlist-move-modal-title"
-            aria-modal="true"
-            className="welcome-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Close move to Linked modal"
-              className="modal-close-button"
-              onClick={() => setWatchlistMoveTool(null)}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="watchlist-move-modal-title">Move to Linked?</h2>
-            <p>
-              Link <strong>{watchlistMoveTool.name}</strong> to an account so it appears on the Linked page.
-            </p>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-ghost" onClick={() => setWatchlistMoveTool(null)} type="button">
-                Cancel
-              </button>
-              <button className="btn-sm btn-sm-primary" onClick={confirmMoveWatchlistToolToLinked} type="button">
-                Continue
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <DashboardConfirmationModals
+        pendingResolutionConfirmation={pendingResolutionConfirmation ? {
+          originalEvent: pendingResolutionConfirmation.entry.event,
+          title: `Mark as ${pendingResolutionOutcome}, dated ${billingHistoryDisplayDate(pendingResolutionDate)}?`,
+        } : null}
+        showCreateAccountModal={showCreateAccountModal}
+        showPresetSelectionWarning={showPresetSelectionWarning}
+        toolStateConfirmation={confirmToolStateChange ? {
+          action: confirmToolStateChange.action,
+          toolName: confirmToolStateChange.tool.name,
+        } : null}
+        watchlistMoveToolName={watchlistMoveTool?.name ?? null}
+        onClosePendingResolution={() => setPendingResolutionConfirmation(null)}
+        onClosePresetSelectionWarning={() => setShowPresetSelectionWarning(false)}
+        onCloseToolStateConfirmation={() => setConfirmToolStateChange(null)}
+        onCloseWatchlistMove={() => setWatchlistMoveTool(null)}
+        onConfirmPendingResolution={() => {
+          if (pendingResolutionConfirmation) {
+            confirmPendingActionResolution(
+              pendingResolutionConfirmation.recordKey,
+              pendingResolutionConfirmation.entry,
+            );
+          }
+        }}
+        onConfirmToolStateChange={confirmPendingToolStateChange}
+        onConfirmWatchlistMove={confirmMoveWatchlistToolToLinked}
+        onDismissCreateAccount={dismissCreateAccountModal}
+        onOpenAccountSetup={openAccountSetup}
+      />
 
       {showAddAccountModal ? (
         <AccountModal
@@ -7097,8 +6655,10 @@ function DashboardContent() {
 
       {accountToast ? (
         <div className="app-toast app-toast-success" role="status">
-          <span aria-hidden="true" className="toast-success-check">âœ“</span>
-          <span>{accountToast.replace(/^âœ…\s*/, "")}</span>
+          <svg aria-hidden="true" className="toast-success-check" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path d="m5 12 4 4L19 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+          </svg>
+          <span>{accountToast}</span>
         </div>
       ) : null}
 
@@ -7122,29 +6682,6 @@ function DashboardContent() {
           tools={toolList}
         />
       ) : null}
-
-      {showPresetSelectionWarning && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="preset-selection-warning-title"
-            aria-modal="true"
-            className="welcome-modal compact-copy-modal"
-            role="dialog"
-          >
-            <h2 id="preset-selection-warning-title">Select at least one AI tool</h2>
-            <p>Choose at least one tool before continuing.</p>
-            <div className="welcome-modal-actions">
-              <button
-                className="btn-sm btn-sm-primary"
-                onClick={() => setShowPresetSelectionWarning(false)}
-                type="button"
-              >
-                Continue selecting
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
 
       {showAddToolModal ? (
         <AIToolModal
@@ -7319,340 +6856,39 @@ function DashboardContent() {
         />
       ) : null}
 
-      {false && managingLink && managedTool ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="manage-account-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            <button
-              aria-label="Archive AI tool"
-              className="modal-tool-action-button modal-tool-archive-button"
-              onClick={archiveManagedLinkTool}
-              type="button"
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <ArchiveBoxIconPaths />
-              </svg>
-            </button>
-            <button
-              aria-label="Close manage account modal"
-              className="modal-close-button"
-              onClick={closeManageAccountModal}
-              type="button"
-            >
-              x
-            </button>
-            <h2 id="manage-account-modal-title">Edit</h2>
-            <div className="modal-tool-identity manage-modal-tool-identity">
-              <span className="tool-avatar" style={{ background: managedTool!.logoBg }}>
-                {toolInitials(managedTool!.name)}
-              </span>
-              <span className="modal-tool-name">{displayToolName(managedTool!.name)}</span>
-            </div>
-            <form className="modal-form" onSubmit={saveManagedAccount}>
-              <label className="form-field manage-account-field">
-                <span>Account</span>
-                {renderDropdown({
-                  className: "modal-dropdown",
-                  id: "manage-account-switch",
-                  onChange: setManagedAccountLabel,
-                  options: managedAccountOptions,
-                  placeholder: "Select account",
-                  value: managedAccountLabel,
-                })}
-                {isDuplicateManagedAccount ? (
-                  <small className="field-feedback error">Already linked to this account</small>
-                ) : null}
-              </label>
+      <ProviderManagementModals
+        deletingProvider={deletingProvider}
+        editingProvider={editingProvider}
+        providerName={providerName}
+        trashIcon={<TrashIconPaths />}
+        onCancelDelete={() => setDeletingProvider(null)}
+        onCloseEdit={() => {
+          setEditingProvider(null);
+          setProviderName("");
+        }}
+        onConfirmDelete={deleteProvider}
+        onProviderNameChange={(value) => setProviderName(formatNickname(value))}
+        onRequestDelete={(provider) => {
+          setDeletingProvider(provider);
+          setEditingProvider(null);
+        }}
+        onSaveProvider={saveProviderName}
+      />
 
-              <label className="form-field">
-                <span>Plan</span>
-                {renderDropdown({
-                  className: "modal-dropdown",
-                  id: "manage-plan",
-                  onChange: (nextPlan) => setManagedPlan(nextPlan as ToolStatus),
-                  options: planStatusOptionsForTool(managedTool ?? undefined),
-                  selectedLabel:
-                    managedTool && !isPlanAllowedForTool(managedTool!, managedPlan)
-                      ? notPaidPlanLabelForTool(managedTool ?? undefined)
-                      : undefined,
-                  value: managedPlan,
-                })}
-              </label>
-
-              {managedPlan === "Active" ? (
-                <div className="manage-billing-block">
-                  <label className="form-field">
-                    <span>Plan name</span>
-                    <input
-                      onChange={(event) => setManagedPlanName(event.target.value)}
-                      placeholder="Basic, Plus, Pro, Team, Business, Enterprise, Pay as you go..."
-                      type="text"
-                      value={managedPlanName}
-                    />
-                  </label>
-                  <label className="form-field">
-                    <span>Billing type</span>
-                    {renderMultiSelectDropdown({
-                      className: "modal-dropdown",
-                      id: "manage-billing-type",
-                      onChange: (nextBillingTypes) => {
-                        setManagedBillingType(nextBillingTypes.join(", "));
-                        setManagedBillingAmounts((currentAmounts) =>
-                          nextBillingTypes.map((billingType) =>
-                            currentAmounts.find((entry) => entry.billingType === billingType) ?? {
-                              amount: "",
-                              billingType,
-                              currency: defaultCurrency,
-                              id: billingAmountId(),
-                            },
-                          ),
-                        );
-                      },
-                      options: billingTypeOptions,
-                      placeholder: "Select billing type",
-                      toggleSelection: toggleBillingTypeSelection,
-                      values: managedBillingType ? managedBillingType.split(", ") : [],
-                    })}
-                  </label>
-                  {managedBillingAmounts.map((billingAmount) => (
-                    <label className="form-field" key={billingAmount.billingType}>
-                      <span>Amount - {billingAmount.billingType}</span>
-                      <span className="billing-amount-field modal-amount-field managed-amount-field">
-                        {renderDropdown({
-                          ariaLabel: `${billingAmount.billingType} currency`,
-                          className: "billing-currency-dropdown",
-                          id: `manage-currency-${billingAmount.billingType}`,
-                          onChange: (nextCurrency) => setManagedBillingAmounts((currentAmounts) =>
-                            currentAmounts.map((entry) => entry.billingType === billingAmount.billingType
-                              ? { ...entry, currency: normaliseCurrency(nextCurrency) }
-                              : entry)),
-                          options: currencyOptions,
-                          value: billingAmount.currency,
-                        })}
-                        <input
-                          inputMode="decimal"
-                          onChange={(event) => setManagedBillingAmounts((currentAmounts) =>
-                            currentAmounts.map((entry) => entry.billingType === billingAmount.billingType
-                              ? { ...entry, amount: event.target.value }
-                              : entry))}
-                          placeholder="0.00"
-                          type="number"
-                          value={billingAmount.amount}
-                        />
-                      </span>
-                    </label>
-                  ))}
-                  <label className="form-field">
-                    <span>Next charge</span>
-                    <DateFieldControl ariaLabel="Next charge date" onChange={setManagedNextChargeDate} value={managedNextChargeDate} />
-                  </label>
-                </div>
-              ) : null}
-
-              {managedPlan === "Trial" ? (
-                <div className="manage-billing-block">
-                  <label className="form-field">
-                    <span>Trial expiry date</span>
-                    <DateFieldControl ariaLabel="Trial expiry date" onChange={setManagedTrialExpiryDate} value={managedTrialExpiryDate} />
-                  </label>
-                </div>
-              ) : null}
-
-              <label className="form-field">
-                <span>Status</span>
-                {renderDropdown({
-                  className: "modal-dropdown",
-                  id: "manage-status",
-                  onChange: (nextStatus) => setManagedStatus(nextStatus as ManageStatus),
-                  options: (["Active", "On a Break", "Goodbye"] as ManageStatus[]).map((status) => ({
-                    label: status,
-                    value: status,
-                  })),
-                  value: managedStatus,
-                })}
-              </label>
-
-              <div className="welcome-modal-actions manage-modal-actions">
-                <button
-                  className="quiet-danger-link"
-                  onClick={() => {
-                    removeLinkedAccount(managingLink!.toolId, managingLink!.accountLabel);
-                    closeManageAccountModal();
-                  }}
-                  type="button"
-                >
-                  Unlink this account
-                </button>
-                <button className="btn-sm btn-sm-primary" disabled={isDuplicateManagedAccount} type="submit">
-                  Save
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
+      {deletingAccount ? (
+        <DeleteAccountModal
+          accountLabel={deletingAccount.label}
+          error={accountDataError}
+          isDeleting={isSavingAccount}
+          trashIcon={<TrashIconPaths />}
+          onCancel={() => {
+            setDeletingAccount(null);
+            setEditingAccount(null);
+          }}
+          onConfirm={confirmDeleteAccount}
+        />
       ) : null}
 
-      {editingProvider && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="edit-provider-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
-            <button
-              aria-label="Close edit provider modal"
-              className="modal-close-button"
-              onClick={() => {
-                setEditingProvider(null);
-                setProviderName("");
-              }}
-              type="button"
-            >
-              x
-            </button>
-            <button
-              aria-label="Delete provider"
-              className="modal-trash-button"
-              onClick={() => {
-                setDeletingProvider(editingProvider);
-                setEditingProvider(null);
-              }}
-              type="button"
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <TrashIconPaths />
-              </svg>
-            </button>
-            <h2 id="edit-provider-modal-title">Edit Provider</h2>
-            <form className="modal-form" onSubmit={saveProviderName}>
-              <label className="form-field">
-                <span>Provider Name</span>
-                <input
-                  onChange={(event) => setProviderName(formatNickname(event.target.value))}
-                  placeholder="Provider name"
-                  type="text"
-                  value={providerName}
-                />
-              </label>
-              <div className="welcome-modal-actions">
-                <button className="btn-sm btn-sm-primary" type="submit">
-                  Save changes
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
-
-      {deletingAccount && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="delete-account-modal-title"
-            aria-modal="true"
-            className="welcome-modal delete-account-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Close delete account modal"
-              className="modal-close-button"
-              onClick={() => {
-                setDeletingAccount(null);
-                setEditingAccount(null);
-              }}
-              type="button"
-            >
-              x
-            </button>
-            <div className="delete-account-icon">
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <TrashIconPaths />
-              </svg>
-            </div>
-            <h2 id="delete-account-modal-title">Delete Account?</h2>
-            <p>
-              This action is irreversible. All AI tools under <strong>{deletingAccount.label}</strong> will be
-              permanently removed.
-            </p>
-            {accountDataError ? (
-              <div className="data-state-message error" role="alert">
-                {accountDataError}
-              </div>
-            ) : null}
-            <div className="welcome-modal-actions">
-              <button
-                className="btn-sm btn-sm-ghost"
-                onClick={() => {
-                  setDeletingAccount(null);
-                  setEditingAccount(null);
-                }}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-sm btn-sm-danger"
-                disabled={isSavingAccount}
-                onClick={async () => {
-                  setAccountDataError("");
-                  setIsSavingAccount(true);
-                  try {
-                    if (shouldUseSupabase && deletingAccount.id) {
-                      await deleteAccountRecord(deletingAccount.id);
-                    }
-                    setAccountList((currentAccounts) =>
-                      currentAccounts.filter((account) =>
-                        deletingAccount.id ? account.id !== deletingAccount.id : account.login !== deletingAccount.login,
-                      ),
-                    );
-                    setDeletingAccount(null);
-                    setEditingAccount(null);
-                  } catch (error) {
-                    const message = error instanceof Error ? error.message : "Could not delete account.";
-                    setAccountDataError(message);
-                  } finally {
-                    setIsSavingAccount(false);
-                  }
-                }}
-                type="button"
-              >
-                {isSavingAccount ? "Deleting..." : "Delete Account"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {deletingProvider && (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="delete-provider-modal-title"
-            aria-modal="true"
-            className="welcome-modal delete-account-modal"
-            role="dialog"
-          >
-            <button
-              aria-label="Close delete provider modal"
-              className="modal-close-button"
-              onClick={() => setDeletingProvider(null)}
-              type="button"
-            >
-              x
-            </button>
-            <div className="delete-account-icon">
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <TrashIconPaths />
-              </svg>
-            </div>
-            <h2 id="delete-provider-modal-title">Delete Provider?</h2>
-            <p>
-              This action is irreversible. Provider <strong>{deletingProvider}</strong> will be permanently removed.
-            </p>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-ghost" onClick={() => setDeletingProvider(null)} type="button">
-                Cancel
-              </button>
-              <button className="btn-sm btn-sm-danger" onClick={deleteProvider} type="button">
-                Delete Provider
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </main>
   );
 }
