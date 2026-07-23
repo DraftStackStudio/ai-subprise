@@ -7,6 +7,7 @@ import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
 import BillingView from "@/components/BillingView";
+import ToolListView from "@/components/ToolListView";
 import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
 import AIToolModal from "@/components/AIToolModal";
 import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
@@ -6045,130 +6046,47 @@ function DashboardContent() {
                       )}
                     </>
                   ) : (
-                    <>
-                      <div className="account-table-head tool-table-head">
-                        {activeSection === "linked" ? (
-                          <>
-                            <span>
-                              <input
-                                aria-label="Select all visible tools"
-                                checked={areAllVisibleToolsSelected}
-                                className="tool-row-checkbox"
-                                onChange={toggleVisibleToolSelection}
-                                type="checkbox"
-                              />
-                            </span>
-                            <span aria-label="Favourite" className="tool-head-icon">
-                              <svg aria-hidden="true" viewBox="0 0 24 24">
-                                <FavoriteStarIconPaths />
-                              </svg>
-                            </span>
-                            <span>Tool Name</span>
-                            <span>Account</span>
-                            <span>Plan</span>
-                            <span>Action</span>
-                          </>
+                    <ToolListView
+                      activeCategory={activeCategory}
+                      areAllVisibleToolsSelected={areAllVisibleToolsSelected}
+                      emptyBody={
+                        activeSection === "tools" ? (
+                          toolboxEmptyState.body
+                        ) : activeSection === "linked" ? (
+                          linkedEmptyState.body
+                        ) : activeSection === "watchlist" ? (
+                          <span>
+                            {activeCategory
+                              ? `Nothing on your ${activeCategory} radar yet.`
+                              : "Nothing on your radar yet."}
+                          </span>
                         ) : activeSection === "favorites" ? (
-                          <>
-                            <span />
-                            <span aria-label="Favourite" className="tool-head-icon">
-                              <svg aria-hidden="true" viewBox="0 0 24 24">
-                                <FavoriteStarIconPaths />
-                              </svg>
-                            </span>
-                            <span>Tool Name</span>
-                            <span>Category</span>
-                            <span>Account Used</span>
-                            <span>URL</span>
-                            <span>Action</span>
-                          </>
+                          <span>Star any tool in your toolbox to save it here for quick access.</span>
                         ) : activeSection === "archive" ? (
-                          <>
-                            <span>
-                              <input
-                                aria-label="Select all visible tools"
-                                checked={areAllVisibleToolsSelected}
-                                className="tool-row-checkbox"
-                                onChange={toggleVisibleToolSelection}
-                                type="checkbox"
-                              />
-                            </span>
-                            <span>Tool Name</span>
-                            <span>Category</span>
-                            <span>Last Status</span>
-                            <span>Archived On</span>
-                            <span>Action</span>
-                          </>
+                          <span>Tools you archive will be stored here. Out of sight, not gone.</span>
                         ) : (
-                          <>
-                            <span>
-                              <input
-                                aria-label="Select all visible tools"
-                                checked={areAllVisibleToolsSelected}
-                                className="tool-row-checkbox"
-                                onChange={toggleVisibleToolSelection}
-                                type="checkbox"
-                              />
-                            </span>
-                            <span aria-label="Favourite" className="tool-head-icon">
-                              <svg aria-hidden="true" viewBox="0 0 24 24">
-                                <FavoriteStarIconPaths />
-                              </svg>
-                            </span>
-                            <span>Tool Name</span>
-                            <span>Category</span>
-                          <span>URL</span>
-                          <span>Watchlist</span>
-                          <span>Action</span>
-                          </>
-                        )}
-                      </div>
-                      {isLoadingTools ? (
-                        <div className="empty-state tool-onboarding-empty">
-                          <strong>Loading AI tools</strong>
-                          <span>Getting your toolbox ready.</span>
-                        </div>
-                      ) : visibleTools.length > 0 ? (
-                        visibleTools.map((tool) => renderToolRow(tool))
-                      ) : (
-                        <div className="empty-state tool-onboarding-empty">
-                          {activeSection === "watchlist" && activeCategory ? (
-                            <span className="plain-empty-copy">{`Nothing on your ${activeCategory} radar yet`}</span>
-                          ) : (
-                            <strong>
-                              {activeSection === "tools"
-                                ? toolboxEmptyState.title
-                                : activeSection === "linked"
-                                  ? linkedEmptyState.title
-                                  : activeSection === "watchlist"
-                                    ? "No watchlist yet"
-                                    : activeSection === "favorites"
-                                      ? "No favourites yet"
-                                      : activeSection === "archive"
-                                        ? "Nothing archived yet"
-                                        : "No tools yet"}
-                            </strong>
-                          )}
-                          {activeSection === "tools" ? (
-                            toolboxEmptyState.body
-                          ) : activeSection === "linked" ? (
-                            linkedEmptyState.body
-                          ) : activeSection === "watchlist" ? (
-                            <span>
-                              {activeCategory
-                                ? `Nothing on your ${activeCategory} radar yet.`
-                                : "Nothing on your radar yet."}
-                            </span>
-                          ) : activeSection === "favorites" ? (
-                            <span>Star any tool in your toolbox to save it here for quick access.</span>
-                          ) : activeSection === "archive" ? (
-                            <span>Tools you archive will be stored here. Out of sight, not gone.</span>
-                          ) : (
-                            <span>Add or move tools into this view when you are ready.</span>
-                          )}
-                        </div>
-                      )}
-                    </>
+                          <span>Add or move tools into this view when you are ready.</span>
+                        )
+                      }
+                      emptyTitle={
+                        activeSection === "tools"
+                          ? toolboxEmptyState.title
+                          : activeSection === "linked"
+                            ? linkedEmptyState.title
+                            : activeSection === "watchlist"
+                              ? "No watchlist yet"
+                              : activeSection === "favorites"
+                                ? "No favourites yet"
+                                : activeSection === "archive"
+                                  ? "Nothing archived yet"
+                                  : "No tools yet"
+                      }
+                      isLoadingTools={isLoadingTools}
+                      renderToolRow={renderToolRow}
+                      section={activeSection}
+                      toggleVisibleToolSelection={toggleVisibleToolSelection}
+                      visibleTools={visibleTools}
+                    />
                   )}
                 </div>
               </section>
