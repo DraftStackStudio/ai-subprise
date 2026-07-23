@@ -14,9 +14,11 @@ import DashboardSummaryView from "@/components/DashboardSummaryView";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
 import EditCategoryModal from "@/components/EditCategoryModal";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
+import LoginsView from "@/components/LoginsView";
 import PresetToolPickerModal from "@/components/PresetToolPickerModal";
 import ProviderManagementModals from "@/components/ProviderManagementModals";
 import ProvidersView from "@/components/ProvidersView";
+import RecentlyDeletedPanel from "@/components/RecentlyDeletedPanel";
 import ResetAIToolsModals from "@/components/ResetAIToolsModals";
 import SettingsView from "@/components/SettingsView";
 import ToolDetailModal from "@/components/ToolDetailModal";
@@ -2618,23 +2620,6 @@ function DashboardContent() {
       nextAccounts.splice(targetIndex, 0, draggedAccount);
       return nextAccounts;
     });
-  };
-
-  const handleAccountDragStart = (event: DragEvent<HTMLButtonElement>, account: Account) => {
-    setDraggedAccountLogin(account.login);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", account.login);
-  };
-
-  const handleAccountPointerDown = (event: PointerEvent<HTMLButtonElement>, account: Account) => {
-    event.preventDefault();
-    setDraggedAccountLogin(account.login);
-  };
-
-  const handleAccountDrop = (event: DragEvent<HTMLDivElement>, account: Account) => {
-    event.preventDefault();
-    if (draggedAccountLogin) moveAccount(draggedAccountLogin, account.login);
-    setDraggedAccountLogin(null);
   };
 
   const moveTool = (draggedName: string, targetName: string) => {
@@ -5668,122 +5653,20 @@ function DashboardContent() {
         </aside>
 
         {showRecoveryPanel ? (
-          <div className="recovery-dismiss-layer" onClick={() => setShowRecoveryPanel(false)} role="presentation">
-            <section
-              aria-label="Recently Deleted"
-              className="recovery-panel"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <label className="recovery-search">
-                <input
-                  onChange={(event) => setRecoverySearch(event.target.value)}
-                  placeholder="search in Recently Deleted"
-                  type="search"
-                  value={recoverySearch}
-                />
-              </label>
-              <div className="recovery-list">
-                {visibleRecoveryArchives.length > 0 ? (
-                  visibleRecoveryArchives.map((archive) => {
-                    const isExpanded = expandedRecoveryIds.includes(archive.id);
-                    const archiveToolsCount = archiveTools(archive).length;
-
-                    return (
-                      <section className="recovery-group" key={archive.id}>
-                        <button
-                          aria-expanded={isExpanded}
-                          className="recovery-group-header"
-                          onClick={() => toggleRecoveryGroup(archive.id)}
-                          type="button"
-                        >
-                          <span>
-                            <strong>
-                              {new Date(archive.createdAt).toLocaleString("en-GB", {
-                                day: "numeric",
-                                hour: "numeric",
-                                minute: "2-digit",
-                                month: "short",
-                                year: "numeric",
-                              })}
-                            </strong>
-                            <small>{archiveToolsCount} {archiveToolsCount === 1 ? "tool" : "tools"}</small>
-                          </span>
-                          <span className="recovery-group-handle" aria-hidden="true" />
-                        </button>
-                        {isExpanded ? (
-                          <>
-                            {archive.data.map((group) => (
-                              <div className="recovery-category-group" key={`${archive.id}-${group.category}`}>
-                                {group.tools.map((tool) => {
-                                  const recoveryKey = `${archive.id}:${tool.id}`;
-                                  return (
-                                    <article className="recovery-item" key={recoveryKey}>
-                                      <input
-                                        aria-label={`Select ${tool.name}`}
-                                        checked={selectedRecoveryKeys.includes(recoveryKey)}
-                                        onChange={() => toggleRecoveryTool(archive.id, tool.id)}
-                                        type="checkbox"
-                                      />
-                                      <span className="recovery-item-copy">
-                                        <strong>{tool.name}</strong>
-                                      </span>
-                                      <span className="recovery-item-category">{group.category}</span>
-                                      <span className="recovery-item-actions">
-                                        <button
-                                          aria-label={`Restore ${tool.name}`}
-                                          className="recovery-icon-button"
-                                          onClick={() => restoreSingleArchivedTool(archive.id, tool.id)}
-                                          type="button"
-                                        >
-                                          <svg aria-hidden="true" viewBox="0 0 24 24">
-                                            <path d="M9 10H5V6" />
-                                            <path d="M5 10a7 7 0 1 0 2-5" />
-                                          </svg>
-                                        </button>
-                                        <button
-                                          aria-label={`Delete ${tool.name} permanently`}
-                                          className="recovery-icon-button"
-                                          onClick={() => deleteSingleArchivedTool(archive.id, tool.id)}
-                                          type="button"
-                                        >
-                                          <svg aria-hidden="true" viewBox="0 0 24 24">
-                                            <TrashIconPaths />
-                                          </svg>
-                                        </button>
-                                      </span>
-                                    </article>
-                                  );
-                                })}
-                              </div>
-                            ))}
-                          </>
-                        ) : null}
-                      </section>
-                    );
-                  })
-                ) : (
-                  <div className="recovery-empty">No recovered tools here yet</div>
-                )}
-              </div>
-              <div className="recovery-footer">
-                <span className="recovery-note">
-                  Once it has been in Recently Deleted for 30 days, it will be automatically deleted.
-                </span>
-                <button
-                  className={
-                    selectedVisibleRecoveryKeys.length > 1
-                      ? "recovery-restore-selected is-bulk-ready"
-                      : "recovery-restore-selected"
-                  }
-                  disabled={selectedVisibleRecoveryKeys.length === 0}
-                  onClick={() => restoreSelectedRecoveryTools(undefined, selectedVisibleRecoveryKeys)}
-                  type="button"
-                >
-                  Restore selected ({selectedVisibleRecoveryKeys.length})
-                </button>
-              </div>
-            </section>
-          </div>
+          <RecentlyDeletedPanel
+            archives={visibleRecoveryArchives}
+            expandedArchiveIds={expandedRecoveryIds}
+            onClose={() => setShowRecoveryPanel(false)}
+            onDeleteTool={deleteSingleArchivedTool}
+            onRestoreSelected={(selectedKeys) => restoreSelectedRecoveryTools(undefined, selectedKeys)}
+            onRestoreTool={restoreSingleArchivedTool}
+            onSearchChange={setRecoverySearch}
+            onToggleArchive={toggleRecoveryGroup}
+            onToggleTool={toggleRecoveryTool}
+            searchValue={recoverySearch}
+            selectedKeys={selectedRecoveryKeys}
+            selectedVisibleKeys={selectedVisibleRecoveryKeys}
+          />
         ) : null}
 
         <section
@@ -5954,132 +5837,17 @@ function DashboardContent() {
           ) : null}
 
           {activeSection === "account" ? (
-            <section className="account-page">
-              {accountList.length > 0 ? (
-                <div className="account-page-guidance">
-                  <span className="category-view-helper account-reorder-helper">
-                    Hold and drag
-                    <span aria-hidden="true" className="inline-drag-handle">
-                      <span />
-                      <span />
-                      <span />
-                      <span />
-                      <span />
-                      <span />
-                    </span>
-                    to reorder your accounts.
-                  </span>
-                </div>
-              ) : null}
-              {accountDataError ? (
-                <div className="data-state-message error" role="alert">
-                  {accountDataError}
-                </div>
-              ) : null}
-              <article className="form-card account-table-card">
-                <div className="account-table account-database">
-                  {isLoadingAccounts ? (
-                    <div className="empty-state compact-empty">
-                      <strong>Loading accounts</strong>
-                      <span>Getting your saved accounts ready.</span>
-                    </div>
-                  ) : groupedAccounts.length > 0 ? (
-                    <>
-                      <div className="account-table-head" aria-hidden="true">
-                        <span />
-                        <span>Nickname</span>
-                        <span>Login</span>
-                        <span>Action</span>
-                      </div>
-                      {groupedAccounts.map((group) => (
-                        <Fragment key={group.provider}>
-                          <div className="account-database-provider-row">
-                            <span className="account-row-label">
-                              <span>{group.provider}</span>
-                              <span>{group.accounts.length}</span>
-                            </span>
-                          </div>
-                          {group.accounts.map((account) => (
-                            <div
-                              className={
-                                draggedAccountLogin === account.login
-                                  ? "account-table-row is-dragging"
-                                  : "account-table-row"
-                              }
-                              key={account.login}
-                              data-account-login={account.login}
-                              onDragOver={(event) => event.preventDefault()}
-                              onDrop={(event) => handleAccountDrop(event, account)}
-                              onPointerEnter={(event) => {
-                                if (event.buttons === 1 && draggedAccountLogin) {
-                                  moveAccount(draggedAccountLogin, account.login);
-                                }
-                              }}
-                              onPointerUp={() => setDraggedAccountLogin(null)}
-                            >
-                              <span className="drag-handle-cell" data-label="Move">
-                                <button
-                                  aria-label={`Reorder ${account.label}`}
-                                  className="drag-handle"
-                                  draggable
-                                  onDragEnd={() => setDraggedAccountLogin(null)}
-                                  onDragStart={(event) => handleAccountDragStart(event, account)}
-                                  onPointerDown={(event) => handleAccountPointerDown(event, account)}
-                                  type="button"
-                                >
-                                  <span />
-                                  <span />
-                                  <span />
-                                  <span />
-                                  <span />
-                                  <span />
-                                </button>
-                              </span>
-                              <div data-label="Nickname">
-                                <span className={`email-tag ${account.tag}`}>
-                                  <span className="tag-dot" />
-                                  {account.label}
-                                </span>
-                              </div>
-                              <span className="account-login-cell" data-label="Login">
-                                <button
-                                  aria-label={`Copy ${account.login}`}
-                                  className="copy-login-button tooltip-target"
-                                  data-tooltip="Copy"
-                                  onClick={() => copyAccountLogin(account.login)}
-                                  type="button"
-                                >
-                                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                                    <rect x="8" y="8" width="10" height="10" rx="2" />
-                                    <path d="M6 15H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1" />
-                                  </svg>
-                                </button>
-                                <span className="account-login-value">{account.login}</span>
-                              </span>
-                              <span data-label="Action">
-                                <button className="action-btn" onClick={() => openEditAccountModal(account)} type="button">
-                                  Edit
-                                </button>
-                              </span>
-                            </div>
-                          ))}
-                        </Fragment>
-                      ))}
-                    </>
-                  ) : (
-                    <div className="empty-state">
-                      <strong>Your accounts list is empty</strong>
-                      <span>
-                        <button className="inline-text-link" onClick={openAddAccountModal} type="button">
-                          + Add Logins
-                        </button>{" "}
-                        to start grouping your AI logins in one place.
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </article>
-            </section>
+            <LoginsView
+              accountDataError={accountDataError}
+              draggedAccountLogin={draggedAccountLogin}
+              groupedAccounts={groupedAccounts}
+              isLoadingAccounts={isLoadingAccounts}
+              onAddAccount={openAddAccountModal}
+              onCopyLogin={copyAccountLogin}
+              onDragAccount={moveAccount}
+              onDraggedAccountChange={setDraggedAccountLogin}
+              onEditAccount={openEditAccountModal}
+            />
           ) : activeSection === "providers" ? (
             <ProvidersView
               customProviderRows={customProviderRows}
