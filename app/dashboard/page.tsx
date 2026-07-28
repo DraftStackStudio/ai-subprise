@@ -14,6 +14,7 @@ import AIToolModal from "@/components/AIToolModal";
 import ArchiveView from "@/components/ArchiveView";
 import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
 import DashboardConfirmationModals from "@/components/DashboardConfirmationModals";
+import DashboardPageHeader from "@/components/DashboardPageHeader";
 import DashboardSidebar from "@/components/DashboardSidebar";
 import DashboardSummaryView from "@/components/DashboardSummaryView";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
@@ -5275,88 +5276,24 @@ function DashboardContent() {
               : "main-content"
           }
         >
-          <header className="main-header">
-            <div>
-              <h1 className={activeSection === "providers" ? "main-title main-title-with-back" : "main-title"}>
-                {activeSection === "providers" ? (
-                  <button
-                    aria-label="Back to Logins"
-                    className="title-back-button tooltip-target"
-                    data-tooltip="Back to Logins"
-                    onClick={() => setActiveSection("account")}
-                    type="button"
-                  >
-                    <svg aria-hidden="true" viewBox="0 0 24 24">
-                      <path d="M19 12H5" />
-                      <path d="m12 19-7-7 7-7" />
-                    </svg>
-                  </button>
-                ) : null}
-                <span>{title}</span>
-              </h1>
-              <p className="main-subtitle">
-                {activeSection === "linked" ? (
-                  "Every tool, matched to the account behind it."
-                ) : (
-                  subtitle
-                )}
-              </p>
-            </div>
-            <div className="header-actions">
-              {activeSection === "billing" && pendingBillingActions.length > 0 ? (
-                <button
-                  aria-expanded={isPendingActionsExpanded}
-                  className="pending-actions-indicator"
-                  onClick={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
-                  type="button"
-                >
-                  <svg aria-hidden="true" fill="none" height="16" viewBox="0 0 24 24" width="16">
-                    <path d="M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
-                    <path d="M12 9v4M12 17h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
-                  </svg>
-                  {pendingBillingActions.length} {pendingBillingActions.length === 1 ? "item needs" : "items need"} attention
-                </button>
-              ) : null}
-              {activeSection === "account" && isDemoMode ? (
-                <button className="btn-sm btn-sm-ghost" onClick={() => reseedDemoWorkspace()} type="button">
-                  Reseed demo data
-                </button>
-              ) : null}
-              {activeSection === "account" ? (
-                <button className="btn-sm btn-sm-charcoal" onClick={() => setActiveSection("providers")} type="button">
-                  + Edit Provider
-                </button>
-              ) : null}
-              {activeSection === "tools" && hasConfirmedCategories ? (
-                <>
-                  <button className="btn-sm btn-sm-ghost" onClick={openResetToolsFlow} type="button">
-                    Reset AI Tools
-                  </button>
-                  <button className="btn-sm btn-sm-charcoal" onClick={openEditCategoryModal} type="button">
-                    Edit Category
-                  </button>
-                </>
-              ) : null}
-              {activeSection === "tools" ? (
-                <button className="btn-sm btn-sm-ghost" onClick={openPresetToolPicker} type="button">
-                  Presets
-                </button>
-              ) : null}
-              {activeSection !== "dashboard" && activeSection !== "billing" ? (
-                <button
-                  className="btn-sm btn-sm-primary"
-                  onClick={activeSection === "account" || activeSection === "providers" ? openAddAccountModal : handleAddToolClick}
-                  type="button"
-                >
-                  {activeSection === "account" || activeSection === "providers"
-                    ? "+ Add Logins"
-                    : activeSection === "linked"
-                      ? "+ Link AI Tool"
-                      : "+ AI Tool"}
-                </button>
-              ) : null}
-            </div>
-          </header>
+          <DashboardPageHeader
+            activeSection={activeSection}
+            hasConfirmedCategories={hasConfirmedCategories}
+            isDemoMode={isDemoMode}
+            isPendingActionsExpanded={isPendingActionsExpanded}
+            onAddAccount={openAddAccountModal}
+            onAddTool={handleAddToolClick}
+            onBackToLogins={() => setActiveSection("account")}
+            onEditCategories={openEditCategoryModal}
+            onEditProviders={() => setActiveSection("providers")}
+            onOpenPresets={openPresetToolPicker}
+            onReseedDemo={reseedDemoWorkspace}
+            onResetTools={openResetToolsFlow}
+            onTogglePendingActions={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
+            pendingActionCount={pendingBillingActions.length}
+            subtitle={subtitle}
+            title={title}
+          />
 
           {activeSection === "billing" && isPendingActionsExpanded && pendingBillingActions.length > 0 ? (
             <section aria-label="Pending billing actions" className="pending-actions-panel">
