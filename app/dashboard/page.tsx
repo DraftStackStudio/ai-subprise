@@ -29,6 +29,7 @@ import RecentlyDeletedPanel from "@/components/RecentlyDeletedPanel";
 import ResetAIToolsModals from "@/components/ResetAIToolsModals";
 import SettingsView from "@/components/SettingsView";
 import ToolDetailModal from "@/components/ToolDetailModal";
+import ToolboxToolRow from "@/components/ToolboxToolRow";
 import {
   toggleBillingTypeSelection,
   validateBillingTypeSelection,
@@ -4857,94 +4858,34 @@ function DashboardContent() {
     }
 
     return (
-      <article className="account-table-row tool-table-row toolbox-tool-row" key={tool.id}>
-        <span className="tool-select-cell" data-label="Select">
-          <input
-            aria-label={`Select ${tool.name}`}
-            checked={selectedToolIds.includes(tool.id)}
-            className="tool-row-checkbox"
-            onChange={() => toggleToolSelection(tool.id)}
-            type="checkbox"
-          />
-        </span>
-        <button
-          aria-label={tool.favorite ? `Remove ${tool.name} from favourites` : `Add ${tool.name} to favourites`}
-          aria-pressed={tool.favorite}
-          className={tool.favorite ? "notion-star-checkbox is-checked" : "notion-star-checkbox"}
-          onClick={() => toggleToolFavorite(tool.name)}
-          type="button"
-        >
-          <span className="notion-checkbox-box">
-            {tool.favorite ? (
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <FavoriteStarIconPaths />
-              </svg>
-            ) : null}
-          </span>
-        </button>
-        <div data-label="Tool Name">{renderToolNameCell(tool)}</div>
-        <div className="category-cell" data-label="Category">{renderCategoryCell(tool)}</div>
-        <span data-label="URL">{renderUrlIcon(tool)}</span>
-        <span className="watchlist-cell" data-label="Watchlist">
-          <button
-            aria-label={tool.status === "Considering" ? `Remove ${tool.name} from Watchlist` : `Add ${tool.name} to Watchlist`}
-            aria-pressed={tool.status === "Considering"}
-            className={tool.status === "Considering" ? "row-icon-action watchlist-action is-active tooltip-target" : "row-icon-action watchlist-action tooltip-target"}
-            data-tooltip={tool.status === "Considering" ? "Remove from Watchlist" : "Add to Watchlist"}
-            onClick={() => {
-              if (activeSection === "watchlist" && tool.status === "Considering") {
-                setConfirmToolStateChange({ action: "unwatchlist", tool });
-                return;
-              }
-              toggleToolWatchlist(tool.id);
-            }}
-            type="button"
-          >
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
-              <circle cx="12" cy="12" r="2.3" />
-            </svg>
-          </button>
-        </span>
-        <span
-          className={`row-actions tool-link-state-actions${activeSection === "tools" && tool.accounts.length > 0 ? " has-account-count" : ""}`}
-          data-label="Action"
-        >
-          {activeSection === "tools" && tool.accounts.length > 0 ? (
-            <button
-              className="linked-account-count-pill toolbox-account-count-badge"
-              onClick={() => openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0])}
-              type="button"
-            >
-              {tool.accounts.length} {tool.accounts.length === 1 ? "account" : "accounts"}
-            </button>
-          ) : (
-            <button
-              className="action-btn"
-              disabled={tool.status === "Considering"}
-              onClick={() => {
-                if (tool.accounts.length > 0) {
-                  openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
-                  return;
-                }
-
-                activeSection === "watchlist"
-                  ? openLinkToolModal(tool, { activateToolOnSave: true })
-                  : openLinkToolModal(tool);
-              }}
-              title={tool.status === "Considering" ? "Remove from Watchlist before linking an account" : undefined}
-              type="button"
-            >
-              {tool.accounts.length > 0 ? "Link" : "Not linked"}
-            </button>
-          )}
-          {activeSection !== "watchlist" ? (
-            <button className="action-btn" onClick={() => openEditToolModal(tool)} type="button">
-              Edit
-            </button>
-          ) : null}
-        </span>
-      </article>
+      <ToolboxToolRow
+        isSelected={selectedToolIds.includes(tool.id)}
+        key={tool.id}
+        onEdit={() => openEditToolModal(tool)}
+        onOpenLinkState={() => {
+          if (tool.accounts.length > 0) {
+            openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
+            return;
+          }
+          activeSection === "watchlist"
+            ? openLinkToolModal(tool, { activateToolOnSave: true })
+            : openLinkToolModal(tool);
+        }}
+        onToggleFavorite={() => toggleToolFavorite(tool.name)}
+        onToggleSelected={() => toggleToolSelection(tool.id)}
+        onToggleWatchlist={() => {
+          if (activeSection === "watchlist" && tool.status === "Considering") {
+            setConfirmToolStateChange({ action: "unwatchlist", tool });
+            return;
+          }
+          toggleToolWatchlist(tool.id);
+        }}
+        renderCategory={() => renderCategoryCell(tool)}
+        renderToolName={() => renderToolNameCell(tool)}
+        renderUrl={() => renderUrlIcon(tool)}
+        section={activeSection}
+        tool={tool}
+      />
     );
   };
 
