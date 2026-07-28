@@ -11,7 +11,6 @@ import BulkToolActions from "@/components/BulkToolActions";
 import AIToolboxView from "@/components/AIToolboxView";
 import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
 import AIToolModal from "@/components/AIToolModal";
-import ArchiveView from "@/components/ArchiveView";
 import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
 import DashboardConfirmationModals from "@/components/DashboardConfirmationModals";
 import DashboardPageHeader from "@/components/DashboardPageHeader";
@@ -26,9 +25,7 @@ import {
   type MultiSelectDropdownControlProps,
 } from "@/components/DropdownControls";
 import EditCategoryModal from "@/components/EditCategoryModal";
-import FavouritesView from "@/components/FavouritesView";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
-import LinkedView from "@/components/LinkedView";
 import ListPageToolbar from "@/components/ListPageToolbar";
 import LoginsView from "@/components/LoginsView";
 import PresetToolPickerModal from "@/components/PresetToolPickerModal";
@@ -39,7 +36,13 @@ import ResetAIToolsModals from "@/components/ResetAIToolsModals";
 import SettingsView from "@/components/SettingsView";
 import ToolDetailModal from "@/components/ToolDetailModal";
 import ToolCategoryGroup from "@/components/ToolCategoryGroup";
-import ToolboxToolRow from "@/components/ToolboxToolRow";
+import ToolRowRenderer, {
+  BillingAccountCell,
+  BillingToolNameCell,
+  LinkedAccountCell,
+  PricingUrlIcon,
+  ToolNameCell,
+} from "@/components/ToolRowRenderer";
 import {
   toggleBillingTypeSelection,
   validateBillingTypeSelection,
@@ -4138,50 +4141,6 @@ function DashboardContent() {
       if (relationStatus(tool, accountLabel) !== "Trial" || daysRemaining === null || daysRemaining >= 0) return [];
       return [{ accountLabel, tool }];
     })) : [];
-  const renderToolNameCell = (tool: ToolItem) => (
-    <div className="tool-name-cell">
-      <div className="tool-logo" style={{ background: tool.logoBg }}>{toolInitials(tool.name)}</div>
-      <div>
-        {editingToolName === tool.name ? (
-          <input
-            aria-label={`Edit ${tool.name} name`}
-            autoFocus
-            className="tool-name-input"
-            onBlur={saveInlineToolName}
-            onChange={(event) => setToolNameDraft(event.target.value)}
-            onKeyDown={handleInlineToolNameKeyDown}
-            type="text"
-            value={toolNameDraft}
-          />
-        ) : (
-          <button
-            className="tool-name editable-tool-name"
-            onDoubleClick={() => startEditingToolName(tool)}
-            type="button"
-          >
-            {displayToolName(tool.name)}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-
-  const renderBillingToolNameCell = (tool: ToolItem, accountLabel: string) => (
-    <div className="tool-name-cell billing-readonly-tool-name">
-      <div className="tool-logo" style={{ background: tool.logoBg }}>{toolInitials(tool.name)}</div>
-      <div>
-        <span className="tool-name">{displayToolName(tool.name)}</span>
-        <button
-          className="billing-history-link"
-          onClick={() => setBillingHistoryTarget({ accountLabel, toolId: tool.id })}
-          type="button"
-        >
-          More
-        </button>
-      </div>
-    </div>
-  );
-
   const renderCategoryCell = (tool: ToolItem) => (
     renderDropdown({
       ariaLabel: `Change ${tool.name} category`,
@@ -4197,24 +4156,6 @@ function DashboardContent() {
       ],
       value: tool.category,
     })
-  );
-
-  const renderUrlIcon = (tool: ToolItem) => (
-    <a
-      aria-label={`${tool.name} pricing page`}
-      className="pricing-link-icon"
-      href={tool.pricingUrl}
-      onClick={(event) => event.stopPropagation()}
-      rel="noreferrer"
-      target="_blank"
-    >
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="8.25" />
-        <path d="M3.75 12h16.5" />
-        <path d="M12 3.75c2.05 2.2 3.15 5.05 3.15 8.25S14.05 18.05 12 20.25" />
-        <path d="M12 3.75C9.95 5.95 8.85 8.8 8.85 12s1.1 6.05 3.15 8.25" />
-      </svg>
-    </a>
   );
 
   const relationPlan = (tool: ToolItem, accountLabel: string) => {
@@ -4330,28 +4271,18 @@ function DashboardContent() {
     const tagClass = accountTag(accountLabel, accountList);
 
     return (
-      <span
-        className={`linked-account-cell ${tagClass}`}
-        style={compact ? { boxSizing: "border-box", minWidth: 0, padding: "8px 12px" } : undefined}
-      >
-        <span className="linked-account-line">
-          <span className={`tag-dot ${tagClass}`} />
-          <strong>{accountLabel}</strong>
-        </span>
-        {accountDetails?.login ? <span className="linked-account-address">{accountDetails.login}</span> : null}
-      </span>
+      <LinkedAccountCell
+        accountLabel={accountLabel}
+        compact={compact}
+        login={accountDetails?.login}
+        tagClass={tagClass}
+      />
     );
   };
 
   const renderBillingAccountCell = (accountLabel: string) => {
     const tagClass = accountTag(accountLabel, accountList);
-
-    return (
-      <span className={`billing-account-cell ${tagClass}`}>
-        <span className={`tag-dot ${tagClass}`} />
-        <strong>{accountLabel}</strong>
-      </span>
-    );
+    return <BillingAccountCell accountLabel={accountLabel} tagClass={tagClass} />;
   };
 
   const linkedPlanName = (tool: ToolItem, accountLabel: string) => (
@@ -4413,7 +4344,17 @@ function DashboardContent() {
       ].filter(Boolean).join(" ")}
       key={row.id}
     >
-      <div data-label="Tool Name">{isToolContinuation ? null : renderBillingToolNameCell(row.tool, row.accountLabel)}</div>
+      <div data-label="Tool Name">
+        {isToolContinuation ? null : (
+          <BillingToolNameCell
+            accountLabel={row.accountLabel}
+            displayName={displayToolName(row.tool.name)}
+            logoBackground={row.tool.logoBg}
+            logoText={toolInitials(row.tool.name)}
+            onOpenHistory={() => setBillingHistoryTarget({ accountLabel: row.accountLabel, toolId: row.tool.id })}
+          />
+        )}
+      </div>
       <div data-label="Account">{isAccountContinuation ? null : renderBillingAccountCell(row.accountLabel)}</div>
       <span className={isPlanGrouped ? "billing-plan-name is-grouped-plan" : "billing-plan-name"} data-label="Plan Name">
         <input
@@ -4609,95 +4550,23 @@ function DashboardContent() {
 
   const renderToolRow = (tool: ToolItem) => {
     const isExpanded = expandedToolIds.includes(tool.id);
-    const primaryAccount = tool.accounts[0] ?? "";
-    const hasManyAccounts = tool.accounts.length > 1;
-
-    if (activeSection === "linked") {
-      const displayedAccountLabels = linkedAccountLabelsForDisplay(tool);
-      return (
-        <LinkedView
-          accountLabels={displayedAccountLabels}
-          isExpanded={isExpanded}
-          isSelected={selectedToolIds.includes(tool.id)}
-          key={tool.id}
-          onEditAccount={(accountLabel) => openManageAccountModal(tool, accountLabel)}
-          onToggleExpanded={() => toggleToolExpanded(tool.id)}
-          onToggleFavorite={() => toggleToolFavorite(tool.name)}
-          onToggleSelected={() => toggleToolSelection(tool.id)}
-          renderAccount={renderLinkedAccountCell}
-          renderPlan={(accountLabel) => {
-            const plan = relationPlan(tool, accountLabel);
-            return (
-              <span className={`tool-status-chip ${linkedPlanPillTone(tool, accountLabel, plan)}`}>
-                {linkedPlanPillText(tool, accountLabel, plan)}
-              </span>
-            );
-          }}
-          renderStatusControl={(accountLabel) => renderLinkedStatusControl(tool, accountLabel)}
-          renderToolName={() => renderToolNameCell(tool)}
-          tool={tool}
-        />
-      );
-    }
-
-    if (activeSection === "favorites") {
-      return (
-        <FavouritesView
-          isExpanded={isExpanded}
-          key={tool.id}
-          onOpenLinkedAccounts={() => {
-            if (tool.accounts.length > 0) {
-              openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
-              return;
-            }
-            openLinkToolModal(tool);
-          }}
-          onRemoveFavourite={() => {
-            toggleToolFavorite(tool.name);
-            showToast("Removed from Favourites.");
-          }}
-          onToggleExpanded={() => toggleToolExpanded(tool.id)}
-          renderAccount={renderLinkedAccountCell}
-          renderCategory={() => renderCategoryCell(tool)}
-          renderSingleAccount={(accountLabel) => (
-            <span className={`email-tag ${accountTag(accountLabel, accountList)}`}>
-              <span className="tag-dot" />
-              {accountLabel}
-            </span>
-          )}
-          renderToolName={() => renderToolNameCell(tool)}
-          renderUrl={() => renderUrlIcon(tool)}
-          tool={tool}
-        />
-      );
-    }
-
-    if (activeSection === "archive") {
-      return (
-        <ArchiveView
-          archivedOn={formatArchiveDate(tool.archivedAt)}
-          isSelected={selectedToolIds.includes(tool.id)}
-          key={tool.id}
-          onDelete={() => permanentlyDeleteToolIds([tool.id])}
-          onRestore={() => setConfirmToolStateChange({ action: "unarchive", tool })}
-          onToggleSelected={() => toggleToolSelection(tool.id)}
-          renderCategory={() => renderCategoryCell(tool)}
-          renderLastStatus={() => (
-            <span className={`tool-status-chip ${archivedStatusTone(linkedPlanSnapshot(tool))}`}>
-              {archivedStatusLabel(linkedPlanSnapshot(tool))}
-            </span>
-          )}
-          renderToolName={() => renderToolNameCell(tool)}
-          tool={tool}
-        />
-      );
-    }
-
     return (
-      <ToolboxToolRow
+      <ToolRowRenderer
+        accountLabels={linkedAccountLabelsForDisplay(tool)}
+        archivedOn={formatArchiveDate(tool.archivedAt)}
+        isExpanded={isExpanded}
         isSelected={selectedToolIds.includes(tool.id)}
         key={tool.id}
+        onDelete={() => permanentlyDeleteToolIds([tool.id])}
         onEdit={() => openEditToolModal(tool)}
+        onEditAccount={(accountLabel) => openManageAccountModal(tool, accountLabel)}
+        onOpenLinkedAccounts={() => {
+          if (tool.accounts.length > 0) {
+            openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
+            return;
+          }
+          openLinkToolModal(tool);
+        }}
         onOpenLinkState={() => {
           if (tool.accounts.length > 0) {
             openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
@@ -4707,6 +4576,12 @@ function DashboardContent() {
             ? openLinkToolModal(tool, { activateToolOnSave: true })
             : openLinkToolModal(tool);
         }}
+        onRemoveFavourite={() => {
+          toggleToolFavorite(tool.name);
+          showToast("Removed from Favourites.");
+        }}
+        onRestore={() => setConfirmToolStateChange({ action: "unarchive", tool })}
+        onToggleExpanded={() => toggleToolExpanded(tool.id)}
         onToggleFavorite={() => toggleToolFavorite(tool.name)}
         onToggleSelected={() => toggleToolSelection(tool.id)}
         onToggleWatchlist={() => {
@@ -4716,9 +4591,43 @@ function DashboardContent() {
           }
           toggleToolWatchlist(tool.id);
         }}
+        renderAccount={renderLinkedAccountCell}
         renderCategory={() => renderCategoryCell(tool)}
-        renderToolName={() => renderToolNameCell(tool)}
-        renderUrl={() => renderUrlIcon(tool)}
+        renderLastStatus={() => (
+          <span className={`tool-status-chip ${archivedStatusTone(linkedPlanSnapshot(tool))}`}>
+            {archivedStatusLabel(linkedPlanSnapshot(tool))}
+          </span>
+        )}
+        renderPlan={(accountLabel) => {
+          const plan = relationPlan(tool, accountLabel);
+          return (
+            <span className={`tool-status-chip ${linkedPlanPillTone(tool, accountLabel, plan)}`}>
+              {linkedPlanPillText(tool, accountLabel, plan)}
+            </span>
+          );
+        }}
+        renderSingleAccount={(accountLabel) => (
+          <span className={`email-tag ${accountTag(accountLabel, accountList)}`}>
+            <span className="tag-dot" />
+            {accountLabel}
+          </span>
+        )}
+        renderStatusControl={(accountLabel) => renderLinkedStatusControl(tool, accountLabel)}
+        renderToolName={() => (
+          <ToolNameCell
+            displayName={displayToolName(tool.name)}
+            draft={toolNameDraft}
+            isEditing={editingToolName === tool.name}
+            logoBackground={tool.logoBg}
+            logoText={toolInitials(tool.name)}
+            name={tool.name}
+            onDraftChange={setToolNameDraft}
+            onKeyDown={handleInlineToolNameKeyDown}
+            onSave={saveInlineToolName}
+            onStartEditing={() => startEditingToolName(tool)}
+          />
+        )}
+        renderUrl={() => <PricingUrlIcon name={tool.name} pricingUrl={tool.pricingUrl} />}
         section={activeSection}
         tool={tool}
       />
