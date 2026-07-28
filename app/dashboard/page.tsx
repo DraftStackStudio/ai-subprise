@@ -16,6 +16,7 @@ import DashboardSidebar from "@/components/DashboardSidebar";
 import DashboardSummaryView from "@/components/DashboardSummaryView";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
 import EditCategoryModal from "@/components/EditCategoryModal";
+import FavouritesView from "@/components/FavouritesView";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
 import LinkedView from "@/components/LinkedView";
 import ListPageToolbar from "@/components/ListPageToolbar";
@@ -4768,35 +4769,6 @@ function DashboardContent() {
         });
   };
 
-  const renderFavouriteLinkedAccounts = (tool: ToolItem) => (
-    <div
-      className="linked-accordion-panel favourite-accordion-panel"
-      style={{ borderLeft: 0, borderRight: 0 }}
-    >
-      {tool.accounts.map((accountLabel) => (
-        <div
-          className="tool-account-subrow favourite-account-row"
-          key={`${tool.id}-${accountLabel}`}
-          style={{
-            boxSizing: "border-box",
-            gridTemplateColumns: "var(--favorites-table-columns)",
-            height: 54,
-            minHeight: 54,
-            padding: 0,
-          }}
-        >
-          <span style={{ padding: "8px 12px" }} />
-          <span style={{ padding: "8px 12px" }} />
-          <span style={{ padding: "8px 12px" }} />
-          <span style={{ padding: "8px 12px" }} />
-          {renderLinkedAccountCell(accountLabel, true)}
-          <span style={{ padding: "8px 12px" }} />
-          <span style={{ padding: "8px 12px" }} />
-        </div>
-      ))}
-    </div>
-  );
-
   const renderToolRow = (tool: ToolItem) => {
     const isExpanded = expandedToolIds.includes(tool.id);
     const primaryAccount = tool.accounts[0] ?? "";
@@ -4832,86 +4804,33 @@ function DashboardContent() {
 
     if (activeSection === "favorites") {
       return (
-        <Fragment key={tool.id}>
-          <article
-            className="account-table-row tool-table-row favourite-tool-row"
-            onClick={() => {
-              if (hasManyAccounts) toggleToolExpanded(tool.id);
-            }}
-          >
-            <span />
-            <button
-              aria-label={`Remove ${tool.name} from favourites`}
-              aria-pressed="true"
-              className="notion-star-checkbox is-checked"
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleToolFavorite(tool.name);
-                showToast("Removed from Favourites.");
-              }}
-              type="button"
-            >
-              <span className="notion-checkbox-box">
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <FavoriteStarIconPaths />
-                </svg>
-              </span>
-            </button>
-            <div data-label="Tool Name">{renderToolNameCell(tool)}</div>
-            <div className="category-cell" data-label="Category">{renderCategoryCell(tool)}</div>
-            <div className={hasManyAccounts ? "account-used-cell linked-account-summary-cell" : "account-used-cell"} data-label="Account Used">
-              {primaryAccount ? (
-                hasManyAccounts ? (
-                  <>
-                    <span className="linked-account-count-pill">{tool.accounts.length} accounts</span>
-                    <button
-                      aria-label={isExpanded ? `Collapse ${tool.name}` : `Expand ${tool.name}`}
-                      aria-expanded={isExpanded}
-                      className={
-                        isExpanded
-                          ? "row-toggle-control linked-row-toggle tooltip-target is-open"
-                          : "row-toggle-control linked-row-toggle tooltip-target"
-                      }
-                      data-tooltip={isExpanded ? "Collapse accounts" : "Expand accounts"}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        toggleToolExpanded(tool.id);
-                      }}
-                      type="button"
-                    >
-                      <span />
-                    </button>
-                  </>
-                ) : (
-                  <span className={`email-tag ${accountTag(primaryAccount, accountList)}`}>
-                    <span className="tag-dot" />
-                    {primaryAccount}
-                  </span>
-                )
-              ) : (
-                <span className="muted-cell">No account linked</span>
-              )}
-            </div>
-            <span data-label="URL">{renderUrlIcon(tool)}</span>
-            <span className="row-actions" data-label="Action">
-              <button
-                className="action-btn"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  if (tool.accounts.length > 0) {
-                    openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
-                    return;
-                  }
-                  openLinkToolModal(tool);
-                }}
-                type="button"
-              >
-                {tool.accounts.length > 0 ? "Linked" : "Not linked"}
-              </button>
+        <FavouritesView
+          isExpanded={isExpanded}
+          key={tool.id}
+          onOpenLinkedAccounts={() => {
+            if (tool.accounts.length > 0) {
+              openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
+              return;
+            }
+            openLinkToolModal(tool);
+          }}
+          onRemoveFavourite={() => {
+            toggleToolFavorite(tool.name);
+            showToast("Removed from Favourites.");
+          }}
+          onToggleExpanded={() => toggleToolExpanded(tool.id)}
+          renderAccount={renderLinkedAccountCell}
+          renderCategory={() => renderCategoryCell(tool)}
+          renderSingleAccount={(accountLabel) => (
+            <span className={`email-tag ${accountTag(accountLabel, accountList)}`}>
+              <span className="tag-dot" />
+              {accountLabel}
             </span>
-          </article>
-          {isExpanded && hasManyAccounts ? renderFavouriteLinkedAccounts(tool) : null}
-        </Fragment>
+          )}
+          renderToolName={() => renderToolNameCell(tool)}
+          renderUrl={() => renderUrlIcon(tool)}
+          tool={tool}
+        />
       );
     }
 
