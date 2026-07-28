@@ -3045,7 +3045,7 @@ function DashboardContent() {
   const updateBillingField = async (
     toolId: string,
     accountLabel: string,
-    patch: Partial<Pick<ToolAccountDetail, "amount" | "billingType" | "currency" | "nextChargeDate" | "planName">>,
+    patch: Partial<Pick<ToolAccountDetail, "amount" | "billingType" | "currency" | "lastTopUpDate" | "nextChargeDate" | "planName">>,
   ) => {
     const currentDetail = toolAccountDetails[toolId]?.[accountLabel];
     const nextDetail: ToolAccountDetail = {
@@ -3053,7 +3053,7 @@ function DashboardContent() {
       billingAmounts: currentDetail?.billingAmounts,
       billingType: normaliseBillingType(patch.billingType ?? currentDetail?.billingType ?? "Monthly"),
       currency: normaliseCurrency(patch.currency ?? currentDetail?.currency),
-      lastTopUpDate: currentDetail?.lastTopUpDate ?? "",
+      lastTopUpDate: patch.lastTopUpDate ?? currentDetail?.lastTopUpDate ?? "",
       nextChargeDate: patch.nextChargeDate ?? currentDetail?.nextChargeDate ?? "",
       planName: patch.planName ?? currentDetail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "",
       status: currentDetail?.status ?? "Active",
@@ -3086,6 +3086,7 @@ function DashboardContent() {
           amount: nextDetail.amount,
           billingType: nextDetail.billingType,
           currency: nextDetail.currency,
+          lastTopUpDate: nextDetail.lastTopUpDate,
           nextChargeDate: nextDetail.nextChargeDate,
           plan: "Active",
           planName: nextDetail.planName,
@@ -4230,16 +4231,22 @@ function DashboardContent() {
 
         const detail = toolAccountDetails[tool.id]?.[accountLabel];
         const billingAmounts = detail?.billingAmounts ?? [];
-        return billingAmounts.map((billingAmount) => ({
+        return billingAmounts.map((billingAmount) => {
+          const billingType = normaliseBillingType(billingAmount.billingType);
+          const isTopUp = billingType === "Top-up";
+          return {
             accountLabel,
             amount: billingAmount.amount,
-            billingType: normaliseBillingType(billingAmount.billingType),
+            billingDate: isTopUp ? detail?.lastTopUpDate ?? "" : detail?.nextChargeDate ?? "",
+            billingDateField: isTopUp ? "lastTopUpDate" as const : "nextChargeDate" as const,
+            billingDateLabel: isTopUp ? "Last topped up" : "Next Charge",
+            billingType,
             currency: normaliseCurrency(billingAmount.currency),
             id: billingAmount.id,
-            nextChargeDate: detail?.nextChargeDate ?? "",
             planName: detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
             tool,
-          }));
+          };
+        });
       }),
     );
   const billingSearchTerm = billingSearch.trim();
@@ -4259,10 +4266,10 @@ function DashboardContent() {
     })
     .sort((firstRow, secondRow) =>
       (selectedBillingView === "Month"
-        ? (firstRow.nextChargeDate || "9999-12-31").localeCompare(secondRow.nextChargeDate || "9999-12-31")
+        ? (firstRow.billingDate || "9999-12-31").localeCompare(secondRow.billingDate || "9999-12-31")
         : 0) ||
       firstRow.tool.name.localeCompare(secondRow.tool.name) ||
-      (secondRow.nextChargeDate ?? "").localeCompare(firstRow.nextChargeDate ?? "") ||
+      (secondRow.billingDate ?? "").localeCompare(firstRow.billingDate ?? "") ||
       firstRow.accountLabel.localeCompare(secondRow.accountLabel),
     );
 
@@ -4457,19 +4464,12 @@ function DashboardContent() {
         </span>
       </span>
       <span data-label="Billing Type">
-        {renderDropdown({
-          ariaLabel: `${row.tool.name} ${row.accountLabel} billing type`,
-          className: "billing-type-dropdown",
-          id: `billing-type-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
-          onChange: (nextBillingType) =>
-            updateBillingField(row.tool.id, row.accountLabel, { billingType: normaliseBillingType(nextBillingType) }),
-          options: billingTypeOptions,
-          value: row.billingType,
-        })}
+        <span className="billing-type-readonly">{row.billingType}</span>
       </span>
-      <span data-label="Next Charge">
+      <span className="billing-date-cell" data-label={row.billingDateLabel}>
         <label
-          className={`billing-date-picker billing-date-picker-table ${row.nextChargeDate ? "has-value" : "is-empty"}`}
+          aria-label={row.billingDateLabel}
+          className={`billing-date-picker billing-date-picker-table ${row.billingDate ? "has-value" : "is-empty"}`}
           onClick={(event) => {
             event.preventDefault();
             const input = event.currentTarget.querySelector<HTMLInputElement>("input[type=date]");
@@ -4486,8 +4486,8 @@ function DashboardContent() {
           role="button"
           tabIndex={0}
         >
-          {row.nextChargeDate ? (
-            <span className="billing-date-value">{formatBillingDate(row.nextChargeDate)}</span>
+          {row.billingDate ? (
+            <span className="billing-date-value">{formatBillingDate(row.billingDate)}</span>
           ) : (
             <svg aria-hidden="true" viewBox="0 0 24 24">
               <rect x="4" y="5.5" width="16" height="14" rx="2" />
@@ -4495,12 +4495,14 @@ function DashboardContent() {
             </svg>
           )}
           <input
-            aria-label={`${row.tool.name} ${row.accountLabel} next charge`}
+            aria-label={`${row.tool.name} ${row.accountLabel} ${row.billingDateLabel.toLowerCase()}`}
             className="billing-native-date-input"
-            onChange={(event) => updateBillingField(row.tool.id, row.accountLabel, { nextChargeDate: event.target.value })}
+            onChange={(event) => updateBillingField(row.tool.id, row.accountLabel, {
+              [row.billingDateField]: event.target.value,
+            })}
             tabIndex={-1}
             type="date"
-            value={row.nextChargeDate}
+            value={row.billingDate}
           />
         </label>
       </span>

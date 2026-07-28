@@ -2,8 +2,8 @@ import { Fragment, type ReactNode } from "react";
 
 type BillingViewRow = {
   accountLabel: string;
+  billingDate: string;
   id: string;
-  nextChargeDate: string;
   planName: string;
   tool: {
     id: string;
@@ -50,7 +50,7 @@ export default function BillingView<Row extends BillingViewRow>({
         <span>Plan Name</span>
         <span>Amount</span>
         <span>Billing Type</span>
-        <span>Next Charge</span>
+        <span>Billing Date</span>
         <span>Action</span>
       </div>
       {isLoadingTools ? (
@@ -62,9 +62,9 @@ export default function BillingView<Row extends BillingViewRow>({
         billingRows.map((row, rowIndex) => {
           const previousRow = billingRows[rowIndex - 1];
           const nextRow = billingRows[rowIndex + 1];
-          const monthLabel = billingMonthLabel(row.nextChargeDate);
-          const previousMonthLabel = previousRow ? billingMonthLabel(previousRow.nextChargeDate) : "";
-          const nextMonthLabel = nextRow ? billingMonthLabel(nextRow.nextChargeDate) : "";
+          const monthLabel = billingMonthLabel(row.billingDate);
+          const previousMonthLabel = previousRow ? billingMonthLabel(previousRow.billingDate) : "";
+          const nextMonthLabel = nextRow ? billingMonthLabel(nextRow.billingDate) : "";
           const showMonthHeader = selectedBillingView === "Month" && monthLabel !== previousMonthLabel;
           const isToolContinuation = Boolean(
             previousRow &&
