@@ -868,6 +868,7 @@ function DashboardContent() {
   const [linkToolActivateToolId, setLinkToolActivateToolId] = useState("");
   const [managingLink, setManagingLink] = useState<{ accountLabel: string; toolId: string } | null>(null);
   const [toolDetailDrafts, setToolDetailDrafts] = useState<Record<string, ToolDetailAccountDraft>>({});
+  const [originalToolDetailDrafts, setOriginalToolDetailDrafts] = useState<Record<string, ToolDetailAccountDraft>>({});
   const [managedAccountLabel, setManagedAccountLabel] = useState("");
   const [managedPlan, setManagedPlan] = useState<ToolStatus>("Free Tier");
   const [managedPlanName, setManagedPlanName] = useState("");
@@ -2905,8 +2906,7 @@ function DashboardContent() {
 
   const openManageAccountModal = (tool: ToolItem, accountLabel: string) => {
     setManagingLink({ accountLabel, toolId: tool.id });
-    setToolDetailDrafts(
-      tool.accounts.reduce<Record<string, ToolDetailAccountDraft>>((drafts, linkedAccountLabel) => {
+    const initialDrafts = tool.accounts.reduce<Record<string, ToolDetailAccountDraft>>((drafts, linkedAccountLabel) => {
         const details = toolAccountDetails[tool.id]?.[linkedAccountLabel];
         const billingType = normaliseBillingType(details?.billingType ?? "Monthly");
         const selectedBillingTypes = billingType.split(", ").filter(Boolean);
@@ -2930,13 +2930,15 @@ function DashboardContent() {
           trialExpiryDate: details?.trialExpiryDate ?? "",
         };
         return drafts;
-      }, {}),
-    );
+      }, {});
+    setToolDetailDrafts(initialDrafts);
+    setOriginalToolDetailDrafts(initialDrafts);
   };
 
   const closeManageAccountModal = () => {
     setManagingLink(null);
     setToolDetailDrafts({});
+    setOriginalToolDetailDrafts({});
     setManagedAccountLabel("");
     setManagedPlan("Free Tier");
     setManagedPlanName("");
@@ -3043,6 +3045,7 @@ function DashboardContent() {
     drafts: ToolDetailAccountDraft[],
   ) => {
     const accountLabels = drafts.map((draft) => draft.accountLabel).filter(Boolean);
+    const removedAccountLabels = tool.accounts.filter((accountLabel) => !accountLabels.includes(accountLabel));
     const hasIncompleteDraft = drafts.some((draft) => !draft.accountLabel || !draft.plan);
     const hasDuplicateAccount = new Set(accountLabels).size !== accountLabels.length;
     if (hasIncompleteDraft || hasDuplicateAccount) {
@@ -3065,6 +3068,19 @@ function DashboardContent() {
         setToolDataError(error instanceof Error ? error.message : "Could not update linked accounts.");
         return;
       }
+    }
+
+    if (removedAccountLabels.length > 0) {
+      const removeOmittedAccounts = <T,>(current: Record<string, Record<string, T>>) => {
+        const nextForTool = { ...(current[tool.id] ?? {}) };
+        removedAccountLabels.forEach((accountLabel) => {
+          delete nextForTool[accountLabel];
+        });
+        return { ...current, [tool.id]: nextForTool };
+      };
+      setToolAccountStatuses(removeOmittedAccounts);
+      setToolAccountPlanNames(removeOmittedAccounts);
+      setToolAccountDetails(removeOmittedAccounts);
     }
 
     for (const draft of drafts) {
@@ -5203,15 +5219,29 @@ function DashboardContent() {
   };
 
   const managedTool = managingLink ? toolList.find((tool) => tool.id === managingLink.toolId) : null;
+  const hasUnsavedToolDetailChanges = JSON.stringify(toolDetailDrafts) !== JSON.stringify(originalToolDetailDrafts);
   const orderedToolDetailDrafts = managedTool
-    ? [
-        ...orderedLinkedAccountLabels(managedTool)
-          .map((accountLabel) => toolDetailDrafts[accountLabel])
-          .filter((draft): draft is ToolDetailAccountDraft => Boolean(draft)),
-        ...Object.entries(toolDetailDrafts)
-          .filter(([draftId]) => !managedTool.accounts.includes(draftId))
-          .map(([, draft]) => draft),
-      ]
+    ? (() => {
+        const orderedDrafts = [
+          ...Array.from(new Set(orderedLinkedAccountLabels(managedTool)))
+            .map((accountLabel) => toolDetailDrafts[accountLabel])
+            .filter((draft): draft is ToolDetailAccountDraft => Boolean(draft)),
+          ...Object.entries(toolDetailDrafts)
+            .filter(
+              ([draftId, draft]) =>
+                !managedTool.accounts.includes(draftId) &&
+                !managedTool.accounts.includes(draft.accountLabel),
+            )
+            .map(([, draft]) => draft),
+        ];
+        return orderedDrafts.filter(
+          (draft, index) =>
+            orderedDrafts.findIndex(
+              (candidate) =>
+                (candidate.draftId ?? candidate.accountLabel) === (draft.draftId ?? draft.accountLabel),
+            ) === index,
+        );
+      })()
     : [];
   useEffect(() => {
     if (!managingLink) return;
@@ -6334,17 +6364,14 @@ function DashboardContent() {
           accountTagClass={(accountLabel) => accountTag(accountLabel, accountList)}
           drafts={orderedToolDetailDrafts}
           formatPlanName={formatNickname}
+          hasUnsavedChanges={hasUnsavedToolDetailChanges}
           onAddAccount={addToolDetailAccountDraft}
           onArchive={archiveManagedLinkTool}
           onClose={closeManageAccountModal}
           onSave={() => saveAllToolDetailAccounts(managedTool, orderedToolDetailDrafts)}
-          onUnlink={async (draft) => {
+          onUnlink={(draft) => {
             const draftId = draft.draftId ?? draft.accountLabel;
-            if (managedTool.accounts.includes(draft.accountLabel)) {
-              await removeLinkedAccount(managedTool.id, draft.accountLabel);
-            }
-            if (orderedToolDetailDrafts.length === 1) closeManageAccountModal();
-            else setToolDetailDrafts((current) => {
+            setToolDetailDrafts((current) => {
               const next = { ...current };
               delete next[draftId];
               return next;

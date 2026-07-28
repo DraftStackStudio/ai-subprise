@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type {
   BillingAmount,
   ToolDetailAccountDraft,
@@ -11,6 +11,7 @@ type ToolDetailModalProps = {
   accountTagClass: (accountLabel: string) => string;
   drafts: ToolDetailAccountDraft[];
   formatPlanName: (value: string) => string;
+  hasUnsavedChanges: boolean;
   onAddAccount: () => void;
   onArchive: () => void;
   onClose: () => void;
@@ -117,6 +118,7 @@ export default function ToolDetailModal({
   accountTagClass,
   drafts,
   formatPlanName,
+  hasUnsavedChanges,
   onAddAccount,
   onArchive,
   onClose,
@@ -136,6 +138,8 @@ export default function ToolDetailModal({
   const [columnAssignment, setColumnAssignment] = useState<AccountColumnAssignment>(() => (
     balanceAccountColumns(drafts, {})
   ));
+  const [showDiscardConfirmation, setShowDiscardConfirmation] = useState(false);
+  const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const draftLayoutSignature = drafts
     .map((draft) => `${draft.draftId ?? draft.accountLabel}:${draft.accountLabel}:${draft.plan}:${draft.billingType}:${draft.billingAmounts.length}`)
     .join("|");
@@ -193,6 +197,24 @@ export default function ToolDetailModal({
     return columns;
   }, [columnAssignment, drafts]);
 
+  const requestClose = () => {
+    if (hasUnsavedChanges) {
+      setShowDiscardConfirmation(true);
+      return;
+    }
+    onClose();
+  };
+
+  const closeFromBackdrop = (event: MouseEvent<HTMLDivElement>) => {
+    if (event.target === event.currentTarget) requestClose();
+  };
+
+  const saveDrafts = () => {
+    setHasAttemptedSave(true);
+    if (drafts.some((draft) => !draft.plan)) return;
+    onSave();
+  };
+
   const renderAccountCard = (draft: ToolDetailAccountDraft) => {
     const draftId = draft.draftId ?? draft.accountLabel;
     const selectedBillingTypes = draft.billingType
@@ -228,6 +250,9 @@ export default function ToolDetailModal({
           {renderPlanSelector(draft.plan, (nextPlan) => {
             onUpdateDraft(draftId, { plan: nextPlan });
           })}
+          {hasAttemptedSave && !draft.plan ? (
+            <small className="field-feedback error">Select a plan type</small>
+          ) : null}
         </div>
 
         {draft.plan === "Trial" ? (
@@ -318,7 +343,7 @@ export default function ToolDetailModal({
   };
 
   return (
-    <div className="welcome-modal-overlay" role="presentation">
+    <div className="welcome-modal-overlay" onClick={closeFromBackdrop} role="presentation">
       <section aria-labelledby="tool-detail-modal-title" aria-modal="true" className="welcome-modal tool-detail-modal" role="dialog">
         <button
           aria-label="Archive AI tool"
@@ -328,7 +353,7 @@ export default function ToolDetailModal({
         >
           <svg aria-hidden="true" viewBox="0 0 24 24"><ArchiveBoxIconPaths /></svg>
         </button>
-        <button aria-label="Close tool detail modal" className="modal-close-button" onClick={onClose} type="button">x</button>
+        <button aria-label="Close tool detail modal" className="modal-close-button" onClick={requestClose} type="button">x</button>
         <h2 id="tool-detail-modal-title">Tool Detail</h2>
         <div className="modal-tool-identity manage-modal-tool-identity">
           <span className="tool-avatar" style={{ background: tool.logoBg }}>{tool.initials}</span>
@@ -343,9 +368,34 @@ export default function ToolDetailModal({
         </div>
         <div className="welcome-modal-actions tool-detail-modal-footer">
           <button className="inline-text-link tool-detail-add-account" onClick={onAddAccount} type="button">+ Add another account</button>
-          <button className="btn-sm btn-sm-primary" onClick={onSave} type="button">Save</button>
+          <button className="btn-sm btn-sm-primary" onClick={saveDrafts} type="button">Save</button>
         </div>
       </section>
+      {showDiscardConfirmation ? (
+        <div className="welcome-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="tool-detail-discard-modal-title"
+            aria-modal="true"
+            className="welcome-modal delete-account-modal"
+            role="dialog"
+          >
+            <h2 id="tool-detail-discard-modal-title">Discard changes?</h2>
+            <p>You have unsaved changes. Closing now will discard them.</p>
+            <div className="welcome-modal-actions">
+              <button
+                className="btn-sm btn-sm-ghost"
+                onClick={() => setShowDiscardConfirmation(false)}
+                type="button"
+              >
+                Keep editing
+              </button>
+              <button className="btn-sm btn-sm-danger" onClick={onClose} type="button">
+                Discard &amp; close
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }
