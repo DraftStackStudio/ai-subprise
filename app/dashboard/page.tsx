@@ -7,7 +7,7 @@ import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
 import BillingView from "@/components/BillingView";
-import ToolListView from "@/components/ToolListView";
+import AIToolboxView from "@/components/AIToolboxView";
 import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
 import AIToolModal from "@/components/AIToolModal";
 import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
@@ -6038,18 +6038,8 @@ function DashboardContent() {
                   </div>
                 ) : null}
 
-                <div
-                  className={
-                    [
-                      "account-table",
-                      "tool-database",
-                      `tool-database-${activeSection}`,
-                      !(["tools", "linked", "watchlist"] as Section[]).includes(activeSection) || activeCategory || selectedToolSort !== "Category" ? "tool-database-flat" : "",
-                      activeSection === "tools" && (activeCategory || selectedToolSort !== "Category") ? "tool-database-tools-flat-view" : "",
-                    ].filter(Boolean).join(" ")
-                  }
-                >
-                  {activeSection === "billing" ? (
+                {activeSection === "billing" ? (
+                  <div className="account-table tool-database tool-database-billing tool-database-flat">
                     <BillingView
                       billingMonthLabel={billingMonthLabel}
                       billingRows={billingRows}
@@ -6061,66 +6051,9 @@ function DashboardContent() {
                       renderBillingRow={renderBillingRow}
                       selectedBillingView={selectedBillingView}
                     />
-                  ) : (activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist") &&
-                    workspaceCategories.length > 0 &&
-                    !activeCategory &&
-                    selectedToolSort === "Category" &&
-                    (activeSection === "tools"
-                      ? totalToolboxCount > 0
-                      : activeSection === "linked"
-                        ? totalLinkedToolCount > 0
-                        : visibleTools.length > 0) ? (
-                    <>
-                      <div className="account-table-head tool-table-head">
-                        {activeSection === "linked" ? (
-                          <>
-                            <span />
-                            <span aria-label="Favourite" className="tool-head-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><FavoriteStarIconPaths /></svg></span>
-                            <span>Tool Name</span>
-                            <span>Account</span>
-                            <span>Plan</span>
-                            <span>Action</span>
-                          </>
-                        ) : (
-                          <>
-                            <span />
-                            <span aria-label="Favourite" className="tool-head-icon"><svg aria-hidden="true" viewBox="0 0 24 24"><FavoriteStarIconPaths /></svg></span>
-                            <span>Tool Name</span>
-                            <span>Category</span>
-                            <span>URL</span>
-                            <span>Watchlist</span>
-                            <span>Action</span>
-                          </>
-                        )}
-                      </div>
-                      {groupedToolCategories.length > 0 ? (
-                        activeSection === "tools" ? (
-                          groupedToolCategories.map((group) => renderToolCategoryGroup(group))
-                        ) : (
-                          groupedToolCategories.map((group) => (
-                            <Fragment key={group.category}>
-                              {renderToolCategoryGroup(group)}
-                              {group.tools.length === 0 ? (
-                                <div className="empty-state compact-empty category-empty-state">
-                                  <span className="plain-empty-copy">
-                                    {activeSection === "watchlist"
-                                      ? `Nothing on your ${group.category} radar yet`
-                                      : "No linked tools yet"}
-                                  </span>
-                                </div>
-                              ) : null}
-                            </Fragment>
-                          ))
-                        )
-                      ) : (
-                        <div className="empty-state tool-onboarding-empty">
-                          <strong>{toolboxEmptyState.title}</strong>
-                          {toolboxEmptyState.body}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <ToolListView
+                  </div>
+                ) : (
+                  <AIToolboxView
                       activeCategory={activeCategory}
                       areAllVisibleToolsSelected={areAllVisibleToolsSelected}
                       emptyBody={
@@ -6171,14 +6104,29 @@ function DashboardContent() {
                                       : "No archived tools here yet"
                                   : "No tools yet"
                       }
+                      groupedEmptyBody={toolboxEmptyState.body}
+                      groupedEmptyTitle={toolboxEmptyState.title}
+                      groupedToolCategories={groupedToolCategories}
+                      isGroupedView={
+                        (activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist") &&
+                        workspaceCategories.length > 0 &&
+                        !activeCategory &&
+                        selectedToolSort === "Category" &&
+                        (activeSection === "tools"
+                          ? totalToolboxCount > 0
+                          : activeSection === "linked"
+                            ? totalLinkedToolCount > 0
+                            : visibleTools.length > 0)
+                      }
                       isLoadingTools={isLoadingTools}
+                      renderToolCategoryGroup={renderToolCategoryGroup}
                       renderToolRow={renderToolRow}
                       section={activeSection}
+                      selectedToolSort={selectedToolSort}
                       toggleVisibleToolSelection={toggleVisibleToolSelection}
                       visibleTools={visibleTools}
-                    />
-                  )}
-                </div>
+                  />
+                )}
               </section>
               ) : null}
             </>
