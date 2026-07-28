@@ -10,6 +10,7 @@ import BillingView from "@/components/BillingView";
 import AIToolboxView from "@/components/AIToolboxView";
 import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
 import AIToolModal from "@/components/AIToolModal";
+import ArchiveView from "@/components/ArchiveView";
 import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
 import DashboardConfirmationModals from "@/components/DashboardConfirmationModals";
 import DashboardSidebar from "@/components/DashboardSidebar";
@@ -4836,40 +4837,22 @@ function DashboardContent() {
 
     if (activeSection === "archive") {
       return (
-        <article className="account-table-row tool-table-row archived-tool-row" key={tool.id}>
-          <span className="tool-select-cell" data-label="Select">
-            <input
-              aria-label={`Select ${tool.name}`}
-              checked={selectedToolIds.includes(tool.id)}
-              className="tool-row-checkbox"
-              onChange={() => toggleToolSelection(tool.id)}
-              type="checkbox"
-            />
-          </span>
-          <div data-label="Tool Name">{renderToolNameCell(tool)}</div>
-          <div className="category-cell" data-label="Category">{renderCategoryCell(tool)}</div>
-          <div className="status-cell" data-label="Last Status">
+        <ArchiveView
+          archivedOn={formatArchiveDate(tool.archivedAt)}
+          isSelected={selectedToolIds.includes(tool.id)}
+          key={tool.id}
+          onDelete={() => permanentlyDeleteToolIds([tool.id])}
+          onRestore={() => setConfirmToolStateChange({ action: "unarchive", tool })}
+          onToggleSelected={() => toggleToolSelection(tool.id)}
+          renderCategory={() => renderCategoryCell(tool)}
+          renderLastStatus={() => (
             <span className={`tool-status-chip ${archivedStatusTone(linkedPlanSnapshot(tool))}`}>
               {archivedStatusLabel(linkedPlanSnapshot(tool))}
             </span>
-          </div>
-          <span className="muted-cell small-date" data-label="Archived On">{formatArchiveDate(tool.archivedAt)}</span>
-          <span className="row-actions" data-label="Action">
-            <button className="text-action-link" onClick={() => setConfirmToolStateChange({ action: "unarchive", tool })} type="button">
-              Restore
-            </button>
-            <button
-              aria-label={`Delete ${tool.name}`}
-              className="row-icon-action danger"
-              onClick={() => permanentlyDeleteToolIds([tool.id])}
-              type="button"
-            >
-              <svg aria-hidden="true" viewBox="0 0 24 24">
-                <TrashIconPaths />
-              </svg>
-            </button>
-          </span>
-        </article>
+          )}
+          renderToolName={() => renderToolNameCell(tool)}
+          tool={tool}
+        />
       );
     }
 
