@@ -7,6 +7,7 @@ import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
 import BillingView from "@/components/BillingView";
+import BulkToolActions from "@/components/BulkToolActions";
 import AIToolboxView from "@/components/AIToolboxView";
 import AccountModal, { type AccountFormValues } from "@/components/AccountModal";
 import AIToolModal from "@/components/AIToolModal";
@@ -5521,31 +5522,19 @@ function DashboardContent() {
                 ) : null}
 
                 {(activeSection === "tools" || activeSection === "watchlist" || activeSection === "archive") && selectedVisibleToolIds.length > 0 ? (
-                  <div className="bulk-action-bar" role="status">
-                    <span>{selectedVisibleToolIds.length} selected</span>
-                    {activeSection !== "archive" ? (
-                      <button className="bulk-action-btn" onClick={() => archiveToolIds(selectedVisibleToolIds)} type="button">
-                        Archive
-                      </button>
-                    ) : null}
-                    <button
-                      className="bulk-action-btn danger"
-                      onClick={() => {
-                        if (activeSection === "archive") {
-                          permanentlyDeleteToolIds(selectedVisibleToolIds);
-                          return;
-                        }
-
-                        deleteToolIds(selectedVisibleToolIds);
-                      }}
-                      type="button"
-                    >
-                      Delete
-                    </button>
-                    <button className="bulk-action-btn ghost" onClick={clearToolSelection} type="button">
-                      Clear
-                    </button>
-                  </div>
+                  <BulkToolActions
+                    isArchiveSection={activeSection === "archive"}
+                    onArchive={() => archiveToolIds(selectedVisibleToolIds)}
+                    onClear={clearToolSelection}
+                    onDelete={() => {
+                      if (activeSection === "archive") {
+                        permanentlyDeleteToolIds(selectedVisibleToolIds);
+                        return;
+                      }
+                      deleteToolIds(selectedVisibleToolIds);
+                    }}
+                    selectedCount={selectedVisibleToolIds.length}
+                  />
                 ) : null}
 
                 {activeSection === "billing" ? (
