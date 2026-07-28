@@ -29,6 +29,7 @@ import RecentlyDeletedPanel from "@/components/RecentlyDeletedPanel";
 import ResetAIToolsModals from "@/components/ResetAIToolsModals";
 import SettingsView from "@/components/SettingsView";
 import ToolDetailModal from "@/components/ToolDetailModal";
+import ToolCategoryGroup from "@/components/ToolCategoryGroup";
 import ToolboxToolRow from "@/components/ToolboxToolRow";
 import {
   toggleBillingTypeSelection,
@@ -4891,9 +4892,6 @@ function DashboardContent() {
 
   const renderToolCategoryGroup = (group: { category: string; tools: ToolItem[] }) => {
     const categoryPreset = presetCategoryByLabel.get(group.category);
-    const subgroupToolNames = new Set(
-      categoryPreset?.subgroups?.flatMap((subgroup) => subgroup.tools.map((toolName) => toolName.toLowerCase())) ?? [],
-    );
     const toggleGroupSelection = () => {
       const groupToolIds = group.tools.map((tool) => tool.id);
       const areAllGroupToolsSelected = groupToolIds.every((toolId) => selectedToolIds.includes(toolId));
@@ -4906,39 +4904,15 @@ function DashboardContent() {
     };
 
     return (
-      <Fragment key={group.category}>
-        <div className="tool-category-row-header">
-          <span className="category-row-label">
-            <span>{group.category}</span>
-            <span>{group.tools.length}</span>
-          </span>
-          {group.tools.length > 0 ? (
-            <button onClick={toggleGroupSelection} type="button">
-              Select all
-            </button>
-          ) : null}
-        </div>
-        {activeSection !== "tools" && categoryPreset?.subgroups ? (
-          <>
-            {categoryPreset.subgroups.map((subgroup) => {
-              const subgroupNames = new Set(subgroup.tools.map((toolName) => toolName.toLowerCase()));
-              const subgroupTools = group.tools.filter((tool) => subgroupNames.has(tool.name.trim().toLowerCase()));
-              if (subgroupTools.length === 0) return null;
-              return (
-                <Fragment key={`${group.category}-${subgroup.label}`}>
-                  <div className="tool-subgroup-label">{subgroup.label}</div>
-                  {subgroupTools.map((tool) => renderToolRow(tool))}
-                </Fragment>
-              );
-            })}
-            {group.tools
-              .filter((tool) => !subgroupToolNames.has(tool.name.trim().toLowerCase()))
-              .map((tool) => renderToolRow(tool))}
-          </>
-        ) : (
-          group.tools.map((tool) => renderToolRow(tool))
-        )}
-      </Fragment>
+      <ToolCategoryGroup
+        category={group.category}
+        isToolboxSection={activeSection === "tools"}
+        key={group.category}
+        onToggleSelection={toggleGroupSelection}
+        renderToolRow={renderToolRow}
+        subgroups={categoryPreset?.subgroups}
+        tools={group.tools}
+      />
     );
   };
 
