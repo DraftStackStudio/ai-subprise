@@ -22,7 +22,10 @@ type BillingRowOptions = {
 type BillingViewProps<Row extends BillingViewRow> = {
   billingMonthLabel: (value: string) => string;
   billingRows: Row[];
+  billingSearchTerm: string;
+  hasBillingRecords: boolean;
   isLoadingTools: boolean;
+  onClearSearch: () => void;
   onLinkAccount: () => void;
   renderBillingRow: (row: Row, options?: BillingRowOptions) => ReactNode;
   selectedBillingView: string;
@@ -31,7 +34,10 @@ type BillingViewProps<Row extends BillingViewRow> = {
 export default function BillingView<Row extends BillingViewRow>({
   billingMonthLabel,
   billingRows,
+  billingSearchTerm,
+  hasBillingRecords,
   isLoadingTools,
+  onClearSearch,
   onLinkAccount,
   renderBillingRow,
   selectedBillingView,
@@ -99,13 +105,24 @@ export default function BillingView<Row extends BillingViewRow>({
         })
       ) : (
         <div className="empty-state tool-onboarding-empty">
-          <strong>No paid subscriptions yet</strong>
-          <span>
-            <button className="inline-text-link" onClick={onLinkAccount} type="button">
-              Link an account
-            </button>{" "}
-            with a Paid plan to see it here.
-          </span>
+          {hasBillingRecords && billingSearchTerm ? (
+            <>
+              <strong>{`No billing records match '${billingSearchTerm}'`}</strong>
+              <button className="inline-text-link" onClick={onClearSearch} type="button">
+                Clear search
+              </button>
+            </>
+          ) : (
+            <>
+              <strong>No paid subscriptions yet</strong>
+              <span>
+                <button className="inline-text-link" onClick={onLinkAccount} type="button">
+                  Link an account
+                </button>{" "}
+                with a Paid plan to see it here.
+              </span>
+            </>
+          )}
         </div>
       )}
     </>

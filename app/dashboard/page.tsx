@@ -928,7 +928,12 @@ function DashboardContent() {
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
   const [hasSubmittedLinkToolForm, setHasSubmittedLinkToolForm] = useState(false);
-  const [toolSearchQuery, setToolSearchQuery] = useState("");
+  const [toolboxSearch, setToolboxSearch] = useState("");
+  const [linkedSearch, setLinkedSearch] = useState("");
+  const [billingSearch, setBillingSearch] = useState("");
+  const [watchlistSearch, setWatchlistSearch] = useState("");
+  const [favouritesSearch, setFavouritesSearch] = useState("");
+  const [archivedSearch, setArchivedSearch] = useState("");
   const [categoryDrafts, setCategoryDrafts] = useState<string[]>([]);
   const [categoryDeleteWarning, setCategoryDeleteWarning] = useState<{
     category: string;
@@ -3759,6 +3764,28 @@ function DashboardContent() {
     };
   }, [draggedToolName]);
 
+  const activeToolSearchQuery =
+    activeSection === "tools"
+      ? toolboxSearch
+      : activeSection === "linked"
+        ? linkedSearch
+        : activeSection === "billing"
+          ? billingSearch
+          : activeSection === "watchlist"
+            ? watchlistSearch
+            : activeSection === "favorites"
+              ? favouritesSearch
+              : activeSection === "archive"
+                ? archivedSearch
+                : "";
+  const setActiveToolSearchQuery = (value: string) => {
+    if (activeSection === "tools") setToolboxSearch(value);
+    else if (activeSection === "linked") setLinkedSearch(value);
+    else if (activeSection === "billing") setBillingSearch(value);
+    else if (activeSection === "watchlist") setWatchlistSearch(value);
+    else if (activeSection === "favorites") setFavouritesSearch(value);
+    else if (activeSection === "archive") setArchivedSearch(value);
+  };
   const visibleTools = useMemo(() => {
     const selectedRange = toolSortOptions.find((option) => option.value === selectedToolSort) ?? toolSortOptions[0];
     const isInSelectedRange = (name: string) => {
@@ -3778,7 +3805,7 @@ function DashboardContent() {
       return toolsWithValidAccountLinks.filter((tool) => !tool.archived);
     };
 
-    const query = toolSearchQuery.trim().toLowerCase();
+    const query = activeToolSearchQuery.trim().toLowerCase();
     const nextTools = filterBySection()
       .filter((tool) => isInSelectedRange(tool.name))
       .filter((tool) => {
@@ -3803,7 +3830,7 @@ function DashboardContent() {
     }
 
     return nextTools;
-  }, [activeCategory, activeSection, hasCustomToolOrder, linkedPlanFilter, selectedToolSort, toolAccountStatuses, toolsWithValidAccountLinks, toolSearchQuery]);
+  }, [activeCategory, activeSection, activeToolSearchQuery, hasCustomToolOrder, linkedPlanFilter, selectedToolSort, toolAccountStatuses, toolsWithValidAccountLinks]);
   const totalToolboxCount = useMemo(
     () => toolsWithValidAccountLinks.filter((tool) => !tool.archived).length,
     [toolsWithValidAccountLinks],
@@ -3812,7 +3839,19 @@ function DashboardContent() {
     () => toolsWithValidAccountLinks.filter((tool) => tool.accounts.length > 0 && !tool.archived).length,
     [toolsWithValidAccountLinks],
   );
-  const toolSearchTerm = toolSearchQuery.trim();
+  const totalWatchlistToolCount = useMemo(
+    () => toolsWithValidAccountLinks.filter((tool) => tool.status === "Considering" && !tool.archived).length,
+    [toolsWithValidAccountLinks],
+  );
+  const totalFavouriteToolCount = useMemo(
+    () => toolsWithValidAccountLinks.filter((tool) => tool.favorite && !tool.archived).length,
+    [toolsWithValidAccountLinks],
+  );
+  const totalArchivedToolCount = useMemo(
+    () => toolsWithValidAccountLinks.filter((tool) => tool.archived).length,
+    [toolsWithValidAccountLinks],
+  );
+  const toolSearchTerm = activeToolSearchQuery.trim();
   const visibleToolIds = useMemo(() => visibleTools.map((tool) => tool.id), [visibleTools]);
   const selectedVisibleToolIds = useMemo(
     () => selectedToolIds.filter((toolId) => visibleToolIds.includes(toolId)),
@@ -3879,7 +3918,7 @@ function DashboardContent() {
   );
   const groupedToolCategories = useMemo(
     () => {
-      const query = toolSearchQuery.trim();
+      const query = activeToolSearchQuery.trim();
 
       const groups = visibleWorkspaceCategories
         .map((category) => ({
@@ -3902,7 +3941,7 @@ function DashboardContent() {
         return Number(firstIsEmpty) - Number(secondIsEmpty);
       });
     },
-    [activeSection, toolSearchQuery, visibleWorkspaceCategories, visibleTools],
+    [activeSection, activeToolSearchQuery, visibleWorkspaceCategories, visibleTools],
   );
   const populatedToolboxCategories = useMemo(() => {
     const populated = new Set(
@@ -4401,7 +4440,7 @@ function DashboardContent() {
     return accountLabels.filter((accountLabel) => relationPlan(tool, accountLabel) === linkedPlanFilter);
   };
 
-  const billingRows = toolsWithValidAccountLinks
+  const allBillingRows = toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
     .flatMap((tool) =>
       tool.accounts.flatMap((accountLabel) => {
@@ -4420,9 +4459,11 @@ function DashboardContent() {
             tool,
           }));
       }),
-    )
+    );
+  const billingSearchTerm = billingSearch.trim();
+  const billingRows = allBillingRows
     .filter((row) => {
-      const query = toolSearchQuery.trim().toLowerCase();
+      const query = billingSearchTerm.toLowerCase();
       if (!query) return true;
 
       return [
@@ -5938,7 +5979,7 @@ function DashboardContent() {
             <>
               {activeSection !== "billing" || !isPendingActionsExpanded || pendingBillingActions.length === 0 ? (
               <section className="table-section">
-                {activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist" || activeSection === "billing" ? (
+                {activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist" || activeSection === "billing" || activeSection === "favorites" || activeSection === "archive" ? (
                   <ListPageToolbar
                     activeCategory={Boolean(activeCategory)}
                     activeSection={activeSection}
@@ -5955,9 +5996,9 @@ function DashboardContent() {
                       value: linkedPlanFilter,
                     })}
                     onBillingViewChange={setSelectedBillingView}
-                    onSearchQueryChange={setToolSearchQuery}
+                    onSearchQueryChange={setActiveToolSearchQuery}
                     onToolSortChange={setSelectedToolSort}
-                    searchQuery={toolSearchQuery}
+                    searchQuery={activeToolSearchQuery}
                     selectedToolSort={selectedToolSort}
                     toolSortOptions={availableToolSortOptions}
                   />
@@ -6012,7 +6053,10 @@ function DashboardContent() {
                     <BillingView
                       billingMonthLabel={billingMonthLabel}
                       billingRows={billingRows}
+                      billingSearchTerm={billingSearchTerm}
+                      hasBillingRecords={allBillingRows.length > 0}
                       isLoadingTools={isLoadingTools}
+                      onClearSearch={() => setBillingSearch("")}
                       onLinkAccount={() => openLinkToolModal()}
                       renderBillingRow={renderBillingRow}
                       selectedBillingView={selectedBillingView}
@@ -6084,6 +6128,10 @@ function DashboardContent() {
                           toolboxEmptyState.body
                         ) : activeSection === "linked" ? (
                           linkedEmptyState.body
+                        ) : toolSearchTerm ? (
+                          <button className="inline-text-link" onClick={() => setActiveToolSearchQuery("")} type="button">
+                            Clear search
+                          </button>
                         ) : activeSection === "watchlist" ? (
                           <span>
                             {activeCategory
@@ -6104,11 +6152,23 @@ function DashboardContent() {
                           : activeSection === "linked"
                             ? linkedEmptyState.title
                             : activeSection === "watchlist"
-                              ? "No watchlist yet"
+                              ? totalWatchlistToolCount === 0
+                                ? "No watchlist tools yet"
+                                : toolSearchTerm
+                                  ? `No watchlist tools match '${toolSearchTerm}'`
+                                  : "No watchlist tools here yet"
                               : activeSection === "favorites"
-                                ? "No favourites yet"
+                                ? totalFavouriteToolCount === 0
+                                  ? "No favourites yet"
+                                  : toolSearchTerm
+                                    ? `No favourites match '${toolSearchTerm}'`
+                                    : "No favourites here yet"
                                 : activeSection === "archive"
-                                  ? "Nothing archived yet"
+                                  ? totalArchivedToolCount === 0
+                                    ? "No archived tools yet"
+                                    : toolSearchTerm
+                                      ? `No archived tools match '${toolSearchTerm}'`
+                                      : "No archived tools here yet"
                                   : "No tools yet"
                       }
                       isLoadingTools={isLoadingTools}

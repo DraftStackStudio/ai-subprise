@@ -4,7 +4,7 @@ type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 
 type ListPageToolbarProps = {
   activeCategory: boolean;
-  activeSection: "tools" | "linked" | "watchlist" | "billing";
+  activeSection: "tools" | "linked" | "watchlist" | "billing" | "favorites" | "archive";
   billingView: "All" | "Month";
   linkedPlanFilter: ReactNode;
   onBillingViewChange: (value: "All" | "Month") => void;
@@ -31,10 +31,25 @@ export default function ListPageToolbar({
     <div className="table-controls">
       <div
         className={activeSection === "tools" && activeCategory ? "category-view-tabs subcategory-view-tabs" : "category-view-tabs"}
-        aria-label={activeSection === "billing" ? "Billing views" : "Category views"}
+        aria-label={
+          activeSection === "billing"
+            ? "Billing views"
+            : activeSection === "favorites" || activeSection === "archive"
+              ? "Search tools"
+              : "Category views"
+        }
       >
-        <span className="category-view-helper" aria-hidden={activeSection === "tools" && activeCategory}>
-          {activeSection === "tools" && activeCategory
+        <span
+          className="category-view-helper"
+          aria-hidden={
+            (activeSection === "tools" && activeCategory) ||
+            activeSection === "favorites" ||
+            activeSection === "archive"
+          }
+        >
+          {(activeSection === "tools" && activeCategory) ||
+          activeSection === "favorites" ||
+          activeSection === "archive"
             ? "\u00a0"
             : activeSection === "billing"
               ? "Browse by billing."
@@ -58,6 +73,8 @@ export default function ListPageToolbar({
               ))}
             </div>
           ) : activeSection === "tools" && activeCategory ? (
+            <span className="category-view-tab-spacer" aria-hidden="true" />
+          ) : activeSection === "favorites" || activeSection === "archive" ? (
             <span className="category-view-tab-spacer" aria-hidden="true" />
           ) : (
             <div className="category-view-tab-list">
@@ -88,6 +105,16 @@ export default function ListPageToolbar({
                 type="search"
                 value={searchQuery}
               />
+              {searchQuery ? (
+                <button
+                  aria-label="Clear search"
+                  className="search-clear-button"
+                  onClick={() => onSearchQueryChange("")}
+                  type="button"
+                >
+                  ×
+                </button>
+              ) : null}
             </label>
           </div>
         </div>
