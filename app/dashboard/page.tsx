@@ -17,6 +17,7 @@ import DashboardSummaryView from "@/components/DashboardSummaryView";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
 import EditCategoryModal from "@/components/EditCategoryModal";
 import LinkAIToolModal from "@/components/LinkAIToolModal";
+import LinkedView from "@/components/LinkedView";
 import ListPageToolbar from "@/components/ListPageToolbar";
 import LoginsView from "@/components/LoginsView";
 import PresetToolPickerModal from "@/components/PresetToolPickerModal";
@@ -4736,99 +4737,36 @@ function DashboardContent() {
     );
   };
 
-  const renderLinkedAccounts = (tool: ToolItem, options?: { removable?: boolean }) => (
-    <div className={options?.removable ? "linked-accordion-panel" : "tool-accordion-panel"}>
-      {linkedAccountLabelsForDisplay(tool).map((accountLabel) => {
-        const plan = relationPlan(tool, accountLabel);
-
-        if (options?.removable) {
-          return (
-            <div
-              className="tool-account-subrow linked-account-identity-row"
-              key={`${tool.id}-${accountLabel}`}
-              style={{
-                boxSizing: "border-box",
-                gridTemplateColumns: "var(--linked-table-columns)",
-                height: 54,
-                minHeight: 54,
-                padding: 0,
-              }}
-            >
-              <span style={{ padding: "8px 12px" }} />
-              <span style={{ padding: "8px 12px" }} />
-              <span style={{ padding: "8px 12px" }} />
-              {renderLinkedAccountCell(accountLabel, true)}
-              <span className="linked-expanded-plan-cell" data-label="Plan" style={{ padding: "8px 12px" }}>
-                <span className={`tool-status-chip ${linkedPlanPillTone(tool, accountLabel, plan)}`}>
-                  {linkedPlanPillText(tool, accountLabel, plan)}
-                </span>
-              </span>
-              <span
-                className="linked-row-actions"
-                style={{ padding: "8px 12px", transform: "translateX(-40px)" }}
-              >
-                {plan === "Trial" &&
-                Boolean(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate) &&
-                (daysUntilDate(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "") ?? 0) < 0 ? (
-                  renderDropdown({
-                    ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
-                    className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
-                    id: `linked-trial-status-${tool.id}-${accountLabel}`,
-                    onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
-                    options: [
-                      { disabled: true, label: "Confirm status", value: "" },
-                      { label: "Trial converted to paid", value: "converted" },
-                      { label: "Trial ended / cancelled", value: "ended" },
-                    ],
-                    value: "",
-                  })
-                ) : renderDropdown({
-                    ariaLabel: `Change ${tool.name} ${accountLabel} status`,
-                    className: "billing-type-dropdown linked-manage-status-dropdown",
-                    id: `linked-manage-status-${tool.id}-${accountLabel}`,
-                    onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
-                    options: [
-                      { label: "Active", value: "Active" },
-                      { label: "On a break", value: "On a Break" },
-                      { label: "Goodbye", value: "Goodbye" },
-                    ],
-                    value: toolAccountDetails[tool.id]?.[accountLabel]?.status ?? "Active",
-                  })}
-                <button
-                  className="linked-text-action"
-                  onClick={() => openManageAccountModal(tool, accountLabel)}
-                  type="button"
-                >
-                  Edit
-                </button>
-              </span>
-            </div>
-          );
-        }
-
-        return (
-          <div className="tool-account-subrow" key={`${tool.id}-${accountLabel}`}>
-            <span className="account-subrow-name">
-              <span className={`tag-dot ${accountTag(accountLabel, accountList)}`} />
-              <span>{accountLabel}</span>
-            </span>
-            {renderDropdown({
-              ariaLabel: `Change ${accountLabel} status`,
-              className: `status-dropdown ${statusTone(relationStatus(tool, accountLabel))}`,
-              id: `relation-status-${tool.id}-${accountLabel}`,
-              onChange: (nextStatus) => updateRelationStatus(tool.id, accountLabel, nextStatus as ToolStatus),
-              options: (["Active", "Trial", "Free Tier", "Paused", "Considering", "Cancelled"] as ToolStatus[]).map((statusOption) => ({
-                label: statusDisplayLabel(statusOption),
-                value: statusOption,
-              })),
-              value: relationStatus(tool, accountLabel),
-            })}
-            <span />
-          </div>
-        );
-      })}
-    </div>
-  );
+  const renderLinkedStatusControl = (tool: ToolItem, accountLabel: string) => {
+    const plan = relationPlan(tool, accountLabel);
+    return plan === "Trial" &&
+      Boolean(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate) &&
+      (daysUntilDate(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "") ?? 0) < 0
+      ? renderDropdown({
+          ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
+          className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
+          id: `linked-trial-status-${tool.id}-${accountLabel}`,
+          onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
+          options: [
+            { disabled: true, label: "Confirm status", value: "" },
+            { label: "Trial converted to paid", value: "converted" },
+            { label: "Trial ended / cancelled", value: "ended" },
+          ],
+          value: "",
+        })
+      : renderDropdown({
+          ariaLabel: `Change ${tool.name} ${accountLabel} status`,
+          className: "billing-type-dropdown linked-manage-status-dropdown",
+          id: `linked-manage-status-${tool.id}-${accountLabel}`,
+          onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
+          options: [
+            { label: "Active", value: "Active" },
+            { label: "On a break", value: "On a Break" },
+            { label: "Goodbye", value: "Goodbye" },
+          ],
+          value: toolAccountDetails[tool.id]?.[accountLabel]?.status ?? "Active",
+        });
+  };
 
   const renderFavouriteLinkedAccounts = (tool: ToolItem) => (
     <div
@@ -4866,128 +4804,29 @@ function DashboardContent() {
 
     if (activeSection === "linked") {
       const displayedAccountLabels = linkedAccountLabelsForDisplay(tool);
-      const accountLabel = displayedAccountLabels[0] ?? "";
-      const plan = accountLabel ? relationPlan(tool, accountLabel) : "Free";
-      const hasManyAccounts = displayedAccountLabels.length > 1;
       return (
-        <Fragment key={tool.id}>
-          <article
-            className={hasManyAccounts ? "account-table-row tool-table-row linked-tool-row" : "account-table-row tool-table-row linked-tool-row is-single-account"}
-            onClick={() => {
-              if (hasManyAccounts) toggleToolExpanded(tool.id);
-            }}
-          >
-            <span className="tool-select-cell linked-select-cell" onClick={(event) => event.stopPropagation()}>
-              <input
-                aria-label={`Select ${tool.name}`}
-                checked={selectedToolIds.includes(tool.id)}
-                className="tool-row-checkbox"
-                onChange={() => toggleToolSelection(tool.id)}
-                type="checkbox"
-              />
-            </span>
-            <button
-              aria-label={tool.favorite ? `Remove ${tool.name} from favourites` : `Add ${tool.name} to favourites`}
-              aria-pressed={tool.favorite}
-              className={tool.favorite ? "notion-star-checkbox is-checked" : "notion-star-checkbox"}
-              onClick={(event) => {
-                event.stopPropagation();
-                toggleToolFavorite(tool.name);
-              }}
-              type="button"
-            >
-              <span className="notion-checkbox-box">
-                {tool.favorite ? (
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <FavoriteStarIconPaths />
-                  </svg>
-                ) : null}
+        <LinkedView
+          accountLabels={displayedAccountLabels}
+          isExpanded={isExpanded}
+          isSelected={selectedToolIds.includes(tool.id)}
+          key={tool.id}
+          onEditAccount={(accountLabel) => openManageAccountModal(tool, accountLabel)}
+          onToggleExpanded={() => toggleToolExpanded(tool.id)}
+          onToggleFavorite={() => toggleToolFavorite(tool.name)}
+          onToggleSelected={() => toggleToolSelection(tool.id)}
+          renderAccount={renderLinkedAccountCell}
+          renderPlan={(accountLabel) => {
+            const plan = relationPlan(tool, accountLabel);
+            return (
+              <span className={`tool-status-chip ${linkedPlanPillTone(tool, accountLabel, plan)}`}>
+                {linkedPlanPillText(tool, accountLabel, plan)}
               </span>
-            </button>
-            <div className="linked-tool-name-cell" data-label="Tool Name">
-              {renderToolNameCell(tool)}
-            </div>
-            <div className={hasManyAccounts ? "linked-account-summary-cell" : undefined} data-label="Account">
-              {hasManyAccounts ? (
-                <>
-                  <span className="linked-account-count-pill">{displayedAccountLabels.length} accounts</span>
-                  <button
-                    aria-label={isExpanded ? `Collapse ${tool.name}` : `Expand ${tool.name}`}
-                    aria-expanded={isExpanded}
-                    className={
-                      isExpanded
-                        ? "row-toggle-control linked-row-toggle tooltip-target is-open"
-                        : "row-toggle-control linked-row-toggle tooltip-target"
-                    }
-                    data-tooltip={isExpanded ? "Collapse accounts" : "Expand accounts"}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleToolExpanded(tool.id);
-                    }}
-                    type="button"
-                  >
-                    <span />
-                  </button>
-                </>
-              ) : accountLabel ? (
-                renderLinkedAccountCell(accountLabel)
-              ) : null}
-            </div>
-            <span data-label="Plan">
-              {!hasManyAccounts && accountLabel ? (
-                <span className={`tool-status-chip ${linkedPlanPillTone(tool, accountLabel, plan)}`}>
-                  {linkedPlanPillText(tool, accountLabel, plan)}
-                </span>
-              ) : null}
-            </span>
-            <span className="linked-tool-action-cell" data-label="Action">
-              {hasManyAccounts ? (
-                null
-              ) : accountLabel ? (
-                <span className="linked-row-actions">
-                  {plan === "Trial" &&
-                  Boolean(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate) &&
-                  (daysUntilDate(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "") ?? 0) < 0 ? (
-                    renderDropdown({
-                      ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
-                      className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
-                      id: `linked-trial-status-${tool.id}-${accountLabel}`,
-                      onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
-                      options: [
-                        { disabled: true, label: "Confirm status", value: "" },
-                        { label: "Trial converted to paid", value: "converted" },
-                        { label: "Trial ended / cancelled", value: "ended" },
-                      ],
-                      value: "",
-                    })
-                  ) : renderDropdown({
-                      ariaLabel: `Change ${tool.name} ${accountLabel} status`,
-                      className: "billing-type-dropdown linked-manage-status-dropdown",
-                      id: `linked-manage-status-${tool.id}-${accountLabel}`,
-                      onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
-                      options: [
-                        { label: "Active", value: "Active" },
-                        { label: "On a break", value: "On a Break" },
-                        { label: "Goodbye", value: "Goodbye" },
-                      ],
-                      value: toolAccountDetails[tool.id]?.[accountLabel]?.status ?? "Active",
-                    })}
-                  <button
-                    className="linked-text-action"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      openManageAccountModal(tool, accountLabel);
-                    }}
-                    type="button"
-                  >
-                    Edit
-                  </button>
-                </span>
-              ) : null}
-            </span>
-          </article>
-          {isExpanded ? renderLinkedAccounts(tool, { removable: true }) : null}
-        </Fragment>
+            );
+          }}
+          renderStatusControl={(accountLabel) => renderLinkedStatusControl(tool, accountLabel)}
+          renderToolName={() => renderToolNameCell(tool)}
+          tool={tool}
+        />
       );
     }
 
