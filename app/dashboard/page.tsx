@@ -31,6 +31,7 @@ import LinkAIToolModal from "@/components/LinkAIToolModal";
 import ListPageToolbar from "@/components/ListPageToolbar";
 import LoginsView from "@/components/LoginsView";
 import PresetToolPickerModal from "@/components/PresetToolPickerModal";
+import PendingBillingActionsPanel from "@/components/PendingBillingActionsPanel";
 import ProviderManagementModals from "@/components/ProviderManagementModals";
 import ProvidersView from "@/components/ProvidersView";
 import RecentlyDeletedPanel from "@/components/RecentlyDeletedPanel";
@@ -4842,66 +4843,27 @@ function DashboardContent() {
           />
 
           {activeSection === "billing" && isPendingActionsExpanded && pendingBillingActions.length > 0 ? (
-            <section aria-label="Pending billing actions" className="pending-actions-panel">
-              <div className="pending-actions-panel-heading">
-                <strong>Pending actions</strong>
-                <span>Confirm the outcome without changing the original Billing History entry.</span>
-              </div>
-              <div className="pending-actions-list">
-                {pendingBillingActions.map(({ accountLabel, entry, recordKey, tool }) => {
-                  const isResolving = resolvingPendingActionId === entry.id;
-                  return (
-                    <article className="pending-action-row" key={`${recordKey}-${entry.id}`}>
-                      <div className="pending-action-copy">
-                        <div className="pending-action-title-row">
-                          <strong>{entry.event === "Double Charged" ? "Double charged" : entry.event}</strong>
-                          <span className="pending-action-status">Unresolved</span>
-                        </div>
-                        <span>
-                          {displayToolName(tool?.name ?? "Tool")} · {accountLabel} · {billingHistoryDisplayDate(entry.date)} · Original entry stays unchanged
-                        </span>
-                      </div>
-                      {isResolving ? (
-                        <div className="pending-action-resolution">
-                          {renderDropdown({
-                            ariaLabel: `Resolution outcome for ${displayToolName(tool?.name ?? "Tool")} ${accountLabel}`,
-                            className: "pending-action-outcome",
-                            id: `pending-action-outcome-${entry.id}`,
-                            onChange: (outcome) => setPendingResolutionOutcome(outcome as BillingHistoryEvent),
-                            options: pendingResolutionOptions(entry).map((outcome) => ({
-                              label: outcome,
-                              value: outcome,
-                            })),
-                            value: pendingResolutionOutcome,
-                          })}
-                          <DateFieldControl
-                            ariaLabel={`Resolution date for ${displayToolName(tool?.name ?? "Tool")} ${accountLabel}`}
-                            className="pending-action-date"
-                            onChange={setPendingResolutionDate}
-                            value={pendingResolutionDate}
-                          />
-                          <button
-                            className="btn-sm btn-sm-primary"
-                            disabled={!pendingResolutionDate}
-                            onClick={() => setPendingResolutionConfirmation({ entry, recordKey })}
-                            type="button"
-                          >
-                            Confirm
-                          </button>
-                          <button className="btn-sm btn-sm-ghost" onClick={() => setResolvingPendingActionId("")} type="button">
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button className="pending-action-resolve" onClick={() => startResolvingPendingAction(entry.id)} type="button">
-                          Resolve
-                        </button>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
+            <PendingBillingActionsPanel
+              actions={pendingBillingActions}
+              displayToolName={displayToolName}
+              onCancel={() => setResolvingPendingActionId("")}
+              onConfirm={({ entry, recordKey }) => setPendingResolutionConfirmation({ entry, recordKey })}
+              onDateChange={setPendingResolutionDate}
+              onStartResolving={startResolvingPendingAction}
+              pendingResolutionDate={pendingResolutionDate}
+              renderOutcomeDropdown={({ accountLabel, entry, tool }) => renderDropdown({
+                ariaLabel: `Resolution outcome for ${displayToolName(tool?.name ?? "Tool")} ${accountLabel}`,
+                className: "pending-action-outcome",
+                id: `pending-action-outcome-${entry.id}`,
+                onChange: (outcome) => setPendingResolutionOutcome(outcome as BillingHistoryEvent),
+                options: pendingResolutionOptions(entry).map((outcome) => ({
+                  label: outcome,
+                  value: outcome,
+                })),
+                value: pendingResolutionOutcome,
+              })}
+              resolvingPendingActionId={resolvingPendingActionId}
+            />
           ) : null}
 
           {activeSection === "account" ? (
