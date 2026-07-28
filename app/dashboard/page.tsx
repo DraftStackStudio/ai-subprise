@@ -12,6 +12,7 @@ import AccountModal, { type AccountFormValues } from "@/components/AccountModal"
 import AIToolModal from "@/components/AIToolModal";
 import CategorySetupModals, { type RoleOption } from "@/components/CategorySetupModals";
 import DashboardConfirmationModals from "@/components/DashboardConfirmationModals";
+import DashboardSidebar from "@/components/DashboardSidebar";
 import DashboardSummaryView from "@/components/DashboardSummaryView";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
 import EditCategoryModal from "@/components/EditCategoryModal";
@@ -5515,216 +5516,69 @@ function DashboardContent() {
       />
 
       <div className={isSidebarCollapsed ? "dashboard-frame sidebar-is-collapsed" : "dashboard-frame"}>
-        <aside
-          className={[
-            "sidebar",
-            isSidebarOpen ? "is-open" : "",
-            isSidebarCollapsed ? "is-collapsed" : "",
-          ].filter(Boolean).join(" ")}
-          aria-label="Dashboard navigation"
-          style={isSidebarOpen ? { transform: "translateX(0)" } : undefined}
-        >
-          <div className="sidebar-header">
-            <Link className="sidebar-logo" href="/">
-              <div className="sidebar-logo-icon">AI</div>
-              <div className="sidebar-logo-name">
-                AI Sub<span>prise</span>
-              </div>
-            </Link>
-            <button
-              aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-pressed={isSidebarCollapsed}
-              className="sidebar-collapse-handle tooltip-target"
-              data-tooltip={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              onClick={() => setIsSidebarCollapsed((isCollapsed) => !isCollapsed)}
-              type="button"
-            >
-              <span />
-            </button>
-            <button
-              aria-label="Close dashboard navigation"
-              className="mobile-drawer-close"
-              onClick={() => setIsSidebarOpen(false)}
-              type="button"
-            >
-              <span />
-              <span />
-            </button>
-          </div>
-
-          <nav className="sidebar-nav" aria-label="Workspace">
-            <div className="nav-label">Workspace</div>
-            {navItems.slice(0, 8).map((item) => (
-              item.id === "tools" ? (
-                <div className="nav-tree" key={item.id}>
-                  <button
-                    aria-current={!showRecoveryPanel && activeSection === "tools" && !activeCategory ? "page" : undefined}
-                    aria-expanded={isToolsNavOpen}
-                    className={!showRecoveryPanel && activeSection === "tools" && !activeCategory ? "nav-item active nav-parent" : "nav-item nav-parent"}
-                    onClick={() => {
-                      const isReturningFromToolCategory = activeSection === "tools" && Boolean(activeCategory);
-                      setActiveSection("tools");
-                      setActiveCategory("");
-                      setShowRecoveryPanel(false);
-                      if (isReturningFromToolCategory) {
-                        setIsToolsNavOpen(true);
-                        try {
-                          window.localStorage.setItem("ai-subprise-tools-nav-open", "true");
-                        } catch {
-                          // Local storage can be unavailable in private or embedded browser contexts.
-                        }
-                        return;
-                      }
-
-                      toggleToolsNav();
-                    }}
-                    type="button"
-                  >
-                    <SidebarIcon name={item.icon} />
-                    {item.label}
-                    <span
-                      aria-hidden="true"
-                      className="nav-tree-tooltip-wrap tooltip-target"
-                      data-tooltip={isToolsNavOpen ? "Collapse categories" : "Expand categories"}
-                    >
-                      <span className="nav-tree-handle" />
-                    </span>
-                  </button>
-                  {isToolsNavOpen ? (
-                    <div className="nav-subitems">
-                      {hasConfirmedCategories ? (
-                        toolboxSidebarCategoryGroups.flatMap((cluster) =>
-                          cluster.categories.map((category) => (
-                            <button
-                              aria-current={
-                                !showRecoveryPanel && activeSection === "tools" && activeCategory === category
-                                  ? "page"
-                                  : undefined
-                              }
-                              className={
-                                !showRecoveryPanel && activeSection === "tools" && activeCategory === category
-                                  ? "nav-subitem active"
-                                  : "nav-subitem"
-                              }
-                              key={category}
-                              onClick={() => {
-                                setActiveSection("tools");
-                                setActiveCategory(category);
-                                setSelectedToolSort("All");
-                                setShowRecoveryPanel(false);
-                                setIsSidebarOpen(false);
-                              }}
-                              type="button"
-                            >
-                              {category}
-                            </button>
-                          )),
-                        )
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <button
-                  aria-current={!showRecoveryPanel && activeSection === item.id ? "page" : undefined}
-                  className={!showRecoveryPanel && activeSection === item.id ? "nav-item active" : "nav-item"}
-                  key={item.id}
-                  onClick={() => {
-                    setActiveSection(item.id);
-                    setActiveCategory("");
-                    setShowRecoveryPanel(false);
-                    setIsSidebarOpen(false);
-                  }}
-                  type="button"
-                >
-                  <SidebarIcon name={item.icon} />
-                  {item.label}
-                  {(navBadgeCounts[item.id] ?? 0) > 0 ? (
-                    <span className="badge">{navBadgeCounts[item.id]}</span>
-                  ) : null}
-                </button>
-              )
-            ))}
-          </nav>
-
-          <nav className="sidebar-utility" aria-label="Utilities">
-            {navItems.slice(8).map((item) => (
-              <button
-                aria-current={item.id === "recovery" ? undefined : activeSection === item.id ? "page" : undefined}
-                className={
-                  item.id === "recovery"
-                    ? showRecoveryPanel
-                      ? "nav-item active"
-                      : "nav-item"
-                    : activeSection === item.id
-                      ? "nav-item active"
-                      : "nav-item"
-                }
-                key={item.id}
-                onClick={() => {
-                  if (item.id === "recovery") {
-                    setShowRecoveryPanel((isVisible) => !isVisible);
-                    setIsSidebarOpen(false);
-                    return;
-                  }
-
-                  setActiveSection(item.id);
-                  setActiveCategory("");
-                  setShowRecoveryPanel(false);
-                  setIsSidebarOpen(false);
-                }}
-                type="button"
-              >
-                <SidebarIcon name={item.icon} />
-                {item.label}
-                {item.id !== "recovery" && (navBadgeCounts[item.id] ?? 0) > 0 ? (
-                  <span className="badge">{navBadgeCounts[item.id]}</span>
-                ) : null}
-              </button>
-            ))}
-          </nav>
-
-          <div className="sidebar-emails">
-            <div className="nav-label">Top Accounts</div>
-            {visibleSidebarAccounts.map((account) => (
-              <button
-                className="email-account-item"
-                key={account.login}
-                onClick={() => {
-                  window.history.pushState(null, "", accountViewUrl);
-                  setActiveSection("account");
-                  setShowRecoveryPanel(false);
-                  setIsSidebarOpen(false);
-                }}
-                type="button"
-              >
-                <span className="email-account-info">
-                  <span className={`email-tag sidebar-email-tag ${account.tag}`}>
-                    <span className="tag-dot" />
-                    {account.label}
-                  </span>
-                  <span className="email-account-address">{account.login}</span>
-                </span>
-                <span className="email-tool-count">{account.linked}</span>
-              </button>
-            ))}
-            {hasMoreSidebarAccounts ? (
-              <button
-                className="email-account-item email-view-all"
-                onClick={() => {
-                  window.history.pushState(null, "", accountViewUrl);
-                  setActiveSection("account");
-                  setShowRecoveryPanel(false);
-                  setIsSidebarOpen(false);
-                }}
-                type="button"
-              >
-                View all
-              </button>
-            ) : null}
-          </div>
-
-        </aside>
+        <DashboardSidebar
+          activeCategory={activeCategory}
+          activeSection={activeSection}
+          hasConfirmedCategories={hasConfirmedCategories}
+          hasMoreSidebarAccounts={hasMoreSidebarAccounts}
+          isSidebarCollapsed={isSidebarCollapsed}
+          isSidebarOpen={isSidebarOpen}
+          isToolsNavOpen={isToolsNavOpen}
+          navBadgeCounts={navBadgeCounts}
+          navItems={navItems}
+          onCloseMobile={() => setIsSidebarOpen(false)}
+          onSelectAccount={() => {
+            window.history.pushState(null, "", accountViewUrl);
+            setActiveSection("account");
+            setShowRecoveryPanel(false);
+            setIsSidebarOpen(false);
+          }}
+          onSelectCategory={(category) => {
+            setActiveSection("tools");
+            setActiveCategory(category);
+            setSelectedToolSort("All");
+            setShowRecoveryPanel(false);
+            setIsSidebarOpen(false);
+          }}
+          onSelectSection={(section) => {
+            setActiveSection(section);
+            setActiveCategory("");
+            setShowRecoveryPanel(false);
+            setIsSidebarOpen(false);
+          }}
+          onSelectTools={() => {
+            const isReturningFromToolCategory = activeSection === "tools" && Boolean(activeCategory);
+            setActiveSection("tools");
+            setActiveCategory("");
+            setShowRecoveryPanel(false);
+            if (isReturningFromToolCategory) {
+              setIsToolsNavOpen(true);
+              try {
+                window.localStorage.setItem("ai-subprise-tools-nav-open", "true");
+              } catch {
+                // Local storage can be unavailable in private or embedded browser contexts.
+              }
+              return;
+            }
+            toggleToolsNav();
+          }}
+          onSelectUtility={(section) => {
+            if (section === "recovery") {
+              setShowRecoveryPanel((isVisible) => !isVisible);
+              setIsSidebarOpen(false);
+              return;
+            }
+            setActiveSection(section);
+            setActiveCategory("");
+            setShowRecoveryPanel(false);
+            setIsSidebarOpen(false);
+          }}
+          onToggleCollapsed={() => setIsSidebarCollapsed((isCollapsed) => !isCollapsed)}
+          renderIcon={(name) => <SidebarIcon name={name} />}
+          showRecoveryPanel={showRecoveryPanel}
+          toolboxSidebarCategoryGroups={toolboxSidebarCategoryGroups}
+          visibleSidebarAccounts={visibleSidebarAccounts}
+        />
 
         {showRecoveryPanel ? (
           <RecentlyDeletedPanel
