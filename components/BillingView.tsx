@@ -1,22 +1,15 @@
 import { Fragment, type ReactNode } from "react";
+import type { BillingRowOptions } from "@/components/BillingRow";
 
 type BillingViewRow = {
   accountLabel: string;
   billingDate: string;
+  billingGroupDate: string;
   id: string;
   planName: string;
   tool: {
     id: string;
   };
-};
-
-type BillingRowOptions = {
-  isAccountContinuation?: boolean;
-  isPlanGroupEnd?: boolean;
-  isPlanGroupStart?: boolean;
-  isPlanGrouped?: boolean;
-  isPlanContinuation?: boolean;
-  isToolContinuation?: boolean;
 };
 
 type BillingViewProps<Row extends BillingViewRow> = {
@@ -62,9 +55,9 @@ export default function BillingView<Row extends BillingViewRow>({
         billingRows.map((row, rowIndex) => {
           const previousRow = billingRows[rowIndex - 1];
           const nextRow = billingRows[rowIndex + 1];
-          const monthLabel = billingMonthLabel(row.billingDate);
-          const previousMonthLabel = previousRow ? billingMonthLabel(previousRow.billingDate) : "";
-          const nextMonthLabel = nextRow ? billingMonthLabel(nextRow.billingDate) : "";
+          const monthLabel = billingMonthLabel(row.billingGroupDate);
+          const previousMonthLabel = previousRow ? billingMonthLabel(previousRow.billingGroupDate) : "";
+          const nextMonthLabel = nextRow ? billingMonthLabel(nextRow.billingGroupDate) : "";
           const showMonthHeader = selectedBillingView === "Month" && monthLabel !== previousMonthLabel;
           const isToolContinuation = Boolean(
             previousRow &&

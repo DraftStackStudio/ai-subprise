@@ -6,6 +6,7 @@ import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets.json";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import BillingRow, { type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
 import BulkToolActions from "@/components/BulkToolActions";
 import AIToolboxView from "@/components/AIToolboxView";
@@ -38,7 +39,6 @@ import ToolDetailModal from "@/components/ToolDetailModal";
 import ToolCategoryGroup from "@/components/ToolCategoryGroup";
 import ToolRowRenderer, {
   BillingAccountCell,
-  BillingToolNameCell,
   LinkedAccountCell,
   PricingUrlIcon,
   ToolNameCell,
@@ -4231,6 +4231,12 @@ function DashboardContent() {
 
         const detail = toolAccountDetails[tool.id]?.[accountLabel];
         const billingAmounts = detail?.billingAmounts ?? [];
+        const hasRecurringBilling = billingAmounts.some(
+          (billingAmount) => normaliseBillingType(billingAmount.billingType) !== "Top-up",
+        );
+        const billingGroupDate = hasRecurringBilling
+          ? detail?.nextChargeDate || detail?.lastTopUpDate || ""
+          : detail?.lastTopUpDate || "";
         return billingAmounts.map((billingAmount) => {
           const billingType = normaliseBillingType(billingAmount.billingType);
           const isTopUp = billingType === "Top-up";
@@ -4239,6 +4245,7 @@ function DashboardContent() {
             amount: billingAmount.amount,
             billingDate: isTopUp ? detail?.lastTopUpDate ?? "" : detail?.nextChargeDate ?? "",
             billingDateField: isTopUp ? "lastTopUpDate" as const : "nextChargeDate" as const,
+            billingGroupDate,
             billingDateLabel: isTopUp ? "Last topped up" : "Next Charge",
             billingType,
             currency: normaliseCurrency(billingAmount.currency),
@@ -4266,11 +4273,12 @@ function DashboardContent() {
     })
     .sort((firstRow, secondRow) =>
       (selectedBillingView === "Month"
-        ? (firstRow.billingDate || "9999-12-31").localeCompare(secondRow.billingDate || "9999-12-31")
+        ? (firstRow.billingGroupDate || "9999-12-31").localeCompare(secondRow.billingGroupDate || "9999-12-31")
         : 0) ||
       firstRow.tool.name.localeCompare(secondRow.tool.name) ||
+      firstRow.accountLabel.localeCompare(secondRow.accountLabel) ||
       (secondRow.billingDate ?? "").localeCompare(firstRow.billingDate ?? "") ||
-      firstRow.accountLabel.localeCompare(secondRow.accountLabel),
+      firstRow.billingType.localeCompare(secondRow.billingType),
     );
 
   const renderLinkedAccountCell = (accountLabel: string, compact = false) => {
@@ -4318,206 +4326,70 @@ function DashboardContent() {
     return daysRemaining !== null && daysRemaining <= 3 ? "status-trial-danger" : "status-trial";
   };
 
+  const updateBillingAmountEntry = (
+    row: (typeof billingRows)[number],
+    patch: Partial<Pick<BillingAmount, "amount" | "currency">>,
+  ) => {
+    setToolAccountDetails((currentDetails) => {
+      const detail = currentDetails[row.tool.id]?.[row.accountLabel];
+      if (!detail) return currentDetails;
+
+      const billingAmounts = detail.billingAmounts?.length
+        ? detail.billingAmounts
+        : normaliseBillingType(detail.billingType ?? "Monthly")
+            .split(", ")
+            .filter(Boolean)
+            .map((billingType, index) => ({
+              amount: index === 0 ? detail.amount : "",
+              billingType,
+              currency: normaliseCurrency(detail.currency),
+              id: billingAmountId(),
+            }));
+
+      return {
+        ...currentDetails,
+        [row.tool.id]: {
+          ...(currentDetails[row.tool.id] ?? {}),
+          [row.accountLabel]: {
+            ...detail,
+            billingAmounts: billingAmounts.map((entry) =>
+              entry.billingType === row.billingType ? { ...entry, ...patch } : entry),
+          },
+        },
+      };
+    });
+  };
+
   const renderBillingRow = (
     row: (typeof billingRows)[number],
-    options: {
-      isAccountContinuation?: boolean;
-      isPlanGroupEnd?: boolean;
-      isPlanGroupStart?: boolean;
-      isPlanGrouped?: boolean;
-      isPlanContinuation?: boolean;
-      isToolContinuation?: boolean;
-    } = {},
-  ) => {
-    const {
-      isAccountContinuation = false,
-      isPlanGroupEnd = false,
-      isPlanGroupStart = false,
-      isPlanGrouped = false,
-      isPlanContinuation = false,
-      isToolContinuation = false,
-    } = options;
-
-    return (
-    <article
-      className={[
-        "account-table-row tool-table-row billing-tool-row",
-        isToolContinuation ? "is-tool-continuation" : "",
-        isAccountContinuation ? "is-account-continuation is-continuation" : "",
-        isPlanGrouped ? "is-plan-grouped" : "",
-        isPlanGroupStart ? "is-plan-group-start" : "",
-        isPlanGroupEnd ? "is-plan-group-end" : "",
-        isPlanContinuation ? "is-plan-continuation" : "",
-      ].filter(Boolean).join(" ")}
-      key={row.id}
-    >
-      <div data-label="Tool Name">
-        {isToolContinuation ? null : (
-          <BillingToolNameCell
-            accountLabel={row.accountLabel}
-            displayName={displayToolName(row.tool.name)}
-            logoBackground={row.tool.logoBg}
-            logoText={toolInitials(row.tool.name)}
-            onOpenHistory={() => setBillingHistoryTarget({ accountLabel: row.accountLabel, toolId: row.tool.id })}
-          />
-        )}
-      </div>
-      <div data-label="Account">{isAccountContinuation ? null : renderBillingAccountCell(row.accountLabel)}</div>
-      <span className={isPlanGrouped ? "billing-plan-name is-grouped-plan" : "billing-plan-name"} data-label="Plan Name">
-        <input
-          aria-label={`${row.tool.name} ${row.accountLabel} plan name`}
-          className="billing-inline-field billing-plan-name-input"
-          defaultValue={row.planName}
-          key={row.planName || "empty-plan-name"}
-          onBlur={(event) => {
-            const nextPlanName = event.currentTarget.value.trim();
-            if (nextPlanName !== row.planName) {
-              updateBillingField(row.tool.id, row.accountLabel, { planName: nextPlanName });
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              event.currentTarget.blur();
-            }
-          }}
-          placeholder="Not set"
-          type="text"
-        />
-      </span>
-      <span data-label="Amount">
-        <span className="billing-amount-field">
-          {renderDropdown({
-            ariaLabel: `${row.tool.name} ${row.accountLabel} currency`,
-            className: "billing-currency-dropdown",
-            id: `billing-currency-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
-            onChange: (nextCurrency) => {
-              const currency = normaliseCurrency(nextCurrency);
-              setToolAccountDetails((currentDetails) => {
-                const detail = currentDetails[row.tool.id]?.[row.accountLabel];
-                if (!detail) return currentDetails;
-                return {
-                  ...currentDetails,
-                  [row.tool.id]: {
-                    ...(currentDetails[row.tool.id] ?? {}),
-                    [row.accountLabel]: {
-                      ...detail,
-                      billingAmounts: (detail.billingAmounts?.length
-                        ? detail.billingAmounts
-                        : normaliseBillingType(detail.billingType ?? "Monthly")
-                            .split(", ")
-                            .filter(Boolean)
-                            .map((billingType, index) => ({
-                              amount: index === 0 ? detail.amount : "",
-                              billingType,
-                              currency: normaliseCurrency(detail.currency),
-                              id: billingAmountId(),
-                            }))).map((entry) =>
-                        entry.billingType === row.billingType ? { ...entry, currency } : entry),
-                    },
-                  },
-                };
-              });
-            },
-            options: currencyOptions,
-            value: row.currency,
-          })}
-          <input
-            aria-label={`${row.tool.name} ${row.accountLabel} amount`}
-            className="billing-inline-field"
-            defaultValue={row.amount}
-            inputMode="decimal"
-            onBlur={(event) => {
-              const nextValue = event.currentTarget.value.trim();
-              if (nextValue !== row.amount) {
-                setToolAccountDetails((currentDetails) => {
-                  const detail = currentDetails[row.tool.id]?.[row.accountLabel];
-                  if (!detail) return currentDetails;
-                  return {
-                    ...currentDetails,
-                    [row.tool.id]: {
-                      ...(currentDetails[row.tool.id] ?? {}),
-                      [row.accountLabel]: {
-                        ...detail,
-                        billingAmounts: (detail.billingAmounts?.length
-                          ? detail.billingAmounts
-                          : normaliseBillingType(detail.billingType ?? "Monthly")
-                              .split(", ")
-                              .filter(Boolean)
-                              .map((billingType, index) => ({
-                                amount: index === 0 ? detail.amount : "",
-                                billingType,
-                                currency: normaliseCurrency(detail.currency),
-                                id: billingAmountId(),
-                              }))).map((entry) =>
-                          entry.billingType === row.billingType ? { ...entry, amount: nextValue } : entry),
-                      },
-                    },
-                  };
-                });
-              }
-            }}
-            placeholder="0.00"
-            step="0.01"
-            type="number"
-          />
-        </span>
-      </span>
-      <span data-label="Billing Type">
-        <span className="billing-type-readonly">{row.billingType}</span>
-      </span>
-      <span className="billing-date-cell" data-label={row.billingDateLabel}>
-        <label
-          aria-label={row.billingDateLabel}
-          className={`billing-date-picker billing-date-picker-table ${row.billingDate ? "has-value" : "is-empty"}`}
-          onClick={(event) => {
-            event.preventDefault();
-            const input = event.currentTarget.querySelector<HTMLInputElement>("input[type=date]");
-            if (typeof input?.showPicker === "function") input.showPicker();
-            else input?.focus();
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" && event.key !== " ") return;
-            event.preventDefault();
-            const input = event.currentTarget.querySelector<HTMLInputElement>("input[type=date]");
-            if (typeof input?.showPicker === "function") input.showPicker();
-            else input?.focus();
-          }}
-          role="button"
-          tabIndex={0}
-        >
-          {row.billingDate ? (
-            <span className="billing-date-value">{formatBillingDate(row.billingDate)}</span>
-          ) : (
-            <svg aria-hidden="true" viewBox="0 0 24 24">
-              <rect x="4" y="5.5" width="16" height="14" rx="2" />
-              <path d="M8 3.5v4M16 3.5v4M4 9.5h16" />
-            </svg>
-          )}
-          <input
-            aria-label={`${row.tool.name} ${row.accountLabel} ${row.billingDateLabel.toLowerCase()}`}
-            className="billing-native-date-input"
-            onChange={(event) => updateBillingField(row.tool.id, row.accountLabel, {
-              [row.billingDateField]: event.target.value,
-            })}
-            tabIndex={-1}
-            type="date"
-            value={row.billingDate}
-          />
-        </label>
-      </span>
-      <span className="row-actions billing-row-actions" data-label="Action">
-        <button
-          className="action-btn"
-          onClick={() => openManageAccountModal(row.tool, row.accountLabel)}
-          type="button"
-        >
-          Edit
-        </button>
-      </span>
-    </article>
-    );
-  };
+    options: BillingRowOptions = {},
+  ) => (
+    <BillingRow
+      displayToolName={displayToolName(row.tool.name)}
+      formatDate={formatBillingDate}
+      logoText={toolInitials(row.tool.name)}
+      onAmountChange={(amount) => updateBillingAmountEntry(row, { amount })}
+      onBillingDateChange={(field, value) => updateBillingField(row.tool.id, row.accountLabel, {
+        [field]: value,
+      })}
+      onEdit={() => openManageAccountModal(row.tool, row.accountLabel)}
+      onOpenHistory={() => setBillingHistoryTarget({ accountLabel: row.accountLabel, toolId: row.tool.id })}
+      onPlanNameChange={(planName) => updateBillingField(row.tool.id, row.accountLabel, { planName })}
+      options={options}
+      renderAccount={() => renderBillingAccountCell(row.accountLabel)}
+      renderCurrency={() => renderDropdown({
+        ariaLabel: `${row.tool.name} ${row.accountLabel} currency`,
+        className: "billing-currency-dropdown",
+        id: `billing-currency-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
+        onChange: (nextCurrency) => updateBillingAmountEntry(row, {
+          currency: normaliseCurrency(nextCurrency),
+        }),
+        options: currencyOptions,
+        value: row.currency,
+      })}
+      row={row}
+    />
+  );
 
   const renderLinkedStatusControl = (tool: ToolItem, accountLabel: string) => {
     const plan = relationPlan(tool, accountLabel);
