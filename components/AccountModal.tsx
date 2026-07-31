@@ -222,7 +222,9 @@ export default function AccountModal({
               : loginDuplicateError ? <small className="field-feedback error">{loginDuplicateError}</small>
               : hasSubmitted && loginFeedback ? <small className={loginFeedback.type === "error" ? "field-feedback error" : "field-feedback success"}>
                 {loginFeedback.type === "success" ? <span aria-hidden="true" className="field-check" /> : null}{loginFeedback.message}
-              </small> : null}
+              </small>
+                : provider === "Discord" ? <small className="field-feedback neutral">your Discord username or email</small>
+                  : null}
           </label>
           <div className="welcome-modal-actions account-modal-actions">
             {!editingAccount ? <button className="btn-sm btn-sm-charcoal" disabled={isSaving} onClick={() => void submit(undefined, { addAnother: true })} type="button">+ Add next</button> : null}

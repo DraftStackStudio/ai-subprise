@@ -118,8 +118,8 @@ export default function DashboardConfirmationModals({
               x
             </button>
             <div className="welcome-modal-icon">AI</div>
-            <h2 id="welcome-modal-title">Start by adding your first account.</h2>
-            <p>Add the account you use most often, then link your AI tools to it as you build your directory.</p>
+            <h2 id="welcome-modal-title">Start by adding your first login.</h2>
+            <p>Add the login you use most often, then link your AI tools to it as you build your directory.</p>
             <label className="onboarding-opt-out">
               <input
                 checked={dontShowOnboardingAgain}
