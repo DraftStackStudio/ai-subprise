@@ -3656,6 +3656,74 @@ p {
   justify-content: center;
 }
 
+.tool-name-copy {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tool-name-copy > .tool-name,
+.tool-name-copy > .editable-tool-name {
+  min-width: 0;
+}
+
+.restored-tool-tag {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.watchlist-notes-cell {
+  min-width: 0;
+  width: 100%;
+}
+
+.watchlist-note-display,
+.watchlist-note-input {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  box-sizing: border-box;
+  color: var(--text-2);
+  display: block;
+  font: inherit;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 6px 8px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.watchlist-note-display {
+  cursor: text;
+}
+
+.watchlist-note-display:hover,
+.watchlist-note-input:focus {
+  border-color: var(--border);
+}
+
+.watchlist-note-input:focus {
+  background: var(--surface-raised);
+  color: var(--text-1);
+  outline: none;
+}
+
+.watchlist-note-display:not([title="Add a note..."]) {
+  color: var(--text-1);
+}
+
 .tool-database-tools .toolbox-tool-row > .tool-select-cell,
 .tool-database-tools .toolbox-tool-row > .notion-star-checkbox,
 .tool-database-watchlist .toolbox-tool-row > .tool-select-cell,
@@ -5768,6 +5836,92 @@ p {
   line-height: 1.6;
 }
 
+.duplicate-restore-overlay {
+  z-index: 400;
+}
+
+.duplicate-restore-modal {
+  background: #242428;
+  border-color: rgba(240, 200, 70, 0.78);
+}
+
+.duplicate-restore-existing-copy {
+  margin-top: 12px;
+}
+
+.duplicate-restore-rename-copy {
+  display: grid;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.duplicate-restore-name-field {
+  align-items: center;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  display: flex;
+  max-width: 100%;
+  position: relative;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%;
+}
+
+.duplicate-restore-name-field input {
+  background: transparent;
+  border: 0;
+  color: var(--text-1);
+  flex: 1 1 auto;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+  outline: none;
+  padding: 10px 40px 10px 14px;
+  width: 100%;
+}
+
+.duplicate-restore-name-field input:focus,
+.duplicate-restore-name-field input:focus-visible {
+  box-shadow: none;
+  outline: 0;
+}
+
+.duplicate-restore-edit-icon {
+  color: var(--text-3);
+  display: grid;
+  pointer-events: none;
+  position: absolute;
+  right: 13px;
+  place-items: center;
+}
+
+.duplicate-restore-edit-icon svg {
+  fill: none;
+  height: 14px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+  width: 14px;
+}
+
+.onboarding-opt-out {
+  align-items: center;
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.onboarding-opt-out input {
+  accent-color: var(--accent);
+  height: 15px;
+  margin: 0;
+  width: 15px;
+}
+
 .compact-copy-modal h2 {
   margin-bottom: 4px;
 }
@@ -6281,6 +6435,10 @@ p {
 
 .watchlist-removal-modal {
   border-color: var(--border);
+}
+
+.unarchive-confirmation-modal {
+  border-color: var(--accent);
 }
 
 .delete-account-modal .modal-close-button {
@@ -6895,6 +7053,39 @@ p {
   margin-top: 4px;
 }
 
+.tool-detail-trial-outcome-zone {
+  align-items: flex-start;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 2px;
+  padding-top: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.tool-detail-trial-outcome-label {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+}
+
+.tool-detail-trial-outcome-zone .trial-outcome-dropdown {
+  width: 100%;
+}
+
+.tool-detail-modal .account-card .trial-outcome-dropdown .custom-select-trigger:hover {
+  background: #2e2e32;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+.tool-detail-discard-overlay {
+  z-index: 400;
+}
+
 .tool-detail-field-row,
 .tool-detail-amount-row {
   display: grid;
@@ -6941,7 +7132,14 @@ p {
 
 .linked-manage-status-dropdown .custom-select-trigger {
   justify-content: space-between;
+  text-align: left;
   width: 100%;
+}
+
+.linked-manage-status-dropdown .dropdown-option-label {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  text-align: left;
 }
 
 .linked-manage-status-dropdown .custom-select-options {
@@ -7063,9 +7261,13 @@ p {
 }
 
 .billing-history-tool-heading {
+  align-items: flex-start;
   color: var(--text-1);
+  display: flex;
+  flex-direction: column;
   font-size: 16px;
   font-weight: 700;
+  gap: 7px;
   margin: 0 0 12px;
 }
 
@@ -7093,11 +7295,53 @@ p {
   padding: 6px 10px;
 }
 
+.billing-history-account-heading {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.billing-history-account-heading .billing-history-account-context {
+  margin: 0;
+}
+
+.billing-history-start-date {
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
 .billing-history-table-wrap {
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   margin-top: 0;
   overflow: visible;
+}
+
+.linked-status-readonly {
+  color: var(--text-2);
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+  padding-left: 8px;
+  text-align: left;
+  width: 112px;
+}
+
+.billing-history-conversion-note {
+  background: var(--surface-2);
+  border-color: var(--border);
+  display: block;
+  margin-top: 10px;
+  padding: 10px 12px;
+}
+
+.billing-history-conversion-note span {
+  color: var(--text-3);
+  display: block;
+  line-height: 1.4;
 }
 
 .billing-history-table {
@@ -7204,6 +7448,13 @@ p {
 
 .billing-history-note-input {
   flex: 1 1 auto;
+}
+
+.billing-history-note-readonly {
+  box-sizing: border-box;
+  display: block;
+  min-height: 29px;
+  padding: 6px 7px;
 }
 
 @media (max-width: 767px) {
@@ -7591,16 +7842,67 @@ p {
   right: 24px;
   z-index: 140;
   gap: 8px;
+  color: #ffffff;
 }
 
 .app-toast-success {
-  background: rgba(48, 123, 89, 0.88);
-  border-color: rgba(78, 164, 116, 0.78);
-  color: var(--tag-green-text);
+  background: rgba(22, 101, 69, 0.96);
+  border-color: rgba(74, 222, 128, 0.82);
+  color: #ffffff;
+}
+
+.app-toast-blocked {
+  background: rgba(31, 31, 34, 0.98);
+  border-color: rgba(197, 160, 101, 0.82);
+  color: #ffffff;
+}
+
+.app-toast-blocked .toast-warning-icon {
+  color: var(--gold);
+}
+
+.toast-warning-icon {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.trial-resolution-undo-toast button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: #c5a065;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 700;
+  gap: 5px;
+  padding: 0;
+}
+
+.trial-resolution-undo-toast button svg {
+  height: 15px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 15px;
+}
+
+.trial-resolution-undo-message {
+  font-weight: 500;
+}
+
+.trial-resolution-undo-divider {
+  background: rgba(255, 255, 255, 0.18);
+  height: 18px;
+  width: 1px;
 }
 
 .toast-success-check {
-  color: #70d69a;
+  color: #ffffff;
   display: inline-block;
   font-size: 16px;
   font-weight: 800;

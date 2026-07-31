@@ -14,7 +14,7 @@ type BillingRowData = {
   accountLabel: string;
   amount: string;
   billingDate: string;
-  billingDateField: "lastTopUpDate" | "nextChargeDate";
+  billingDateField: "lastTopUpDate" | "nextChargeDate" | "purchaseDate";
   billingGroupDate: string;
   billingDateLabel: string;
   billingType: string;
@@ -25,6 +25,7 @@ type BillingRowData = {
     id: string;
     logoBg: string;
     name: string;
+    restoredAt?: string;
   };
 };
 

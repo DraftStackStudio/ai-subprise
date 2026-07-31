@@ -62,8 +62,7 @@ export default function BillingView<Row extends BillingViewRow>({
           const isToolContinuation = Boolean(
             previousRow &&
               !showMonthHeader &&
-              previousRow.tool.id === row.tool.id &&
-              previousRow.accountLabel === row.accountLabel,
+              previousRow.tool.id === row.tool.id,
           );
           const isAccountContinuation = Boolean(
             isToolContinuation && previousRow?.accountLabel === row.accountLabel,

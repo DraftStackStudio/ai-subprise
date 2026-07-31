@@ -90,7 +90,7 @@ export default function ToolListView<Tool extends ToolListItem>({
             <span>Category</span>
             <span>URL</span>
             <span>Watchlist</span>
-            <span>Action</span>
+            <span>{section === "watchlist" ? "Notes" : "Action"}</span>
           </>
         )}
       </div>

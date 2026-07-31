@@ -15,6 +15,7 @@ type ToolDetailModalProps = {
   onAddAccount: () => void;
   onArchive: () => void;
   onClose: () => void;
+  onCloseDropdowns: () => void;
   onSave: () => void;
   onUnlink: (draft: ToolDetailAccountDraft) => void;
   onUpdateDraft: (draftId: string, updates: Partial<ToolDetailAccountDraft>) => void;
@@ -31,6 +32,14 @@ type ToolDetailModalProps = {
     onChange: (nextPlan: ToolStatus | "") => void,
   ) => ReactNode;
   renderStatusSelector: (draft: ToolDetailAccountDraft) => ReactNode;
+  renderTrialOutcomeSelector: (
+    draft: ToolDetailAccountDraft,
+    placeholder: "Select outcome" | "Change trial outcome",
+  ) => ReactNode;
+  trialOutcomeState: (draft: ToolDetailAccountDraft) => {
+    conversionDate?: string;
+    state: "pending" | "converted";
+  } | null;
   tool: {
     id: string;
     initials: string;
@@ -122,6 +131,7 @@ export default function ToolDetailModal({
   onAddAccount,
   onArchive,
   onClose,
+  onCloseDropdowns,
   onSave,
   onUnlink,
   onUpdateDraft,
@@ -131,6 +141,8 @@ export default function ToolDetailModal({
   renderDateField,
   renderPlanSelector,
   renderStatusSelector,
+  renderTrialOutcomeSelector,
+  trialOutcomeState,
   tool,
 }: ToolDetailModalProps) {
   const accountCardRefs = useRef(new Map<string, HTMLDivElement>());
@@ -199,6 +211,7 @@ export default function ToolDetailModal({
 
   const requestClose = () => {
     if (hasUnsavedChanges) {
+      onCloseDropdowns();
       setShowDiscardConfirmation(true);
       return;
     }
@@ -221,7 +234,14 @@ export default function ToolDetailModal({
       .split(", ")
       .filter(Boolean);
     const hasTopUp = selectedBillingTypes.includes("Top-up");
-    const hasPrimaryBillingType = selectedBillingTypes.some((billingType) => billingType !== "Top-up");
+    const hasRecurringBillingType = selectedBillingTypes.some(
+      (billingType) => billingType === "Monthly" || billingType === "Yearly",
+    );
+    const hasPurchaseBillingType = selectedBillingTypes.some(
+      (billingType) => billingType === "Lifetime" || billingType === "One-time",
+    );
+    const hasDatedBillingType = hasRecurringBillingType || hasPurchaseBillingType;
+    const outcomeState = trialOutcomeState(draft);
 
     return (
       <div
@@ -313,14 +333,24 @@ export default function ToolDetailModal({
                 </label>
               ))}
             </div>
-            <div className={`tool-detail-amount-row${hasPrimaryBillingType && hasTopUp ? "" : " is-single"}`}>
-              {hasPrimaryBillingType ? (
+            <div className={`tool-detail-amount-row${hasDatedBillingType && hasTopUp ? "" : " is-single"}`}>
+              {hasRecurringBillingType ? (
                 <label className="form-field">
                   <span>Next Charge</span>
                   {renderDateField(
                     "Next charge date",
                     draft.nextChargeDate,
                     (nextChargeDate) => onUpdateDraft(draftId, { nextChargeDate }),
+                  )}
+                </label>
+              ) : null}
+              {hasPurchaseBillingType ? (
+                <label className="form-field">
+                  <span>Purchased on</span>
+                  {renderDateField(
+                    "Purchased on date",
+                    draft.purchaseDate,
+                    (purchaseDate) => onUpdateDraft(draftId, { purchaseDate }),
                   )}
                 </label>
               ) : null}
@@ -338,6 +368,19 @@ export default function ToolDetailModal({
           </>
         ) : null}
 
+        {outcomeState ? (
+          <div className="tool-detail-trial-outcome-zone">
+            <span className="tool-detail-trial-outcome-label">
+              {outcomeState.state === "pending"
+                ? "What happened to this trial?"
+                : `Converted from trial · ${outcomeState.conversionDate ?? ""}`}
+            </span>
+            {renderTrialOutcomeSelector(
+              draft,
+              outcomeState.state === "pending" ? "Select outcome" : "Change trial outcome",
+            )}
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -372,7 +415,7 @@ export default function ToolDetailModal({
         </div>
       </section>
       {showDiscardConfirmation ? (
-        <div className="welcome-modal-overlay" role="presentation">
+        <div className="welcome-modal-overlay tool-detail-discard-overlay" role="presentation">
           <section
             aria-labelledby="tool-detail-discard-modal-title"
             aria-modal="true"

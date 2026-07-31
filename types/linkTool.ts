@@ -6,6 +6,7 @@ export type LinkToolAccountBlock = {
   id: string;
   lastTopUpDate: string;
   nextChargeDate: string;
+  purchaseDate: string;
   plan: ToolStatus | "";
   planName: string;
   trialExpiryDate: string;

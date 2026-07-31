@@ -36,6 +36,7 @@ type ToolRowRendererProps = {
   renderStatusControl: (accountLabel: string) => ReactNode;
   renderToolName: () => ReactNode;
   renderUrl: () => ReactNode;
+  renderWatchlistNote: () => ReactNode;
   section: string;
   tool: ToolRowItem;
 };
@@ -64,6 +65,7 @@ export default function ToolRowRenderer({
   renderStatusControl,
   renderToolName,
   renderUrl,
+  renderWatchlistNote,
   section,
   tool,
 }: ToolRowRendererProps) {
@@ -130,6 +132,7 @@ export default function ToolRowRenderer({
       renderCategory={renderCategory}
       renderToolName={renderToolName}
       renderUrl={renderUrl}
+      renderWatchlistNote={renderWatchlistNote}
       section={section}
       tool={tool}
     />
@@ -164,7 +167,7 @@ export function ToolNameCell({
   return (
     <div className="tool-name-cell">
       <div className="tool-logo" style={{ background: logoBackground }}>{logoText}</div>
-      <div>
+      <div className="tool-name-copy">
         {isEditing ? (
           <input
             aria-label={`Edit ${name} name`}
@@ -206,7 +209,7 @@ export function BillingToolNameCell({
   return (
     <div className="tool-name-cell billing-readonly-tool-name">
       <div className="tool-logo" style={{ background: logoBackground }}>{logoText}</div>
-      <div>
+      <div className="tool-name-copy">
         <span className="tool-name">{displayName}</span>
         <button className="billing-history-link" onClick={onOpenHistory} type="button">
           More

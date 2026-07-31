@@ -16,6 +16,7 @@ type ToolboxToolRowProps = {
   onToggleSelected: () => void;
   onToggleWatchlist: () => void;
   renderCategory: () => ReactNode;
+  renderWatchlistNote: () => ReactNode;
   renderToolName: () => ReactNode;
   renderUrl: () => ReactNode;
   section: string;
@@ -30,6 +31,7 @@ export default function ToolboxToolRow({
   onToggleSelected,
   onToggleWatchlist,
   renderCategory,
+  renderWatchlistNote,
   renderToolName,
   renderUrl,
   section,
@@ -85,31 +87,33 @@ export default function ToolboxToolRow({
           </svg>
         </button>
       </span>
-      <span
-        className={`row-actions tool-link-state-actions${section === "tools" && tool.accounts.length > 0 ? " has-account-count" : ""}`}
-        data-label="Action"
-      >
-        {section === "tools" && tool.accounts.length > 0 ? (
-          <button className="linked-account-count-pill toolbox-account-count-badge" onClick={onOpenLinkState} type="button">
-            {tool.accounts.length} {tool.accounts.length === 1 ? "account" : "accounts"}
-          </button>
-        ) : (
-          <button
-            className="action-btn"
-            disabled={isWatchlisted}
-            onClick={onOpenLinkState}
-            title={isWatchlisted ? "Remove from Watchlist before linking an account" : undefined}
-            type="button"
-          >
-            {tool.accounts.length > 0 ? "Link" : "Not linked"}
-          </button>
-        )}
-        {section !== "watchlist" ? (
+      {section === "watchlist" ? (
+        <span className="watchlist-notes-cell" data-label="Notes">
+          {renderWatchlistNote()}
+        </span>
+      ) : (
+        <span
+          className={`row-actions tool-link-state-actions${section === "tools" && tool.accounts.length > 0 ? " has-account-count" : ""}`}
+          data-label="Action"
+        >
+          {section === "tools" && tool.accounts.length > 0 ? (
+            <button className="linked-account-count-pill toolbox-account-count-badge" onClick={onOpenLinkState} type="button">
+              {tool.accounts.length} {tool.accounts.length === 1 ? "account" : "accounts"}
+            </button>
+          ) : (
+            <button
+              className="action-btn"
+              onClick={onOpenLinkState}
+              type="button"
+            >
+              {tool.accounts.length > 0 ? "Link" : "Not linked"}
+            </button>
+          )}
           <button className="action-btn" onClick={onEdit} type="button">
             Edit
           </button>
-        ) : null}
-      </span>
+        </span>
+      )}
     </article>
   );
 }

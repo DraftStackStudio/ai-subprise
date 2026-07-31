@@ -11,46 +11,123 @@ type ToolStateConfirmation = {
 } | null;
 
 type DashboardConfirmationModalsProps = {
+  duplicateRestoreToolName: string | null;
+  duplicateRestoreName: string;
   pendingResolutionConfirmation: PendingResolutionConfirmation;
+  dontShowOnboardingAgain: boolean;
   showCreateAccountModal: boolean;
   showPresetSelectionWarning: boolean;
   toolStateConfirmation: ToolStateConfirmation;
   watchlistMoveToolName: string | null;
+  onCancelDuplicateRestore: () => void;
+  onDuplicateRestoreNameChange: (value: string) => void;
   onClosePendingResolution: () => void;
   onClosePresetSelectionWarning: () => void;
   onCloseToolStateConfirmation: () => void;
   onCloseWatchlistMove: () => void;
   onConfirmPendingResolution: () => void;
+  onConfirmDuplicateRestore: () => void;
   onConfirmToolStateChange: () => void;
   onConfirmWatchlistMove: () => void;
   onDismissCreateAccount: () => void;
+  onDontShowOnboardingAgainChange: (checked: boolean) => void;
   onOpenAccountSetup: () => void;
 };
 
 export default function DashboardConfirmationModals({
+  duplicateRestoreToolName,
+  duplicateRestoreName,
   pendingResolutionConfirmation,
+  dontShowOnboardingAgain,
   showCreateAccountModal,
   showPresetSelectionWarning,
   toolStateConfirmation,
   watchlistMoveToolName,
+  onCancelDuplicateRestore,
+  onDuplicateRestoreNameChange,
   onClosePendingResolution,
   onClosePresetSelectionWarning,
   onCloseToolStateConfirmation,
   onCloseWatchlistMove,
   onConfirmPendingResolution,
+  onConfirmDuplicateRestore,
   onConfirmToolStateChange,
   onConfirmWatchlistMove,
   onDismissCreateAccount,
+  onDontShowOnboardingAgainChange,
   onOpenAccountSetup,
 }: DashboardConfirmationModalsProps) {
   return (
     <>
+      {duplicateRestoreToolName ? (
+        <div className="welcome-modal-overlay duplicate-restore-overlay" role="presentation">
+          <section
+            aria-labelledby="duplicate-restore-title"
+            aria-modal="true"
+            className="welcome-modal compact-copy-modal duplicate-restore-modal"
+            role="dialog"
+          >
+            <h2 id="duplicate-restore-title">This tool already exists</h2>
+            <p className="duplicate-restore-existing-copy">
+              You already have &quot;{duplicateRestoreToolName}.&quot;
+            </p>
+            <div className="duplicate-restore-rename-copy">
+              <p>Restoring will rename this one:</p>
+              <label className="duplicate-restore-name-field">
+              <span className="sr-only">Restored tool name</span>
+              <input
+                aria-label="Restored tool name"
+                onChange={(event) => onDuplicateRestoreNameChange(event.target.value)}
+                type="text"
+                value={duplicateRestoreName}
+              />
+                <span aria-hidden="true" className="duplicate-restore-edit-icon">
+                  <svg viewBox="0 0 24 24">
+                    <path d="M4 20h4l11-11-4-4L4 16v4Z" />
+                    <path d="m13.5 6.5 4 4" />
+                  </svg>
+                </span>
+              </label>
+            </div>
+            <div className="welcome-modal-actions">
+              <button className="btn-sm btn-sm-ghost" onClick={onCancelDuplicateRestore} type="button">
+                Cancel
+              </button>
+              <button
+                className="btn-sm btn-sm-primary"
+                disabled={!duplicateRestoreName.trim()}
+                onClick={onConfirmDuplicateRestore}
+                type="button"
+              >
+                Restore
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {showCreateAccountModal ? (
         <div className="welcome-modal-overlay" role="presentation">
           <section aria-labelledby="welcome-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
+            <button
+              aria-label="Close onboarding modal"
+              className="modal-close-button"
+              onClick={onDismissCreateAccount}
+              type="button"
+            >
+              x
+            </button>
             <div className="welcome-modal-icon">AI</div>
             <h2 id="welcome-modal-title">Start by adding your first account.</h2>
             <p>Add the account you use most often, then link your AI tools to it as you build your directory.</p>
+            <label className="onboarding-opt-out">
+              <input
+                checked={dontShowOnboardingAgain}
+                onChange={(event) => onDontShowOnboardingAgainChange(event.target.checked)}
+                type="checkbox"
+              />
+              <span>Don&apos;t show this again.</span>
+            </label>
             <div className="welcome-modal-actions">
               <button className="btn-sm btn-sm-ghost" onClick={onDismissCreateAccount} type="button">
                 Not now
@@ -96,7 +173,7 @@ export default function DashboardConfirmationModals({
             className={
               toolStateConfirmation.action === "unwatchlist"
                 ? "welcome-modal delete-account-modal watchlist-removal-modal"
-                : "welcome-modal delete-account-modal"
+                : "welcome-modal delete-account-modal unarchive-confirmation-modal"
             }
             role="dialog"
             style={toolStateConfirmation.action === "unwatchlist" ? { border: "none" } : undefined}
@@ -161,17 +238,32 @@ export default function DashboardConfirmationModals({
       ) : null}
 
       {showPresetSelectionWarning ? (
-        <div className="welcome-modal-overlay" role="presentation">
+        <div className="welcome-modal-overlay" role="presentation" style={{ zIndex: 110 }}>
           <section
             aria-labelledby="preset-selection-warning-title"
             aria-modal="true"
-            className="welcome-modal compact-copy-modal"
+            className="welcome-modal compact-copy-modal category-selection-warning-modal"
             role="dialog"
+            style={{ maxWidth: 360, padding: 28, textAlign: "center" }}
           >
+            <div className="category-selection-warning-icon" aria-hidden="true" style={{ margin: "0 auto 14px" }}>
+              <svg viewBox="0 0 24 24">
+                <rect x="4" y="4" width="16" height="16" rx="3" />
+                <path d="m8 9 1.5 1.5L12 8" />
+                <path d="M14 9h3" />
+                <path d="m8 14 1.5 1.5L12 13" />
+                <path d="M14 14h3" />
+              </svg>
+            </div>
             <h2 id="preset-selection-warning-title">Select at least one AI tool</h2>
             <p>Choose at least one tool before continuing.</p>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-primary" onClick={onClosePresetSelectionWarning} type="button">
+            <div className="welcome-modal-actions" style={{ justifyContent: "center", marginTop: 26 }}>
+              <button
+                className="btn-sm btn-sm-primary"
+                onClick={onClosePresetSelectionWarning}
+                style={{ minWidth: 148 }}
+                type="button"
+              >
                 Continue selecting
               </button>
             </div>

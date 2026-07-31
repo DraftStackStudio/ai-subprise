@@ -94,7 +94,7 @@ export default function AIToolboxView<Tool extends ToolListItem>({
                 <span>Category</span>
                 <span>URL</span>
                 <span>Watchlist</span>
-                <span>Action</span>
+                <span>{section === "watchlist" ? "Notes" : "Action"}</span>
               </>
             )}
           </div>

@@ -68,8 +68,6 @@ import {
   billingHistoryDisplayDate,
   createPendingResolutionEntry,
   pendingResolutionOptions,
-  updateGeneratedBillingHistoryNote,
-  updateManualBillingHistoryNote,
 } from "@/lib/billingHistory";
 import type {
   BillingHistoryEntry,
@@ -80,6 +78,7 @@ import type {
 import type {
   BillingAmount,
   ManageStatus,
+  TrialResolutionHistoryEntry,
   ToolDetailAccountDraft,
   ToolStatus,
 } from "@/types/toolDetail";
@@ -164,6 +163,7 @@ type ToolItem = {
   pricingUrl: string;
   logo: string;
   logoBg: string;
+  restoredAt?: string;
 };
 type Account = {
   id?: string;
@@ -182,18 +182,35 @@ type ToolResetArchive = {
   userId: string;
   createdAt: string;
   data: ToolResetBlob[];
+  manualBillingHistory?: Record<string, BillingHistoryEntry[]>;
+  toolAccountDetails?: Record<string, Record<string, ToolAccountDetail>>;
+  toolAccountPlanNames?: Record<string, Record<string, string>>;
+  toolAccountStatuses?: Record<string, Record<string, ToolStatus>>;
 };
 type BillingType = string;
 type ToolAccountDetail = {
   amount: string;
   billingAmounts?: BillingAmount[];
+  billingHistoryEntries: BillingHistoryEntry[];
   billingType: BillingType;
+  convertedDate: string;
   currency: string;
   lastTopUpDate: string;
   nextChargeDate: string;
+  purchaseDate: string;
   planName: string;
+  startDate?: string;
   status: ManageStatus;
   trialExpiryDate: string;
+  trialResolution: "" | "converted" | "ended";
+  trialResolutionHistory: TrialResolutionHistoryEntry[];
+  trialResolved: boolean;
+};
+type TrialResolutionUndo = {
+  accountLabel: string;
+  previousDetail: ToolAccountDetail;
+  previousPlan: ToolStatus;
+  toolId: string;
 };
 
 const navItems: Array<{ id: Section; icon: string; label: string; badge?: number }> = [
@@ -218,7 +235,7 @@ function billingAmountId(id?: string) {
   return id || crypto.randomUUID();
 }
 
-const defaultProviders = ["Gmail", "iCloud", "Outlook", "Yahoo", "Github"];
+const defaultProviders = ["Gmail", "iCloud", "Outlook", "Yahoo", "Github", "Discord"];
 const customProviderOption = "+ new provider";
 const defaultToolCategories = toolboxPresets.categories.map((category) => category.label);
 const presetCategoryById = new Map(toolboxPresets.categories.map((category) => [category.id, category]));
@@ -496,6 +513,95 @@ function normaliseCurrency(value?: string) {
   return nextValue && currencySymbols[nextValue] ? nextValue : "USD";
 }
 
+function capitaliseFirstLetter(value: string) {
+  const trimmedValue = value.trim();
+  return trimmedValue
+    ? `${trimmedValue.charAt(0).toUpperCase()}${trimmedValue.slice(1)}`
+    : "";
+}
+
+function recurringBillingType(value: string) {
+  return normaliseBillingType(value)
+    .split(", ")
+    .find((billingType) => billingType === "Monthly" || billingType === "Yearly") ?? "";
+}
+
+function recurringChargeDateFromStart(startDate: string, billingType: string, cycleIndex: number) {
+  const [year, month, day] = startDate.split("-").map(Number);
+  if (!year || !month || !day) return "";
+
+  const monthOffset = billingType === "Monthly"
+    ? cycleIndex
+    : billingType === "Yearly"
+      ? cycleIndex * 12
+      : 0;
+  if (!monthOffset) return "";
+
+  const targetMonthIndex = month - 1 + monthOffset;
+  const targetYear = year + Math.floor(targetMonthIndex / 12);
+  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+  const daysInTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate();
+  const targetDay = Math.min(day, daysInTargetMonth);
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}`;
+}
+
+function advanceRecurringChargeDate(value: string, billingType: string) {
+  return recurringChargeDateFromStart(value, billingType, 1);
+}
+
+function recurringChargeDateAfter(startDate: string, billingType: string, afterDate: string) {
+  if (!startDate || !afterDate) return "";
+  if (startDate > afterDate) return startDate;
+
+  for (let cycleIndex = 1; cycleIndex <= 12000; cycleIndex += 1) {
+    const candidate = recurringChargeDateFromStart(startDate, billingType, cycleIndex);
+    if (!candidate || candidate > afterDate) return candidate;
+  }
+  return "";
+}
+
+function nextChargeDateAfterRestore(detail: ToolAccountDetail, restoredDate: string) {
+  const billingType = recurringBillingType(detail.billingType);
+  if (!billingType) return detail.nextChargeDate;
+  return detail.startDate
+    ? recurringChargeDateAfter(detail.startDate, billingType, restoredDate)
+    : advanceRecurringChargeDate(restoredDate, billingType);
+}
+
+function immutableStartDate(detail: ToolAccountDetail | undefined, firstNextChargeDate: string) {
+  if (detail?.startDate) return detail.startDate;
+  const hasGeneratedCharge = detail?.billingHistoryEntries.some((entry) => entry.event === "Charged") ?? false;
+  return hasGeneratedCharge ? "" : firstNextChargeDate;
+}
+
+function statusLedgerEntry(
+  previousStatus: ManageStatus,
+  nextStatus: ManageStatus,
+  detail: ToolAccountDetail,
+  date: string,
+): BillingHistoryEntry | null {
+  const transition =
+    previousStatus === "Active" && nextStatus === "On a Break"
+      ? { event: "Paused" as const, note: "On a break, no charge" }
+      : previousStatus === "On a Break" && nextStatus === "Active"
+        ? { event: "Resumed" as const, note: "Resumed" }
+        : previousStatus !== "Goodbye" && nextStatus === "Goodbye"
+          ? { event: "Cancelled" as const, note: "Cancelled" }
+          : null;
+  if (!transition) return null;
+
+  return {
+    billingType: recurringBillingType(detail.billingType) || normaliseBillingType(detail.billingType),
+    date,
+    event: transition.event,
+    id: `status-${transition.event.toLowerCase()}-${date}-${crypto.randomUUID()}`,
+    note: transition.note,
+    planName: detail.planName,
+    saved: true,
+    source: "manual",
+  };
+}
+
 function archivedStatusKey(status: ToolStatus): ArchivedStatusKey {
   if (status === "Trial") return "trial";
   if (status === "Free" || status === "Free Tier") return "free";
@@ -694,6 +800,7 @@ function toolFromRecord(record: ToolRecord): ToolItem {
     name: record.name,
     notes: record.notes,
     pricingUrl: record.pricingUrl,
+    restoredAt: record.restoredAt,
     status: record.status as ToolStatus,
   };
 }
@@ -713,6 +820,7 @@ function toolToInput(tool: ToolItem): ToolInput {
     name: tool.name,
     notes: tool.notes,
     pricingUrl: tool.pricingUrl,
+    restoredAt: tool.restoredAt,
     status: tool.status,
   };
 }
@@ -778,6 +886,7 @@ function DashboardContent() {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isToolsNavOpen, setIsToolsNavOpen] = useState(true);
   const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
+  const [dontShowOnboardingAgain, setDontShowOnboardingAgain] = useState(false);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [showAddToolModal, setShowAddToolModal] = useState(false);
   const [showPresetToolPicker, setShowPresetToolPicker] = useState(false);
@@ -798,6 +907,9 @@ function DashboardContent() {
   const [showRestoreArchiveModal, setShowRestoreArchiveModal] = useState(false);
   const [showRecoveryPanel, setShowRecoveryPanel] = useState(false);
   const [accountToast, setAccountToast] = useState("");
+  const [accountToastVariant, setAccountToastVariant] = useState<"success" | "warning" | "blocked">("success");
+  const [trialResolutionUndo, setTrialResolutionUndo] = useState<TrialResolutionUndo | null>(null);
+  const [trialResolutionUndoMessage, setTrialResolutionUndoMessage] = useState("");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editingTool, setEditingTool] = useState<ToolItem | null>(null);
   const [confirmToolStateChange, setConfirmToolStateChange] = useState<{
@@ -865,7 +977,7 @@ function DashboardContent() {
   const [toolUrl, setToolUrl] = useState("");
   const [linkToolId, setLinkToolId] = useState("");
   const [linkToolAccountBlocks, setLinkToolAccountBlocks] = useState<LinkToolAccountBlock[]>([
-    { accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", plan: "Free Tier", planName: "", trialExpiryDate: "" },
+    { accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: "Free Tier", planName: "", trialExpiryDate: "" },
   ]);
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
@@ -885,6 +997,12 @@ function DashboardContent() {
   const [categoryDiscardWarning, setCategoryDiscardWarning] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [restoreToolIds, setRestoreToolIds] = useState<string[]>([]);
+  const [pendingDuplicateRestore, setPendingDuplicateRestore] = useState<{
+    archiveId: string;
+    restoredName: string;
+    toolId: string;
+    toolName: string;
+  } | null>(null);
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([]);
   const [selectedRecoveryKeys, setSelectedRecoveryKeys] = useState<string[]>([]);
   const [expandedRecoveryIds, setExpandedRecoveryIds] = useState<string[]>([]);
@@ -894,7 +1012,6 @@ function DashboardContent() {
   const [linkedPlanFilter, setLinkedPlanFilter] = useState<LinkedPlanFilter>("All");
   const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Month">("All");
   const [billingHistoryTarget, setBillingHistoryTarget] = useState<BillingHistoryTarget | null>(null);
-  const [billingHistoryNotes, setBillingHistoryNotes] = useState<Record<string, string>>({});
   const [manualBillingHistory, setManualBillingHistory] = useState<Record<string, BillingHistoryEntry[]>>({});
   const [isPendingActionsExpanded, setIsPendingActionsExpanded] = useState(false);
   const [resolvingPendingActionId, setResolvingPendingActionId] = useState("");
@@ -910,12 +1027,15 @@ function DashboardContent() {
   const toolNameInputRef = useRef<HTMLInputElement | null>(null);
   const mainContentRef = useRef<HTMLElement | null>(null);
   const accountToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trialResolutionUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRoleCategories, setSelectedRoleCategories] = useState<string[]>(roleCategoryMap.Creator);
   const [draggedAccountLogin, setDraggedAccountLogin] = useState<string | null>(null);
-  const [draggedToolName, setDraggedToolName] = useState<string | null>(null);
-  const [editingToolName, setEditingToolName] = useState<string | null>(null);
+  const [draggedToolId, setDraggedToolId] = useState<string | null>(null);
+  const [editingToolId, setEditingToolId] = useState<string | null>(null);
+  const [editingWatchlistNoteId, setEditingWatchlistNoteId] = useState<string | null>(null);
   const [editingToolCategoryId, setEditingToolCategoryId] = useState<string | null>(null);
   const [toolNameDraft, setToolNameDraft] = useState("");
+  const [watchlistNoteDraft, setWatchlistNoteDraft] = useState("");
   const [hasSubmittedToolForm, setHasSubmittedToolForm] = useState(false);
   const hasConfirmedCategories = workspaceCategories.length > 0;
 
@@ -927,9 +1047,12 @@ function DashboardContent() {
       demoToolLinks.map((fixture) => [fixture.toolName.toLowerCase(), fixture]),
     );
     const matchedTools = toolList.filter((tool) => fixtureToolsByName.has(tool.name.trim().toLowerCase()));
-    if (matchedTools.length === 0) return;
-
     setAccountList(demoAccountRecords);
+    if (matchedTools.length === 0) {
+      if (showConfirmation) showToast("Demo Logins data reseeded.");
+      return;
+    }
+
     setToolList((currentTools) => currentTools.map((tool) => {
       const fixture = fixtureToolsByName.get(tool.name.trim().toLowerCase());
       return fixture ? { ...tool, accounts: fixture.accounts.map((account) => account.accountLabel) } : tool;
@@ -970,13 +1093,19 @@ function DashboardContent() {
           details[account.accountLabel] = {
             amount: account.billingAmounts[0]?.amount ?? "",
             billingAmounts: account.billingAmounts.map((amount) => ({ ...amount, id: billingAmountId(amount.id) })),
+            billingHistoryEntries: [],
             billingType: account.billingType,
+            convertedDate: "",
             currency: account.billingAmounts[0]?.currency ?? "USD",
             lastTopUpDate: "",
             nextChargeDate: account.nextChargeDate,
+            purchaseDate: "",
             planName: account.planName,
             status: account.status as ManageStatus,
             trialExpiryDate: account.trialExpiryDate,
+            trialResolution: "",
+            trialResolutionHistory: [],
+            trialResolved: false,
           };
           return details;
         }, {});
@@ -1028,6 +1157,7 @@ function DashboardContent() {
   );
 
   useEffect(() => {
+    if (activeSection !== "dashboard") return;
     if (!isDemoMode && searchParams.get("welcome") !== "1") return;
 
     let hasSeenCreateAccountPrompt = false;
@@ -1040,7 +1170,7 @@ function DashboardContent() {
     if (!hasSeenCreateAccountPrompt) {
       setShowCreateAccountModal(true);
     }
-  }, [createAccountPromptStorageKey, isDemoMode, searchParams]);
+  }, [activeSection, createAccountPromptStorageKey, isDemoMode, searchParams]);
 
   useEffect(() => {
     try {
@@ -1096,12 +1226,21 @@ function DashboardContent() {
                           id: billingAmountId(),
                         })),
                   billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
+                  billingHistoryEntries: detail.billingHistoryEntries ?? [],
+                  convertedDate: detail.convertedDate ?? "",
                   currency: normaliseCurrency(detail.currency),
                   lastTopUpDate: detail.lastTopUpDate ?? "",
                   nextChargeDate: detail.nextChargeDate ?? "",
+                  purchaseDate: detail.purchaseDate ?? "",
                   planName: detail.planName ?? "",
+                  startDate: detail.startDate ?? "",
                   status: normaliseManageStatus(detail.status ?? "Active"),
                   trialExpiryDate: detail.trialExpiryDate ?? "",
+                  trialResolution: detail.trialResolution === "converted" || detail.trialResolution === "ended"
+                    ? detail.trialResolution
+                    : "",
+                  trialResolutionHistory: detail.trialResolutionHistory ?? [],
+                  trialResolved: detail.trialResolved ?? false,
                 },
               }),
               {},
@@ -1306,13 +1445,20 @@ function DashboardContent() {
                 currency: normaliseCurrency(detail.currency),
                 id: billingAmountId(),
               })),
+              billingHistoryEntries: detail.billingHistoryEntries,
               billingType: normaliseBillingType(detail.billingType),
+              convertedDate: detail.convertedDate,
               currency: normaliseCurrency(detail.currency),
               lastTopUpDate: detail.lastTopUpDate,
               nextChargeDate: detail.nextChargeDate,
+              purchaseDate: detail.purchaseDate,
               planName: detail.planName,
+              startDate: detail.startDate ?? "",
               status: normaliseManageStatus(detail.status),
               trialExpiryDate: detail.trialExpiryDate,
+              trialResolution: detail.trialResolution,
+              trialResolutionHistory: detail.trialResolutionHistory,
+              trialResolved: detail.trialResolved,
             },
           };
         });
@@ -1432,19 +1578,86 @@ function DashboardContent() {
       if (accountToastTimeoutRef.current) {
         clearTimeout(accountToastTimeoutRef.current);
       }
+      if (trialResolutionUndoTimeoutRef.current) {
+        clearTimeout(trialResolutionUndoTimeoutRef.current);
+      }
     };
   }, []);
 
-  const showToast = (message: string) => {
+  const showToast = (message: string, variant: "success" | "warning" | "blocked" = "success") => {
     if (accountToastTimeoutRef.current) {
       clearTimeout(accountToastTimeoutRef.current);
     }
 
+    setAccountToastVariant(variant);
     setAccountToast(message);
     accountToastTimeoutRef.current = setTimeout(() => {
       setAccountToast("");
       accountToastTimeoutRef.current = null;
-    }, 2200);
+    }, 4000);
+  };
+
+  const showTrialResolutionUndo = (message: string, undo: TrialResolutionUndo) => {
+    if (trialResolutionUndoTimeoutRef.current) {
+      clearTimeout(trialResolutionUndoTimeoutRef.current);
+    }
+    setTrialResolutionUndo(undo);
+    setTrialResolutionUndoMessage(message);
+    trialResolutionUndoTimeoutRef.current = setTimeout(() => {
+      setTrialResolutionUndo(null);
+      setTrialResolutionUndoMessage("");
+      trialResolutionUndoTimeoutRef.current = null;
+    }, 12000);
+  };
+
+  const undoTrialResolution = async () => {
+    if (!trialResolutionUndo) return;
+    const undo = trialResolutionUndo;
+
+    if (trialResolutionUndoTimeoutRef.current) {
+      clearTimeout(trialResolutionUndoTimeoutRef.current);
+      trialResolutionUndoTimeoutRef.current = null;
+    }
+    setTrialResolutionUndo(null);
+    setTrialResolutionUndoMessage("");
+    setToolAccountStatuses((current) => ({
+      ...current,
+      [undo.toolId]: {
+        ...(current[undo.toolId] ?? {}),
+        [undo.accountLabel]: undo.previousPlan,
+      },
+    }));
+    setToolAccountDetails((current) => ({
+      ...current,
+      [undo.toolId]: {
+        ...(current[undo.toolId] ?? {}),
+        [undo.accountLabel]: undo.previousDetail,
+      },
+    }));
+    if (shouldUseSupabase) {
+      try {
+        await updateToolLinkDetails(undo.toolId, undo.accountLabel, accountList, {
+          amount: undo.previousDetail.amount,
+          billingHistoryEntries: undo.previousDetail.billingHistoryEntries,
+          billingType: undo.previousDetail.billingType,
+          convertedDate: undo.previousDetail.convertedDate,
+          currency: undo.previousDetail.currency,
+          lastTopUpDate: undo.previousDetail.lastTopUpDate,
+          nextChargeDate: undo.previousDetail.nextChargeDate,
+          purchaseDate: undo.previousDetail.purchaseDate,
+          startDate: undo.previousDetail.startDate,
+          plan: undo.previousPlan,
+          planName: undo.previousDetail.planName,
+          status: undo.previousDetail.status,
+          trialExpiryDate: undo.previousDetail.trialExpiryDate,
+          trialResolution: undo.previousDetail.trialResolution,
+          trialResolutionHistory: undo.previousDetail.trialResolutionHistory,
+          trialResolved: undo.previousDetail.trialResolved,
+        });
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not undo trial status.");
+      }
+    }
   };
 
   const copyAccountLogin = async (loginValue: string) => {
@@ -1617,7 +1830,9 @@ function DashboardContent() {
     setCustomToolCategories((currentCategories) =>
       Array.from(
         new Set([
-          ...currentCategories.map((category) => categoryMap.get(category) ?? category),
+          ...currentCategories
+            .filter((category) => !deletedCategories.includes(category))
+            .map((category) => categoryMap.get(category) ?? category),
           ...nextCategories.filter((category) => !defaultToolCategories.includes(category)),
         ]),
       ),
@@ -1717,6 +1932,42 @@ function DashboardContent() {
     persistCategoryDrafts(categoryDrafts, { closeModal: true });
   };
 
+  const createArchivedToolState = (items: ToolItem[]) => {
+    const toolIds = new Set(items.map((tool) => tool.id));
+    const pickToolRecords = <T,>(source: Record<string, Record<string, T>>) =>
+      Object.fromEntries(
+        Object.entries(source)
+          .filter(([toolId]) => toolIds.has(toolId))
+          .map(([toolId, records]) => [toolId, { ...records }]),
+      );
+
+    return {
+      manualBillingHistory: Object.fromEntries(
+        Object.entries(manualBillingHistory)
+          .filter(([recordKey]) => toolIds.has(recordKey.split("::")[0]))
+          .map(([recordKey, entries]) => [recordKey, entries.map((entry) => ({ ...entry }))]),
+      ),
+      toolAccountDetails: Object.fromEntries(
+        Object.entries(pickToolRecords(toolAccountDetails)).map(([toolId, details]) => [
+          toolId,
+          Object.fromEntries(
+            Object.entries(details).map(([accountLabel, detail]) => [
+              accountLabel,
+              {
+                ...detail,
+                billingAmounts: detail.billingAmounts?.map((entry) => ({ ...entry })),
+                billingHistoryEntries: detail.billingHistoryEntries.map((entry) => ({ ...entry })),
+                trialResolutionHistory: detail.trialResolutionHistory.map((entry) => ({ ...entry })),
+              },
+            ]),
+          ),
+        ]),
+      ),
+      toolAccountPlanNames: pickToolRecords(toolAccountPlanNames),
+      toolAccountStatuses: pickToolRecords(toolAccountStatuses),
+    };
+  };
+
   const createResetArchive = () => {
     if (toolList.length === 0) {
       return null;
@@ -1727,6 +1978,7 @@ function DashboardContent() {
       userId: localUserId,
       createdAt: new Date().toISOString(),
       data: createResetBlob(toolList),
+      ...createArchivedToolState(toolList),
     };
 
     setToolResetArchives((currentArchives) => {
@@ -1752,6 +2004,7 @@ function DashboardContent() {
       userId: localUserId,
       createdAt: new Date().toISOString(),
       data: createResetBlob(items),
+      ...createArchivedToolState(items),
     };
 
     setToolResetArchives((currentArchives) => {
@@ -1867,13 +2120,30 @@ function DashboardContent() {
     setSelectedRecoveryKeys((currentKeys) => currentKeys.filter((currentKey) => !keySet.has(currentKey)));
   };
 
-  const restoreSingleArchivedTool = (archiveId: string, toolId: string) => {
+  const performSingleArchivedToolRestore = (
+    archiveId: string,
+    toolId: string,
+    options?: { forceNewId?: boolean; name?: string },
+  ) => {
     const archive = toolResetArchives.find((currentArchive) => currentArchive.id === archiveId);
     if (!archive) return;
 
     const toolToRestore = archiveTools(archive).find((tool) => tool.id === toolId);
     if (!toolToRestore) return;
-    const restoredTool = { ...toolToRestore, category: restoreCategory(toolToRestore.category, workspaceCategories) };
+    const hasIdCollision =
+      options?.forceNewId === true ||
+      toolList.some((tool) => tool.id === toolToRestore.id);
+    const restoredToolId = hasIdCollision
+      ? `${toolToRestore.id}-restored-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`
+      : toolToRestore.id;
+    const restoredDate = new Date().toISOString().slice(0, 10);
+    const restoredTool = {
+      ...toolToRestore,
+      category: restoreCategory(toolToRestore.category, workspaceCategories),
+      id: restoredToolId,
+      name: options?.name?.trim() || toolToRestore.name,
+      restoredAt: restoredDate,
+    };
 
     if (!workspaceCategories.includes(restoredTool.category)) {
       const nextCategories = [...workspaceCategories, restoredTool.category];
@@ -1886,10 +2156,77 @@ function DashboardContent() {
     }
 
     setToolList((currentTools) => {
-      if (currentTools.some((tool) => tool.id === toolId)) return currentTools;
       return [...currentTools, restoredTool];
     });
+    const archivedDetails = archive.toolAccountDetails?.[toolToRestore.id];
+    if (archivedDetails) {
+      setToolAccountDetails((current) => ({
+        ...current,
+        [restoredToolId]: Object.fromEntries(
+          Object.entries(archivedDetails).map(([accountLabel, detail]) => [
+            accountLabel,
+            {
+              ...detail,
+              billingAmounts: detail.billingAmounts?.map((entry) => ({ ...entry })),
+              billingHistoryEntries: detail.billingHistoryEntries.map((entry) => ({ ...entry })),
+              nextChargeDate: nextChargeDateAfterRestore(detail, restoredDate),
+              trialResolutionHistory: detail.trialResolutionHistory.map((entry) => ({ ...entry })),
+            },
+          ]),
+        ),
+      }));
+    }
+    const archivedPlanNames = archive.toolAccountPlanNames?.[toolToRestore.id];
+    if (archivedPlanNames) {
+      setToolAccountPlanNames((current) => ({
+        ...current,
+        [restoredToolId]: { ...archivedPlanNames },
+      }));
+    }
+    const archivedStatuses = archive.toolAccountStatuses?.[toolToRestore.id];
+    if (archivedStatuses) {
+      setToolAccountStatuses((current) => ({
+        ...current,
+        [restoredToolId]: { ...archivedStatuses },
+      }));
+    }
+    const archivedManualHistory = archive.manualBillingHistory ?? {};
+    const restoredHistoryEntries = Object.entries(archivedManualHistory)
+      .filter(([recordKey]) => recordKey.startsWith(`${toolToRestore.id}::`));
+    if (restoredHistoryEntries.length > 0) {
+      setManualBillingHistory((current) => ({
+        ...current,
+        ...Object.fromEntries(
+          restoredHistoryEntries.map(([recordKey, entries]) => [
+            `${restoredToolId}::${recordKey.split("::").slice(1).join("::")}`,
+            entries.map((entry) => ({ ...entry })),
+          ]),
+        ),
+      }));
+    }
     removeRecoveryTools([`${archiveId}:${toolId}`]);
+  };
+
+  const restoreSingleArchivedTool = (archiveId: string, toolId: string) => {
+    const archive = toolResetArchives.find((currentArchive) => currentArchive.id === archiveId);
+    const toolToRestore = archive ? archiveTools(archive).find((tool) => tool.id === toolId) : undefined;
+    if (!toolToRestore) return;
+
+    const hasDuplicateName = toolList.some(
+      (tool) =>
+        !tool.archived &&
+        tool.name.trim().toLowerCase() === toolToRestore.name.trim().toLowerCase(),
+    );
+    if (hasDuplicateName) {
+      setPendingDuplicateRestore({
+        archiveId,
+        restoredName: `${toolToRestore.name} (restored)`,
+        toolId,
+        toolName: toolToRestore.name,
+      });
+      return;
+    }
+    performSingleArchivedToolRestore(archiveId, toolId);
   };
 
   const deleteSingleArchivedTool = (archiveId: string, toolId: string) => {
@@ -2132,11 +2469,15 @@ function DashboardContent() {
 
     const trimmedToolName = toolName.trim();
     const trimmedCategory = normaliseToolCategory(toolCategory);
-    const isDuplicateToolName = toolList.some(
-      (tool) =>
-        tool.id !== editingTool?.id &&
-        tool.name.trim().toLowerCase() === trimmedToolName.toLowerCase(),
-    );
+    const isUnchangedEditingName =
+      editingTool?.name.trim().toLowerCase() === trimmedToolName.toLowerCase();
+    const isDuplicateToolName =
+      !isUnchangedEditingName &&
+      toolList.some(
+        (tool) =>
+          tool.id !== editingTool?.id &&
+          tool.name.trim().toLowerCase() === trimmedToolName.toLowerCase(),
+      );
 
     if (!trimmedToolName || !trimmedCategory || isDuplicateToolName) return;
 
@@ -2406,8 +2747,8 @@ function DashboardContent() {
     });
   };
 
-  const moveTool = (draggedName: string, targetName: string) => {
-    if (draggedName === targetName) return;
+  const moveTool = (draggedId: string, targetId: string) => {
+    if (draggedId === targetId) return;
 
     setHasCustomToolOrder(true);
     try {
@@ -2417,8 +2758,8 @@ function DashboardContent() {
     }
 
     setToolList((currentTools) => {
-      const draggedIndex = currentTools.findIndex((tool) => tool.name === draggedName);
-      const targetIndex = currentTools.findIndex((tool) => tool.name === targetName);
+      const draggedIndex = currentTools.findIndex((tool) => tool.id === draggedId);
+      const targetIndex = currentTools.findIndex((tool) => tool.id === targetId);
 
       if (draggedIndex < 0 || targetIndex < 0) return currentTools;
 
@@ -2429,32 +2770,32 @@ function DashboardContent() {
     });
   };
 
-  const handleToolDragStart = (event: DragEvent<HTMLButtonElement>, toolName: string) => {
-    setDraggedToolName(toolName);
+  const handleToolDragStart = (event: DragEvent<HTMLButtonElement>, toolId: string) => {
+    setDraggedToolId(toolId);
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", toolName);
+    event.dataTransfer.setData("text/plain", toolId);
   };
 
-  const handleToolPointerDown = (event: PointerEvent<HTMLButtonElement>, toolName: string) => {
+  const handleToolPointerDown = (event: PointerEvent<HTMLButtonElement>, toolId: string) => {
     event.preventDefault();
-    setDraggedToolName(toolName);
+    setDraggedToolId(toolId);
   };
 
-  const handleToolDrop = (event: DragEvent<HTMLElement>, toolName: string) => {
+  const handleToolDrop = (event: DragEvent<HTMLElement>, toolId: string) => {
     event.preventDefault();
-    if (draggedToolName) moveTool(draggedToolName, toolName);
-    setDraggedToolName(null);
+    if (draggedToolId) moveTool(draggedToolId, toolId);
+    setDraggedToolId(null);
   };
 
-  const toggleToolFavorite = async (toolName: string) => {
-    const targetTool = toolList.find((tool) => tool.name === toolName);
+  const toggleToolFavorite = async (toolId: string) => {
+    const targetTool = toolList.find((tool) => tool.id === toolId);
     if (!targetTool) return;
 
     const nextFavorite = !targetTool.favorite;
     setToolDataError("");
     setToolList((currentTools) =>
       currentTools.map((tool) =>
-        tool.name === toolName ? { ...tool, favorite: nextFavorite } : tool,
+        tool.id === toolId ? { ...tool, favorite: nextFavorite } : tool,
       ),
     );
 
@@ -2655,7 +2996,7 @@ function DashboardContent() {
   };
 
   const resetLinkToolBlocks = (tool?: ToolItem) => {
-    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
+    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
     setHasSubmittedLinkToolForm(false);
   };
 
@@ -2670,10 +3011,6 @@ function DashboardContent() {
   };
 
   const openLinkToolModal = (tool?: ToolItem, options?: { activateToolOnSave?: boolean }) => {
-    if (tool?.status === "Considering") {
-      showToast("Remove this tool from Watchlist before linking an account.");
-      return;
-    }
     setLinkToolId(tool?.id ?? "");
     resetLinkToolBlocks(tool);
     setLinkToolSearchQuery(tool?.name ?? "");
@@ -2704,6 +3041,8 @@ function DashboardContent() {
           billingType,
           lastTopUpDate: details?.lastTopUpDate ?? "",
           nextChargeDate: details?.nextChargeDate ?? "",
+          pendingTrialOutcome: "",
+          purchaseDate: details?.purchaseDate ?? "",
           plan: relationPlanStatusValue(tool, linkedAccountLabel),
           planName: details?.planName ?? toolAccountPlanNames[tool.id]?.[linkedAccountLabel] ?? "",
           status: details?.status ?? "Active",
@@ -2741,25 +3080,60 @@ function DashboardContent() {
     draft: ToolDetailAccountDraft,
     showConfirmation = true,
   ) => {
-    if (!draft.accountLabel || !draft.plan) return false;
+    if (!draft.accountLabel || !draft.plan) return null;
+    const currentDetail = toolAccountDetails[tool.id]?.[draft.accountLabel];
     const selectedPlan: ToolStatus = draft.plan;
     const validatedBillingType = normaliseBillingType(draft.billingType);
     const validatedBillingTypes = validatedBillingType.split(", ");
     const hasTopUpCredit = validatedBillingTypes.includes("Top-up");
-    const hasPrimaryBillingType = validatedBillingTypes.some((billingType) => billingType !== "Top-up");
+    const hasRecurringBillingType = validatedBillingTypes.some(
+      (billingType) => billingType === "Monthly" || billingType === "Yearly",
+    );
+    const hasPurchaseBillingType = validatedBillingTypes.some(
+      (billingType) => billingType === "Lifetime" || billingType === "One-time",
+    );
     const nextDetail: ToolAccountDetail = {
       amount: draft.plan === "Active" ? draft.billingAmounts[0]?.amount.trim() ?? "" : "",
       billingAmounts: draft.plan === "Active"
         ? draft.billingAmounts.filter((entry) => validatedBillingTypes.includes(entry.billingType))
         : [],
+      billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
       billingType: validatedBillingType,
+      convertedDate: currentDetail?.convertedDate ?? "",
       currency: normaliseCurrency(draft.billingAmounts[0]?.currency),
       lastTopUpDate: draft.plan === "Active" && hasTopUpCredit ? draft.lastTopUpDate : "",
-      nextChargeDate: draft.plan === "Active" && hasPrimaryBillingType ? draft.nextChargeDate : "",
+      nextChargeDate: draft.plan === "Active" && hasRecurringBillingType ? draft.nextChargeDate : "",
+      purchaseDate: draft.plan === "Active" && hasPurchaseBillingType ? draft.purchaseDate : "",
       planName: draft.plan === "Active" ? draft.planName.trim() : "",
+      startDate:
+        draft.plan === "Active" && hasRecurringBillingType
+          ? immutableStartDate(currentDetail, draft.nextChargeDate)
+          : currentDetail?.startDate ?? "",
       status: draft.status,
       trialExpiryDate: draft.plan === "Trial" ? draft.trialExpiryDate : "",
+      trialResolution: currentDetail?.trialResolution ?? "",
+      trialResolutionHistory: currentDetail?.trialResolutionHistory ?? [],
+      trialResolved: currentDetail?.trialResolved ?? false,
     };
+    if (currentDetail && draft.plan === "Active" && currentDetail.status !== draft.status) {
+      const transitionEntry = statusLedgerEntry(
+        currentDetail.status,
+        draft.status,
+        nextDetail,
+        todayInputValue(),
+      );
+      if (transitionEntry) {
+        nextDetail.billingHistoryEntries = [...nextDetail.billingHistoryEntries, transitionEntry];
+      }
+      if (currentDetail.status === "On a Break" && draft.status === "Active") {
+        const recurringType = recurringBillingType(nextDetail.billingType);
+        nextDetail.nextChargeDate = recurringType
+          ? nextDetail.startDate
+            ? recurringChargeDateAfter(nextDetail.startDate, recurringType, todayInputValue())
+            : advanceRecurringChargeDate(todayInputValue(), recurringType)
+          : "";
+      }
+    }
 
     setToolAccountStatuses((current) => ({
       ...current,
@@ -2778,22 +3152,29 @@ function DashboardContent() {
       try {
         await updateToolLinkDetails(tool.id, draft.accountLabel, accountList, {
           amount: nextDetail.amount,
+          billingHistoryEntries: nextDetail.billingHistoryEntries,
           billingType: nextDetail.billingType,
+          convertedDate: nextDetail.convertedDate,
           currency: nextDetail.currency,
           lastTopUpDate: nextDetail.lastTopUpDate,
           nextChargeDate: nextDetail.nextChargeDate,
+          purchaseDate: nextDetail.purchaseDate,
+          startDate: nextDetail.startDate,
           plan: draft.plan,
           planName: nextDetail.planName,
           status: nextDetail.status,
           trialExpiryDate: nextDetail.trialExpiryDate,
+          trialResolution: nextDetail.trialResolution,
+          trialResolutionHistory: nextDetail.trialResolutionHistory,
+          trialResolved: nextDetail.trialResolved,
         });
       } catch (error) {
         setToolDataError(error instanceof Error ? error.message : "Could not update linked account.");
-        return false;
+        return null;
       }
     }
     if (showConfirmation) showToast(`${draft.accountLabel} saved.`);
-    return true;
+    return nextDetail;
   };
 
   const addToolDetailAccountDraft = () => {
@@ -2812,6 +3193,8 @@ function DashboardContent() {
         billingType: "Monthly",
         lastTopUpDate: "",
         nextChargeDate: "",
+        pendingTrialOutcome: "",
+        purchaseDate: "",
         plan: "",
         planName: "",
         status: "Active",
@@ -2826,6 +3209,11 @@ function DashboardContent() {
   ) => {
     const accountLabels = drafts.map((draft) => draft.accountLabel).filter(Boolean);
     const removedAccountLabels = tool.accounts.filter((accountLabel) => !accountLabels.includes(accountLabel));
+    const hasInitialTrialOutcome = drafts.some(
+      (draft) =>
+        Boolean(draft.pendingTrialOutcome) &&
+        toolAccountDetails[tool.id]?.[draft.accountLabel]?.trialResolved !== true,
+    );
     const hasIncompleteDraft = drafts.some((draft) => !draft.accountLabel || !draft.plan);
     const hasDuplicateAccount = new Set(accountLabels).size !== accountLabels.length;
     if (hasIncompleteDraft || hasDuplicateAccount) {
@@ -2864,10 +3252,22 @@ function DashboardContent() {
     }
 
     for (const draft of drafts) {
-      const saved = await saveToolDetailAccount(tool, draft, false);
-      if (!saved) return;
+      const savedDetail = await saveToolDetailAccount(tool, draft, false);
+      if (!savedDetail) return;
+      if (draft.pendingTrialOutcome) {
+        const isCorrection =
+          toolAccountDetails[tool.id]?.[draft.accountLabel]?.trialResolved === true;
+        const resolved = await resolveExpiredTrialStatus(
+          tool,
+          draft.accountLabel,
+          draft.pendingTrialOutcome,
+          isCorrection,
+          savedDetail,
+        );
+        if (!resolved) return;
+      }
     }
-    showToast(`${tool.name} accounts saved.`);
+    if (!hasInitialTrialOutcome) showToast(`${tool.name} accounts saved.`);
     closeManageAccountModal();
   };
 
@@ -2890,6 +3290,9 @@ function DashboardContent() {
     if (isSwitchingToExistingLink) return;
 
     const previousTools = toolList;
+    const currentManagedDetail =
+      toolAccountDetails[toolId]?.[previousAccountLabel] ??
+      toolAccountDetails[toolId]?.[managedAccountLabel];
     const nextAccounts = selectedTool.accounts.map((account) =>
       account === previousAccountLabel ? managedAccountLabel : account,
     );
@@ -2937,13 +3340,23 @@ function DashboardContent() {
       nextToolDetails[managedAccountLabel] = {
         amount: managedPlan === "Active" ? managedBillingAmounts[0]?.amount.trim() ?? "" : "",
         billingAmounts: managedPlan === "Active" ? managedBillingAmounts : [],
+        billingHistoryEntries: currentManagedDetail?.billingHistoryEntries ?? [],
         billingType: normaliseBillingType(managedBillingType),
+        convertedDate: currentManagedDetail?.convertedDate ?? "",
         currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
-        lastTopUpDate: nextToolDetails[managedAccountLabel]?.lastTopUpDate ?? "",
+        lastTopUpDate: currentManagedDetail?.lastTopUpDate ?? "",
         nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
+        purchaseDate: currentManagedDetail?.purchaseDate ?? "",
         planName: managedPlan === "Active" ? managedPlanName.trim() : "",
+        startDate:
+          managedPlan === "Active" && recurringBillingType(managedBillingType)
+            ? immutableStartDate(currentManagedDetail, managedNextChargeDate)
+            : currentManagedDetail?.startDate ?? "",
         status: managedStatus,
         trialExpiryDate: managedPlan === "Trial" ? managedTrialExpiryDate : "",
+        trialResolution: currentManagedDetail?.trialResolution ?? "",
+        trialResolutionHistory: currentManagedDetail?.trialResolutionHistory ?? [],
+        trialResolved: currentManagedDetail?.trialResolved ?? false,
       };
       nextDetails[toolId] = nextToolDetails;
       return nextDetails;
@@ -2954,13 +3367,24 @@ function DashboardContent() {
         await replaceToolLinks(toolId, nextAccounts, accountList);
         await updateToolLinkDetails(toolId, managedAccountLabel, accountList, {
           amount: managedPlan === "Active" ? managedBillingAmounts[0]?.amount.trim() ?? "" : "",
+          billingHistoryEntries: currentManagedDetail?.billingHistoryEntries ?? [],
           billingType: normaliseBillingType(managedBillingType),
+          convertedDate: currentManagedDetail?.convertedDate ?? "",
           currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
+          lastTopUpDate: currentManagedDetail?.lastTopUpDate ?? "",
           nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
+          purchaseDate: currentManagedDetail?.purchaseDate ?? "",
+          startDate:
+            managedPlan === "Active" && recurringBillingType(managedBillingType)
+              ? immutableStartDate(currentManagedDetail, managedNextChargeDate)
+              : currentManagedDetail?.startDate ?? "",
           plan: managedPlan,
           planName: managedPlan === "Active" ? managedPlanName.trim() : "",
           status: managedStatus,
           trialExpiryDate: managedPlan === "Trial" ? managedTrialExpiryDate : "",
+          trialResolution: currentManagedDetail?.trialResolution ?? "",
+          trialResolutionHistory: currentManagedDetail?.trialResolutionHistory ?? [],
+          trialResolved: currentManagedDetail?.trialResolved ?? false,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not update linked account.";
@@ -2976,19 +3400,26 @@ function DashboardContent() {
   const updateBillingField = async (
     toolId: string,
     accountLabel: string,
-    patch: Partial<Pick<ToolAccountDetail, "amount" | "billingType" | "currency" | "lastTopUpDate" | "nextChargeDate" | "planName">>,
+    patch: Partial<Pick<ToolAccountDetail, "amount" | "billingType" | "currency" | "lastTopUpDate" | "nextChargeDate" | "planName" | "purchaseDate">>,
   ) => {
     const currentDetail = toolAccountDetails[toolId]?.[accountLabel];
     const nextDetail: ToolAccountDetail = {
       amount: patch.amount ?? currentDetail?.amount ?? "",
       billingAmounts: currentDetail?.billingAmounts,
+      billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
       billingType: normaliseBillingType(patch.billingType ?? currentDetail?.billingType ?? "Monthly"),
+      convertedDate: currentDetail?.convertedDate ?? "",
       currency: normaliseCurrency(patch.currency ?? currentDetail?.currency),
       lastTopUpDate: patch.lastTopUpDate ?? currentDetail?.lastTopUpDate ?? "",
       nextChargeDate: patch.nextChargeDate ?? currentDetail?.nextChargeDate ?? "",
+      purchaseDate: patch.purchaseDate ?? currentDetail?.purchaseDate ?? "",
       planName: patch.planName ?? currentDetail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "",
+      startDate: immutableStartDate(currentDetail, patch.nextChargeDate ?? ""),
       status: currentDetail?.status ?? "Active",
       trialExpiryDate: currentDetail?.trialExpiryDate ?? "",
+      trialResolution: currentDetail?.trialResolution ?? "",
+      trialResolutionHistory: currentDetail?.trialResolutionHistory ?? [],
+      trialResolved: currentDetail?.trialResolved ?? false,
     };
     const previousDetails = toolAccountDetails;
     const previousPlanNames = toolAccountPlanNames;
@@ -3015,14 +3446,21 @@ function DashboardContent() {
       try {
         await updateToolLinkDetails(toolId, accountLabel, accountList, {
           amount: nextDetail.amount,
+          billingHistoryEntries: nextDetail.billingHistoryEntries,
           billingType: nextDetail.billingType,
+          convertedDate: nextDetail.convertedDate,
           currency: nextDetail.currency,
           lastTopUpDate: nextDetail.lastTopUpDate,
           nextChargeDate: nextDetail.nextChargeDate,
+          purchaseDate: nextDetail.purchaseDate,
+          startDate: nextDetail.startDate,
           plan: "Active",
           planName: nextDetail.planName,
           status: nextDetail.status,
           trialExpiryDate: "",
+          trialResolution: nextDetail.trialResolution,
+          trialResolutionHistory: nextDetail.trialResolutionHistory,
+          trialResolved: nextDetail.trialResolved,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not update billing details.";
@@ -3038,14 +3476,43 @@ function DashboardContent() {
     const nextDetail: ToolAccountDetail = {
       amount: currentDetail?.amount ?? "",
       billingAmounts: currentDetail?.billingAmounts,
+      billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
       billingType: normaliseBillingType(currentDetail?.billingType ?? "Monthly"),
+      convertedDate: currentDetail?.convertedDate ?? "",
       currency: normaliseCurrency(currentDetail?.currency),
       lastTopUpDate: currentDetail?.lastTopUpDate ?? "",
       nextChargeDate: currentDetail?.nextChargeDate ?? "",
+      purchaseDate: currentDetail?.purchaseDate ?? "",
       planName: currentDetail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
       status,
       trialExpiryDate: currentDetail?.trialExpiryDate ?? "",
+      trialResolution: currentDetail?.trialResolution ?? "",
+      trialResolutionHistory: currentDetail?.trialResolutionHistory ?? [],
+      trialResolved: currentDetail?.trialResolved ?? false,
     };
+    if (
+      currentDetail &&
+      currentDetail.status !== status &&
+      relationPlan(tool, accountLabel) === "Paid"
+    ) {
+      const transitionEntry = statusLedgerEntry(
+        currentDetail.status,
+        status,
+        nextDetail,
+        todayInputValue(),
+      );
+      if (transitionEntry) {
+        nextDetail.billingHistoryEntries = [...nextDetail.billingHistoryEntries, transitionEntry];
+      }
+      if (currentDetail.status === "On a Break" && status === "Active") {
+        const recurringType = recurringBillingType(nextDetail.billingType);
+        nextDetail.nextChargeDate = recurringType
+          ? nextDetail.startDate
+            ? recurringChargeDateAfter(nextDetail.startDate, recurringType, todayInputValue())
+            : advanceRecurringChargeDate(todayInputValue(), recurringType)
+          : "";
+      }
+    }
 
     setToolAccountDetails((current) => ({
       ...current,
@@ -3059,13 +3526,20 @@ function DashboardContent() {
       try {
         await updateToolLinkDetails(tool.id, accountLabel, accountList, {
           amount: nextDetail.amount,
+          billingHistoryEntries: nextDetail.billingHistoryEntries,
           billingType: nextDetail.billingType,
+          convertedDate: nextDetail.convertedDate,
           currency: nextDetail.currency,
           nextChargeDate: nextDetail.nextChargeDate,
+          purchaseDate: nextDetail.purchaseDate,
+          startDate: nextDetail.startDate,
           plan: relationPlanStatusValue(tool, accountLabel),
           planName: nextDetail.planName,
           status,
           trialExpiryDate: nextDetail.trialExpiryDate,
+          trialResolution: nextDetail.trialResolution,
+          trialResolutionHistory: nextDetail.trialResolutionHistory,
+          trialResolved: nextDetail.trialResolved,
         });
       } catch (error) {
         setToolDataError(error instanceof Error ? error.message : "Could not update account status.");
@@ -3132,17 +3606,26 @@ function DashboardContent() {
                   id: billingAmountId(),
                 }))
               : [],
+            billingHistoryEntries: [],
             billingType: normaliseBillingType(block.billingType),
+            convertedDate: "",
             currency: "USD",
             lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
               ? block.lastTopUpDate
               : "",
-            nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType !== "Top-up")
+            nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Monthly" || billingType === "Yearly")
               ? block.nextChargeDate
               : "",
+            purchaseDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Lifetime" || billingType === "One-time")
+              ? block.purchaseDate
+              : "",
             planName: block.plan === "Active" ? block.planName.trim() : "",
+            startDate: block.plan === "Active" && recurringBillingType(block.billingType) ? block.nextChargeDate : "",
             status: "Active",
             trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
+            trialResolution: "",
+            trialResolutionHistory: [],
+            trialResolved: false,
           },
         }),
         { ...(currentDetails[selectedTool.id] ?? {}) },
@@ -3155,17 +3638,25 @@ function DashboardContent() {
           filledBlocks.map((block) =>
             updateToolLinkDetails(selectedTool.id, block.accountLabel, accountList, {
               billingType: normaliseBillingType(block.billingType),
+              billingHistoryEntries: [],
               currency: "USD",
               lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
                 ? block.lastTopUpDate
                 : "",
-              nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType !== "Top-up")
+              nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Monthly" || billingType === "Yearly")
                 ? block.nextChargeDate
                 : "",
+              purchaseDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Lifetime" || billingType === "One-time")
+                ? block.purchaseDate
+                : "",
+              startDate: block.plan === "Active" && recurringBillingType(block.billingType) ? block.nextChargeDate : "",
               plan: block.plan,
               planName: block.plan === "Active" ? block.planName.trim() : "",
               status: "Active",
               trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
+              trialResolution: "",
+              trialResolutionHistory: [],
+              trialResolved: false,
             }),
           ),
         );
@@ -3355,26 +3846,26 @@ function DashboardContent() {
   };
 
   const startEditingToolName = (tool: ToolItem) => {
-    setEditingToolName(tool.name);
+    setEditingToolId(tool.id);
     setToolNameDraft(tool.name);
   };
 
   const saveInlineToolName = async () => {
-    if (!editingToolName) return;
+    if (!editingToolId) return;
 
     const trimmedName = toolNameDraft.trim();
     if (!trimmedName) {
-      setEditingToolName(null);
+      setEditingToolId(null);
       setToolNameDraft("");
       return;
     }
 
-    const targetTool = toolList.find((tool) => tool.name === editingToolName);
+    const targetTool = toolList.find((tool) => tool.id === editingToolId);
     const previousTools = toolList;
     const nextLogo = toolInitials(trimmedName);
     setToolList((currentTools) =>
       currentTools.map((tool) =>
-        tool.name === editingToolName
+        tool.id === editingToolId
           ? { ...tool, name: trimmedName, logo: nextLogo }
           : tool,
       ),
@@ -3388,13 +3879,42 @@ function DashboardContent() {
         setToolList(previousTools);
       }
     }
-    setEditingToolName(null);
+    setEditingToolId(null);
     setToolNameDraft("");
   };
 
   const cancelInlineToolName = () => {
-    setEditingToolName(null);
+    setEditingToolId(null);
     setToolNameDraft("");
+  };
+
+  const startEditingWatchlistNote = (tool: ToolItem) => {
+    setEditingWatchlistNoteId(tool.id);
+    setWatchlistNoteDraft(tool.notes);
+  };
+
+  const saveWatchlistNote = async (tool: ToolItem) => {
+    if (editingWatchlistNoteId !== tool.id) return;
+
+    const nextNotes = watchlistNoteDraft.trim();
+    const previousTools = toolList;
+    setEditingWatchlistNoteId(null);
+    setWatchlistNoteDraft("");
+    if (nextNotes === tool.notes) return;
+
+    setToolList((currentTools) =>
+      currentTools.map((currentTool) =>
+        currentTool.id === tool.id ? { ...currentTool, notes: nextNotes } : currentTool,
+      ),
+    );
+    if (shouldUseSupabase) {
+      try {
+        await patchToolRecord(tool.id, { notes: nextNotes });
+      } catch (error) {
+        setToolList(previousTools);
+        setToolDataError(error instanceof Error ? error.message : "Could not save watchlist note.");
+      }
+    }
   };
 
   const updateToolCategory = async (toolId: string, nextCategory: string) => {
@@ -3516,20 +4036,20 @@ function DashboardContent() {
   }, [draggedAccountLogin]);
 
   useEffect(() => {
-    if (!draggedToolName) return;
+    if (!draggedToolId) return;
 
     const handlePointerMove = (event: globalThis.PointerEvent) => {
       const hoveredRow = document
         .elementFromPoint(event.clientX, event.clientY)
-        ?.closest<HTMLElement>("[data-tool-name]");
-      const targetName = hoveredRow?.dataset.toolName;
+        ?.closest<HTMLElement>("[data-tool-id]");
+      const targetId = hoveredRow?.dataset.toolId;
 
-      if (targetName && targetName !== draggedToolName) {
-        moveTool(draggedToolName, targetName);
+      if (targetId && targetId !== draggedToolId) {
+        moveTool(draggedToolId, targetId);
       }
     };
 
-    const handlePointerUp = () => setDraggedToolName(null);
+    const handlePointerUp = () => setDraggedToolId(null);
 
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
@@ -3538,7 +4058,7 @@ function DashboardContent() {
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     };
-  }, [draggedToolName]);
+  }, [draggedToolId]);
 
   const activeToolSearchQuery =
     activeSection === "tools"
@@ -3601,8 +4121,18 @@ function DashboardContent() {
         );
       });
 
-    if ((activeSection === "tools" && !hasCustomToolOrder) || activeSection === "favorites" || activeSection === "archive" || activeSection === "watchlist") {
-      return [...nextTools].sort((firstTool, secondTool) => firstTool.name.localeCompare(secondTool.name));
+    if (
+      (activeSection === "tools" && !hasCustomToolOrder) ||
+      activeSection === "linked" ||
+      activeSection === "favorites" ||
+      activeSection === "archive" ||
+      activeSection === "watchlist"
+    ) {
+      return [...nextTools].sort(
+        (firstTool, secondTool) =>
+          firstTool.name.localeCompare(secondTool.name, undefined, { sensitivity: "base" }) ||
+          firstTool.id.localeCompare(secondTool.id),
+      );
     }
 
     return nextTools;
@@ -3647,15 +4177,17 @@ function DashboardContent() {
   };
 
   const sortedWorkspaceCategories = useMemo(
-    () =>
-      sortCategoriesWithUncategorizedLast(
+    () => {
+      const configuredCategories =
+        workspaceCategories.length > 0 ? workspaceCategories : defaultToolCategories;
+      return sortCategoriesWithUncategorizedLast(
         normaliseCategoryList([
-          ...defaultToolCategories,
-          ...workspaceCategories,
+          ...configuredCategories,
           ...customToolCategories,
           ...toolsWithValidAccountLinks.map((tool) => tool.category),
         ]),
-      ),
+      );
+    },
     [customToolCategories, toolsWithValidAccountLinks, workspaceCategories],
   );
   const hasUncategorizedTools = useMemo(
@@ -3708,7 +4240,7 @@ function DashboardContent() {
           return group.category !== "Uncategorized" || group.tools.length > 0;
         });
 
-      if (activeSection !== "watchlist" || query) return groups;
+      if (!["linked", "watchlist"].includes(activeSection) || query) return groups;
 
       return [...groups].sort((firstGroup, secondGroup) => {
         const firstIsEmpty = firstGroup.tools.length === 0;
@@ -3910,6 +4442,7 @@ function DashboardContent() {
   const toolNameDuplicateError =
     hasSubmittedToolForm &&
     toolName.trim() &&
+    editingTool?.name.trim().toLowerCase() !== toolName.trim().toLowerCase() &&
     toolList.some(
       (tool) =>
         tool.id !== editingTool?.id &&
@@ -4141,8 +4674,10 @@ function DashboardContent() {
         (firstAccount, secondAccount) =>
           linkedAccountPlanRank(tool, firstAccount.accountLabel) -
             linkedAccountPlanRank(tool, secondAccount.accountLabel) ||
-          (toolAccountDetails[tool.id]?.[secondAccount.accountLabel]?.nextChargeDate ?? "").localeCompare(
-            toolAccountDetails[tool.id]?.[firstAccount.accountLabel]?.nextChargeDate ?? "",
+          firstAccount.accountLabel.localeCompare(
+            secondAccount.accountLabel,
+            undefined,
+            { sensitivity: "base" },
           ) ||
           firstAccount.index - secondAccount.index,
       )
@@ -4163,25 +4698,47 @@ function DashboardContent() {
         const detail = toolAccountDetails[tool.id]?.[accountLabel];
         const billingAmounts = detail?.billingAmounts ?? [];
         const hasRecurringBilling = billingAmounts.some(
-          (billingAmount) => normaliseBillingType(billingAmount.billingType) !== "Top-up",
+          (billingAmount) => {
+            const billingType = normaliseBillingType(billingAmount.billingType);
+            return billingType === "Monthly" || billingType === "Yearly";
+          },
+        );
+        const hasPurchaseBilling = billingAmounts.some(
+          (billingAmount) => {
+            const billingType = normaliseBillingType(billingAmount.billingType);
+            return billingType === "Lifetime" || billingType === "One-time";
+          },
         );
         const billingGroupDate = hasRecurringBilling
           ? detail?.nextChargeDate || detail?.lastTopUpDate || ""
-          : detail?.lastTopUpDate || "";
+          : hasPurchaseBilling
+            ? detail?.purchaseDate || detail?.lastTopUpDate || ""
+            : detail?.lastTopUpDate || "";
         return billingAmounts.map((billingAmount) => {
           const billingType = normaliseBillingType(billingAmount.billingType);
           const isTopUp = billingType === "Top-up";
+          const isPurchase = billingType === "Lifetime" || billingType === "One-time";
           return {
             accountLabel,
             amount: billingAmount.amount,
-            billingDate: isTopUp ? detail?.lastTopUpDate ?? "" : detail?.nextChargeDate ?? "",
-            billingDateField: isTopUp ? "lastTopUpDate" as const : "nextChargeDate" as const,
+            billingDate: isTopUp
+              ? detail?.lastTopUpDate ?? ""
+              : isPurchase
+                ? detail?.purchaseDate ?? ""
+                : detail?.nextChargeDate ?? "",
+            billingDateField: isTopUp
+              ? "lastTopUpDate" as const
+              : isPurchase
+                ? "purchaseDate" as const
+                : "nextChargeDate" as const,
             billingGroupDate,
-            billingDateLabel: isTopUp ? "Last topped up" : "Next Charge",
+            billingDateLabel: isTopUp ? "Last topped up" : isPurchase ? "Purchased on" : "Next Charge",
             billingType,
             currency: normaliseCurrency(billingAmount.currency),
             id: billingAmount.id,
-            planName: detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
+            planName: capitaliseFirstLetter(
+              detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
+            ),
             tool,
           };
         });
@@ -4305,7 +4862,9 @@ function DashboardContent() {
       })}
       onEdit={() => openManageAccountModal(row.tool, row.accountLabel)}
       onOpenHistory={() => setBillingHistoryTarget({ accountLabel: row.accountLabel, toolId: row.tool.id })}
-      onPlanNameChange={(planName) => updateBillingField(row.tool.id, row.accountLabel, { planName })}
+      onPlanNameChange={(planName) => updateBillingField(row.tool.id, row.accountLabel, {
+        planName: capitaliseFirstLetter(planName),
+      })}
       options={options}
       renderAccount={() => renderBillingAccountCell(row.accountLabel)}
       renderCurrency={() => renderDropdown({
@@ -4324,33 +4883,41 @@ function DashboardContent() {
 
   const renderLinkedStatusControl = (tool: ToolItem, accountLabel: string) => {
     const plan = relationPlan(tool, accountLabel);
-    return plan === "Trial" &&
-      Boolean(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate) &&
-      (daysUntilDate(toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "") ?? 0) < 0
-      ? renderDropdown({
-          ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
-          className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
-          id: `linked-trial-status-${tool.id}-${accountLabel}`,
-          onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
-          options: [
-            { disabled: true, label: "Confirm status", value: "" },
-            { label: "Trial converted to paid", value: "converted" },
-            { label: "Trial ended / cancelled", value: "ended" },
-          ],
-          value: "",
-        })
-      : renderDropdown({
-          ariaLabel: `Change ${tool.name} ${accountLabel} status`,
-          className: "billing-type-dropdown linked-manage-status-dropdown",
-          id: `linked-manage-status-${tool.id}-${accountLabel}`,
-          onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
-          options: [
-            { label: "Active", value: "Active" },
-            { label: "On a break", value: "On a Break" },
-            { label: "Goodbye", value: "Goodbye" },
-          ],
-          value: toolAccountDetails[tool.id]?.[accountLabel]?.status ?? "Active",
-        });
+    const detail = toolAccountDetails[tool.id]?.[accountLabel];
+    const manageStatus = detail?.status ?? "Active";
+    const isEndedTrial =
+      plan === "Trial" &&
+      Boolean(detail?.trialExpiryDate) &&
+      (daysUntilDate(detail?.trialExpiryDate ?? "") ?? 0) < 0;
+    if (plan === "Trial" && !detail?.trialResolved && !isEndedTrial) {
+      return <span className="linked-status-readonly">Active</span>;
+    }
+    if (isEndedTrial && !detail?.trialResolved) {
+      return renderDropdown({
+        ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
+        className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
+        id: `linked-trial-status-${tool.id}-${accountLabel}`,
+        onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
+        options: [
+          { disabled: true, label: "Confirm status", value: "" },
+          { label: "Trial converted to paid", value: "converted" },
+          { label: "Trial ended / cancelled", value: "ended" },
+        ],
+        value: "",
+      });
+    }
+    return renderDropdown({
+      ariaLabel: `Change ${tool.name} ${accountLabel} status`,
+      className: "billing-type-dropdown linked-manage-status-dropdown",
+      id: `linked-manage-status-${tool.id}-${accountLabel}`,
+      onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
+      options: [
+        { label: "Active", value: "Active" },
+        { label: "On a break", value: "On a Break" },
+        { label: "Goodbye", value: "Goodbye" },
+      ],
+      value: manageStatus,
+    });
   };
 
   const renderToolRow = (tool: ToolItem) => {
@@ -4377,17 +4944,21 @@ function DashboardContent() {
             openManageAccountModal(tool, orderedLinkedAccountLabels(tool)[0]);
             return;
           }
+          if (activeSection === "tools" && tool.status === "Considering") {
+            showToast("Can't link while on Watchlist. Remove it first.", "blocked");
+            return;
+          }
           activeSection === "watchlist"
             ? openLinkToolModal(tool, { activateToolOnSave: true })
             : openLinkToolModal(tool);
         }}
         onRemoveFavourite={() => {
-          toggleToolFavorite(tool.name);
+          toggleToolFavorite(tool.id);
           showToast("Removed from Favourites.");
         }}
         onRestore={() => setConfirmToolStateChange({ action: "unarchive", tool })}
         onToggleExpanded={() => toggleToolExpanded(tool.id)}
-        onToggleFavorite={() => toggleToolFavorite(tool.name)}
+        onToggleFavorite={() => toggleToolFavorite(tool.id)}
         onToggleSelected={() => toggleToolSelection(tool.id)}
         onToggleWatchlist={() => {
           if (activeSection === "watchlist" && tool.status === "Considering") {
@@ -4422,7 +4993,7 @@ function DashboardContent() {
           <ToolNameCell
             displayName={displayToolName(tool.name)}
             draft={toolNameDraft}
-            isEditing={editingToolName === tool.name}
+            isEditing={editingToolId === tool.id}
             logoBackground={tool.logoBg}
             logoText={toolInitials(tool.name)}
             name={tool.name}
@@ -4433,6 +5004,36 @@ function DashboardContent() {
           />
         )}
         renderUrl={() => <PricingUrlIcon name={tool.name} pricingUrl={tool.pricingUrl} />}
+        renderWatchlistNote={() => (
+          editingWatchlistNoteId === tool.id ? (
+            <input
+              aria-label={`Edit note for ${tool.name}`}
+              autoFocus
+              className="watchlist-note-input is-editing"
+              onBlur={() => void saveWatchlistNote(tool)}
+              onChange={(event) => setWatchlistNoteDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
+                if (event.key === "Escape") {
+                  setEditingWatchlistNoteId(null);
+                  setWatchlistNoteDraft("");
+                }
+              }}
+              placeholder="Add a note..."
+              type="text"
+              value={watchlistNoteDraft}
+            />
+          ) : (
+            <button
+              className="watchlist-note-display"
+              onClick={() => startEditingWatchlistNote(tool)}
+              title={tool.notes || "Add a note..."}
+              type="button"
+            >
+              {tool.notes || "Add a note..."}
+            </button>
+          )
+        )}
         section={activeSection}
         tool={tool}
       />
@@ -4459,7 +5060,7 @@ function DashboardContent() {
         key={group.category}
         onToggleSelection={toggleGroupSelection}
         renderToolRow={renderToolRow}
-        subgroups={categoryPreset?.subgroups}
+        subgroups={activeSection === "tools" ? categoryPreset?.subgroups : undefined}
         tools={group.tools}
       />
     );
@@ -4557,53 +5158,59 @@ function DashboardContent() {
         .map((accountLabel) => {
           const detail = toolAccountDetails[billingHistoryTool.id]?.[accountLabel];
           const recordKey = `${billingHistoryTool.id}::${accountLabel}`;
-          const amounts = detail
-            ? (detail.billingAmounts?.length
-                ? detail.billingAmounts
-                : normaliseBillingType(detail.billingType ?? "Monthly")
-                    .split(", ")
-                    .filter(Boolean)
-                    .map((billingType, index) => ({
-                      amount: index === 0 ? detail.amount : "",
-                      billingType,
-                      currency: normaliseCurrency(detail.currency),
-                    })))
-            : [];
-          const generatedEntries: BillingHistoryEntry[] = amounts.map((billingAmount, index) => {
-            const id = `generated-${normaliseBillingType(billingAmount.billingType)}-${index}`;
-            return {
-              amount: billingAmount.amount
-                ? `${normaliseCurrency(billingAmount.currency)} ${billingAmount.amount}`
-                : undefined,
-              billingType: normaliseBillingType(billingAmount.billingType),
-              date: detail?.nextChargeDate ? formatBillingDate(detail.nextChargeDate) : "—",
-              event: "Charged",
-              id,
-              note: billingHistoryNotes[`${recordKey}::${id}`] ?? [detail?.planName, normaliseBillingType(billingAmount.billingType)]
+          const currentPlanName = capitaliseFirstLetter(detail?.planName ?? "");
+          const currentBillingAmounts = detail?.billingAmounts?.length
+            ? detail.billingAmounts
+            : normaliseBillingType(detail?.billingType ?? "Monthly")
+                .split(", ")
                 .filter(Boolean)
-                .join(" · "),
-              planName: detail?.planName ?? "",
-              source: "generated",
-            };
-          });
+                .map((billingType, index) => ({
+                  amount: index === 0 ? detail?.amount ?? "" : "",
+                  billingType,
+                  currency: normaliseCurrency(detail?.currency),
+                  id: `billing-history-fallback-${index}`,
+                }));
+          const trialConversionNotes = (detail?.trialResolutionHistory ?? [])
+            .filter((entry) => entry.outcome === "converted")
+            .map((entry) => {
+              const noteBillingTypes = normaliseBillingType(entry.billingType || detail?.billingType || "Monthly")
+                .split(", ");
+              const conversionNote = `${entry.isCorrection ? "Corrected: converted" : "Converted"} to ${
+                entry.planName || "Paid"
+              } on ${formatBillingDate(entry.convertedDate)}`;
+              return noteBillingTypes.some((billingType) => billingType === "Lifetime" || billingType === "One-time")
+                ? `${conversionNote} · no further charges`
+                : `${conversionNote} · next charge ${
+                entry.nextChargeDate ? formatBillingDate(entry.nextChargeDate) : "not set"
+              }`;
+            });
           return {
             accountLabel,
-            entries: [...generatedEntries, ...(manualBillingHistory[recordKey] ?? [])],
-            planName: detail?.planName ?? "",
+            conversionNotes: trialConversionNotes,
+            entries: [
+              ...(detail?.billingHistoryEntries ?? []),
+              ...(manualBillingHistory[recordKey] ?? []),
+            ]
+              .map((entry) => {
+                const billingAmount = currentBillingAmounts.find(
+                  (amount) => normaliseBillingType(amount.billingType) === normaliseBillingType(entry.billingType ?? ""),
+                );
+                return {
+                  ...entry,
+                  amount: entry.amount || (entry.event === "Charged" ? billingAmount?.amount || undefined : undefined),
+                  currency: entry.currency || (entry.event === "Charged" ? billingAmount?.currency : undefined),
+                  planName: capitaliseFirstLetter(entry.planName || currentPlanName),
+                };
+              })
+              .sort((firstEntry, secondEntry) => (
+                firstEntry.date.localeCompare(secondEntry.date) ||
+                firstEntry.id.localeCompare(secondEntry.id)
+              )),
+            planName: currentPlanName,
+            startDate: detail?.startDate || undefined,
           };
         })
     : [];
-  const updateBillingHistoryNote = (recordKey: string, entry: BillingHistoryEntry, note: string) => {
-    if (entry.source === "generated") {
-      setBillingHistoryNotes((current) => (
-        updateGeneratedBillingHistoryNote(current, recordKey, entry.id, note)
-      ));
-      return;
-    }
-    setManualBillingHistory((current) => (
-      updateManualBillingHistoryNote(current, recordKey, entry.id, note)
-    ));
-  };
 
   const pendingBillingActions = Object.entries(manualBillingHistory).flatMap(([recordKey, entries]) => {
     const separatorIndex = recordKey.indexOf("::");
@@ -4624,6 +5231,132 @@ function DashboardContent() {
     const day = String(today.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   };
+
+  useEffect(() => {
+    if (!hasLoadedStoredTools) return;
+
+    const today = todayInputValue();
+    const updates: Array<{
+      accountLabel: string;
+      detail: ToolAccountDetail;
+      toolId: string;
+    }> = [];
+
+    toolList.forEach((tool) => {
+      tool.accounts.forEach((accountLabel) => {
+        const plan = toolAccountStatuses[tool.id]?.[accountLabel] ?? tool.status;
+        const detail = toolAccountDetails[tool.id]?.[accountLabel];
+        if (
+          !detail ||
+          detail.status !== "Active" ||
+          (plan !== "Active" && plan !== "Paid")
+        ) {
+          return;
+        }
+
+        const selectedBillingTypes = normaliseBillingType(detail.billingType).split(", ");
+        const recurringType = selectedBillingTypes.find(
+          (billingType) => billingType === "Monthly" || billingType === "Yearly",
+        ) ?? "";
+        const purchaseType = selectedBillingTypes.find(
+          (billingType) => billingType === "Lifetime" || billingType === "One-time",
+        ) ?? "";
+        const nextHistory = [...detail.billingHistoryEntries];
+        let chargeDate = detail.nextChargeDate;
+        let hasLedgerUpdate = false;
+
+        while (recurringType && chargeDate && chargeDate <= today) {
+          const amountEntry = detail.billingAmounts?.find(
+            (entry) => entry.billingType === recurringType,
+          );
+          const entryId = `auto-charge-${recurringType.toLowerCase()}-${chargeDate}`;
+          if (!nextHistory.some((entry) => entry.id === entryId)) {
+            nextHistory.push({
+              amount: amountEntry?.amount || detail.amount || undefined,
+              billingType: recurringType,
+              currency: amountEntry?.currency || detail.currency,
+              date: chargeDate,
+              event: "Charged",
+              id: entryId,
+              note: "",
+              planName: detail.planName,
+              saved: true,
+              source: "manual",
+            });
+          }
+          chargeDate = detail.startDate
+            ? recurringChargeDateAfter(detail.startDate, recurringType, chargeDate)
+            : advanceRecurringChargeDate(chargeDate, recurringType);
+          hasLedgerUpdate = true;
+        }
+
+        if (purchaseType && detail.purchaseDate && detail.purchaseDate <= today) {
+          const entryId = `auto-charge-${purchaseType.toLowerCase()}-${detail.purchaseDate}`;
+          if (!nextHistory.some((entry) => entry.id === entryId)) {
+            const amountEntry = detail.billingAmounts?.find(
+              (entry) => entry.billingType === purchaseType,
+            );
+            nextHistory.push({
+              amount: amountEntry?.amount || detail.amount || undefined,
+              billingType: purchaseType,
+              currency: amountEntry?.currency || detail.currency,
+              date: detail.purchaseDate,
+              event: "Charged",
+              id: entryId,
+              note: "",
+              planName: detail.planName,
+              saved: true,
+              source: "manual",
+            });
+            hasLedgerUpdate = true;
+          }
+        }
+
+        if (!hasLedgerUpdate) return;
+        updates.push({
+          accountLabel,
+          detail: {
+            ...detail,
+            billingHistoryEntries: nextHistory,
+            nextChargeDate: chargeDate,
+          },
+          toolId: tool.id,
+        });
+      });
+    });
+
+    if (updates.length === 0) return;
+
+    setToolAccountDetails((current) => {
+      const next = { ...current };
+      updates.forEach((update) => {
+        next[update.toolId] = {
+          ...(next[update.toolId] ?? {}),
+          [update.accountLabel]: update.detail,
+        };
+      });
+      return next;
+    });
+
+    if (shouldUseSupabase) {
+      void Promise.all(updates.map((update) => (
+        updateToolLinkDetails(update.toolId, update.accountLabel, accountList, {
+          billingHistoryEntries: update.detail.billingHistoryEntries,
+          nextChargeDate: update.detail.nextChargeDate,
+          startDate: update.detail.startDate,
+        })
+      ))).catch((error: unknown) => {
+        setToolDataError(error instanceof Error ? error.message : "Could not update billing history.");
+      });
+    }
+  }, [
+    accountList,
+    hasLoadedStoredTools,
+    shouldUseSupabase,
+    toolAccountDetails,
+    toolAccountStatuses,
+    toolList,
+  ]);
 
   const startResolvingPendingAction = (entryId: string) => {
     setResolvingPendingActionId(entryId);
@@ -4652,47 +5385,130 @@ function DashboardContent() {
     tool: ToolItem,
     accountLabel: string,
     outcome: "converted" | "ended",
+    isCorrection = false,
+    detailOverride?: ToolAccountDetail,
   ) => {
-    const detail = toolAccountDetails[tool.id]?.[accountLabel];
-    const nextPlan: ToolStatus = outcome === "converted" ? "Active" : "Free Tier";
-    await updateRelationStatus(tool.id, accountLabel, nextPlan);
+    const storedDetail = toolAccountDetails[tool.id]?.[accountLabel];
+    const detail = detailOverride ?? storedDetail;
+    if (!detail) return false;
+    const previousPlan = toolAccountStatuses[tool.id]?.[accountLabel] ?? tool.status;
+    const previousDetail: ToolAccountDetail = {
+      ...(storedDetail ?? detail),
+      billingAmounts: (storedDetail ?? detail).billingAmounts?.map((entry) => ({ ...entry })),
+    };
+    const convertedDate = outcome === "converted" ? todayInputValue() : "";
+    const nextPlan: ToolStatus = outcome === "converted" ? "Active" : "Trial";
+    const resolutionHistoryEntry: TrialResolutionHistoryEntry = {
+      billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
+      convertedDate,
+      id: `trial-resolution-${tool.id}-${accountLabel}-${Date.now()}`,
+      isCorrection,
+      nextChargeDate: outcome === "converted" ? detail.nextChargeDate : "",
+      purchaseDate: outcome === "converted" ? detail.purchaseDate : "",
+      outcome,
+      planName: detail.planName || toolAccountPlanNames[tool.id]?.[accountLabel] || "",
+    };
+    const trialOutcomeEntry: BillingHistoryEntry | null = outcome === "converted" ? {
+      amount: detail.amount,
+      billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
+      currency: normaliseCurrency(detail.currency),
+      date: todayInputValue(),
+      event: "Trial Converted to Paid",
+      id: resolutionHistoryEntry.id,
+      isCorrection,
+      isTrialOutcomeNote: outcome === "converted",
+      nextChargeDate: detail.nextChargeDate,
+      note: isCorrection
+        ? `Corrected: converted to ${detail.planName || "Paid"}`
+        : "Trial status confirmed",
+      planName: detail.planName,
+      saved: true,
+      source: "manual",
+    } : null;
+    const nextDetail: ToolAccountDetail = {
+      amount: detail?.amount ?? "",
+      billingAmounts: detail?.billingAmounts,
+      billingHistoryEntries: trialOutcomeEntry
+        ? [...detail.billingHistoryEntries, trialOutcomeEntry]
+        : detail.billingHistoryEntries,
+      billingType: normaliseBillingType(detail?.billingType ?? "Monthly"),
+      convertedDate,
+      currency: normaliseCurrency(detail?.currency),
+      lastTopUpDate: detail?.lastTopUpDate ?? "",
+      nextChargeDate: outcome === "converted" ? detail.nextChargeDate : "",
+      purchaseDate: outcome === "converted" ? detail.purchaseDate : "",
+      planName: detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
+      startDate:
+        outcome === "converted" && recurringBillingType(detail.billingType)
+          ? immutableStartDate(detail, detail.nextChargeDate)
+          : detail.startDate ?? "",
+      status: outcome === "converted" ? "Active" : "Goodbye",
+      trialExpiryDate: detail?.trialExpiryDate ?? "",
+      trialResolution: outcome,
+      trialResolutionHistory: [
+        ...(detail.trialResolutionHistory ?? []),
+        resolutionHistoryEntry,
+      ],
+      trialResolved: true,
+    };
+
+    setToolAccountStatuses((current) => ({
+      ...current,
+      [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: nextPlan },
+    }));
     setToolAccountDetails((current) => ({
       ...current,
-      [tool.id]: {
-        ...(current[tool.id] ?? {}),
-        [accountLabel]: {
-          amount: detail?.amount ?? "",
-          billingAmounts: detail?.billingAmounts,
-          billingType: normaliseBillingType(detail?.billingType ?? "Monthly"),
-          currency: normaliseCurrency(detail?.currency),
-          lastTopUpDate: detail?.lastTopUpDate ?? "",
-          nextChargeDate: detail?.nextChargeDate ?? "",
-          planName: detail?.planName ?? "",
-          status: detail?.status ?? "Active",
-          trialExpiryDate: "",
-        },
-      },
+      [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: nextDetail },
     }));
 
-    if (outcome === "converted") {
-      const recordKey = `${tool.id}::${accountLabel}`;
-      const conversionEntry: BillingHistoryEntry = {
-        amount: detail?.amount ?? "",
-        billingType: normaliseBillingType(detail?.billingType ?? "Monthly"),
-        currency: normaliseCurrency(detail?.currency),
-        date: todayInputValue(),
-        event: "Trial Converted to Paid",
-        id: `trial-converted-${tool.id}-${accountLabel}-${Date.now()}`,
-        note: "Trial status confirmed",
-        planName: detail?.planName ?? "",
-        saved: true,
-        source: "manual",
-      };
-      setManualBillingHistory((current) => ({
-        ...current,
-        [recordKey]: [...(current[recordKey] ?? []), conversionEntry],
-      }));
+    if (shouldUseSupabase) {
+      try {
+        await updateToolLinkDetails(tool.id, accountLabel, accountList, {
+          amount: nextDetail.amount,
+          billingHistoryEntries: nextDetail.billingHistoryEntries,
+          billingType: nextDetail.billingType,
+          convertedDate: nextDetail.convertedDate,
+          currency: nextDetail.currency,
+          lastTopUpDate: nextDetail.lastTopUpDate,
+          nextChargeDate: nextDetail.nextChargeDate,
+          purchaseDate: nextDetail.purchaseDate,
+          startDate: nextDetail.startDate,
+          plan: nextPlan,
+          planName: nextDetail.planName,
+          status: nextDetail.status,
+          trialExpiryDate: nextDetail.trialExpiryDate,
+          trialResolution: nextDetail.trialResolution,
+          trialResolutionHistory: nextDetail.trialResolutionHistory,
+          trialResolved: nextDetail.trialResolved,
+        });
+      } catch (error) {
+        setToolAccountStatuses((current) => ({
+          ...current,
+          [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: previousPlan },
+        }));
+        setToolAccountDetails((current) => ({
+          ...current,
+          [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: previousDetail },
+        }));
+        setToolDataError(error instanceof Error ? error.message : "Could not resolve trial status.");
+        return false;
+      }
     }
+
+    if (!isCorrection) {
+      showTrialResolutionUndo(
+        outcome === "converted"
+          ? `Converted to ${nextDetail.planName || "Paid"}`
+          : "Trial ended / cancelled",
+        {
+          accountLabel,
+          previousDetail,
+          previousPlan,
+          toolId: tool.id,
+        },
+      );
+    }
+    return true;
   };
   return (
     <main className="app-shell" data-theme="dark" data-dark-variant="cool">
@@ -5082,8 +5898,9 @@ function DashboardContent() {
         <BillingHistoryPanel
           historyEntries={billingHistorySections}
           onClose={() => setBillingHistoryTarget(null)}
-          onUpdateNote={updateBillingHistoryNote}
-          selectedToolAccount={billingHistoryTarget}
+          restoredLabel={billingHistoryTool?.restoredAt
+            ? `Restored ${formatBillingDate(billingHistoryTool.restoredAt)}`
+            : undefined}
           toolName={billingHistoryToolName}
         />
       ) : null}
@@ -5152,6 +5969,9 @@ function DashboardContent() {
       />
 
       <DashboardConfirmationModals
+        duplicateRestoreName={pendingDuplicateRestore?.restoredName ?? ""}
+        duplicateRestoreToolName={pendingDuplicateRestore?.toolName ?? null}
+        dontShowOnboardingAgain={dontShowOnboardingAgain}
         pendingResolutionConfirmation={pendingResolutionConfirmation ? {
           originalEvent: pendingResolutionConfirmation.entry.event,
           title: `Mark as ${pendingResolutionOutcome}, dated ${billingHistoryDisplayDate(pendingResolutionDate)}?`,
@@ -5163,6 +5983,10 @@ function DashboardContent() {
           toolName: confirmToolStateChange.tool.name,
         } : null}
         watchlistMoveToolName={watchlistMoveTool?.name ?? null}
+        onCancelDuplicateRestore={() => setPendingDuplicateRestore(null)}
+        onDuplicateRestoreNameChange={(restoredName) =>
+          setPendingDuplicateRestore((current) => current ? { ...current, restoredName } : current)
+        }
         onClosePendingResolution={() => setPendingResolutionConfirmation(null)}
         onClosePresetSelectionWarning={() => setShowPresetSelectionWarning(false)}
         onCloseToolStateConfirmation={() => setConfirmToolStateChange(null)}
@@ -5175,9 +5999,22 @@ function DashboardContent() {
             );
           }
         }}
+        onConfirmDuplicateRestore={() => {
+          if (!pendingDuplicateRestore) return;
+          performSingleArchivedToolRestore(
+            pendingDuplicateRestore.archiveId,
+            pendingDuplicateRestore.toolId,
+            {
+              forceNewId: true,
+              name: pendingDuplicateRestore.restoredName,
+            },
+          );
+          setPendingDuplicateRestore(null);
+        }}
         onConfirmToolStateChange={confirmPendingToolStateChange}
         onConfirmWatchlistMove={confirmMoveWatchlistToolToLinked}
         onDismissCreateAccount={dismissCreateAccountModal}
+        onDontShowOnboardingAgainChange={setDontShowOnboardingAgain}
         onOpenAccountSetup={openAccountSetup}
       />
 
@@ -5208,11 +6045,36 @@ function DashboardContent() {
       ) : null}
 
       {accountToast ? (
-        <div className="app-toast app-toast-success" role="status">
+        <div className={`app-toast app-toast-${accountToastVariant}`} role="status">
+          {accountToastVariant === "warning" || accountToastVariant === "blocked" ? (
+            <svg aria-hidden="true" className="toast-warning-icon" fill="none" height="16" viewBox="0 0 24 24" width="16">
+              <path d="M12 4 21 20H3L12 4Z" />
+              <path d="M12 9v5" />
+              <path d="M12 17.5h.01" />
+            </svg>
+          ) : (
+            <svg aria-hidden="true" className="toast-success-check" fill="none" height="16" viewBox="0 0 24 24" width="16">
+              <path d="m5 12 4 4L19 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+            </svg>
+          )}
+          <span>{accountToast}</span>
+        </div>
+      ) : null}
+
+      {trialResolutionUndo ? (
+        <div className="app-toast app-toast-success trial-resolution-undo-toast" role="status">
           <svg aria-hidden="true" className="toast-success-check" fill="none" height="16" viewBox="0 0 24 24" width="16">
             <path d="m5 12 4 4L19 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
           </svg>
-          <span>{accountToast}</span>
+          <span className="trial-resolution-undo-message">{trialResolutionUndoMessage}</span>
+          <span aria-hidden="true" className="trial-resolution-undo-divider" />
+          <button onClick={() => void undoTrialResolution()} type="button">
+            <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+              <path d="M8 7H4v-4" />
+              <path d="M4.5 7.5A8 8 0 1 1 5 17" />
+            </svg>
+            Undo
+          </button>
         </div>
       ) : null}
 
@@ -5221,7 +6083,10 @@ function DashboardContent() {
           expandedCategoryIds={expandedPresetCategories}
           isSaving={isSavingTool}
           normalizeCategory={normaliseToolCategory}
-          onClose={() => setShowPresetToolPicker(false)}
+          onClose={() => {
+            setShowPresetSelectionWarning(false);
+            setShowPresetToolPicker(false);
+          }}
           onDone={() => void savePresetToolSelection()}
           onExpandCategory={(categoryId) =>
             setExpandedPresetCategories((currentCategories) => [...currentCategories, categoryId])
@@ -5320,6 +6185,7 @@ function DashboardContent() {
           onAddAccount={addToolDetailAccountDraft}
           onArchive={archiveManagedLinkTool}
           onClose={closeManageAccountModal}
+          onCloseDropdowns={() => setOpenDropdownId(null)}
           onSave={() => saveAllToolDetailAccounts(managedTool, orderedToolDetailDrafts)}
           onUnlink={(draft) => {
             const draftId = draft.draftId ?? draft.accountLabel;
@@ -5398,6 +6264,45 @@ function DashboardContent() {
             options: (["Active", "On a Break", "Goodbye"] as ManageStatus[]).map((status) => ({ label: status, value: status })),
             value: draft.status,
           })}
+          renderTrialOutcomeSelector={(draft, placeholder) => renderDropdown({
+            ariaLabel: placeholder,
+            className: "modal-dropdown field-dropdown trial-outcome-dropdown",
+            id: `detail-trial-outcome-${managedTool.id}-${draft.draftId ?? draft.accountLabel}`,
+            onChange: (outcome) => {
+              updateToolDetailDraft(draft.draftId ?? draft.accountLabel, {
+                pendingTrialOutcome: outcome as "converted" | "ended",
+              });
+            },
+            options: [
+              { label: "Converted to paid", value: "converted" },
+              { label: "Ended/ Cancelled", value: "ended" },
+            ],
+            placeholder,
+            value: draft.pendingTrialOutcome,
+          })}
+          trialOutcomeState={(draft) => {
+            const detail = toolAccountDetails[managedTool.id]?.[draft.accountLabel];
+            if (!detail) return null;
+            if (
+              !detail.trialResolved &&
+              draft.plan === "Trial" &&
+              Boolean(detail.trialExpiryDate) &&
+              (daysUntilDate(detail.trialExpiryDate) ?? 0) < 0
+            ) {
+              return { state: "pending" };
+            }
+            if (
+              detail.trialResolved &&
+              detail.trialResolution === "converted" &&
+              detail.convertedDate
+            ) {
+              return {
+                conversionDate: formatBillingDate(detail.convertedDate),
+                state: "converted",
+              };
+            }
+            return null;
+          }}
           tool={{
             id: managedTool.id,
             initials: toolInitials(managedTool.name),

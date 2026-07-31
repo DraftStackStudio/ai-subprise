@@ -14,7 +14,7 @@
       "id": "ai-assistant",
       "label": "AI Assistant",
       "description": "Chat & reasoning tools",
-      "tools": ["ChatGPT", "Claude", "Co-pilot", "Deepseek", "Gemini", "Grok"]
+      "tools": ["ChatGPT", "Claude", "Co-pilot", "Deepseek", "Google Gemini", "Grok"]
     },
     {
       "id": "visual-audio",
@@ -73,7 +73,7 @@
       "id": "coding-dev",
       "label": "Coding & Dev",
       "description": "Dev & coding assistants",
-      "tools": ["Cursor", "Github", "Hostinger", "Openrouter", "Pinecone", "Supabase", "Vercel", "Windsurf"],
+      "tools": ["Cursor", "Github", "Hostinger", "Openrouter", "Pinecone", "PostHog", "Resend", "Supabase", "Vercel", "Windsurf"],
       "pendingTools": ["Warp", "Cline", "Aider", "Zed", "Amazon Q Developer"],
       "_note": "pendingTools are proposed but not yet confirmed — move into 'tools' once approved"
     },
@@ -81,7 +81,7 @@
       "id": "website-funnels",
       "label": "Website & Funnels",
       "description": "Sites & landing pages",
-      "tools": ["10Web", "ClickFunnels", "Mixo", "Systeme", "Wordpress"]
+      "tools": ["10Web", "ClickFunnels", "Framer AI", "Mixo", "Systeme", "Wordpress"]
     },
     {
       "id": "niche",

@@ -202,7 +202,13 @@ export default function LinkAIToolModal({
               );
               const selectedBillingTypes = block.billingType.split(", ").filter(Boolean);
               const hasTopUpCredit = selectedBillingTypes.includes("Top-up");
-              const hasPrimaryBillingType = selectedBillingTypes.some((billingType) => billingType !== "Top-up");
+              const hasRecurringBillingType = selectedBillingTypes.some(
+                (billingType) => billingType === "Monthly" || billingType === "Yearly",
+              );
+              const hasPurchaseBillingType = selectedBillingTypes.some(
+                (billingType) => billingType === "Lifetime" || billingType === "One-time",
+              );
+              const hasDatedBillingType = hasRecurringBillingType || hasPurchaseBillingType;
 
               return (
                 <div className="link-account-block" key={block.id}>
@@ -293,8 +299,8 @@ export default function LinkAIToolModal({
                             value={block.planName}
                           />
                         </label>
-                        <div className={`tool-detail-amount-row${hasPrimaryBillingType && hasTopUpCredit ? "" : " is-single"}`}>
-                          {hasPrimaryBillingType ? (
+                        <div className={`tool-detail-amount-row${hasDatedBillingType && hasTopUpCredit ? "" : " is-single"}`}>
+                          {hasRecurringBillingType ? (
                             <label className="form-field link-account-paid-plan-name">
                               <span>Next Charge</span>
                               <DateFieldControl
@@ -302,6 +308,17 @@ export default function LinkAIToolModal({
                                 onChange={(nextChargeDate) => setBlocks((current) =>
                                   current.map((item) => item.id === block.id ? { ...item, nextChargeDate } : item))}
                                 value={block.nextChargeDate}
+                              />
+                            </label>
+                          ) : null}
+                          {hasPurchaseBillingType ? (
+                            <label className="form-field link-account-paid-plan-name">
+                              <span>Purchased on</span>
+                              <DateFieldControl
+                                ariaLabel="Purchased on"
+                                onChange={(purchaseDate) => setBlocks((current) =>
+                                  current.map((item) => item.id === block.id ? { ...item, purchaseDate } : item))}
+                                value={block.purchaseDate}
                               />
                             </label>
                           ) : null}
@@ -336,6 +353,7 @@ export default function LinkAIToolModal({
                   id: `link-account-${Date.now().toString(36)}-${current.length + 1}`,
                   lastTopUpDate: "",
                   nextChargeDate: "",
+                  purchaseDate: "",
                   plan: defaultPlanForTool(),
                   planName: "",
                   trialExpiryDate: "",

@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
+import type { BillingHistoryEntry } from "@/types/billingHistory";
+import type { TrialResolutionHistoryEntry } from "@/types/toolDetail";
 
 export type SupabaseToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 
@@ -16,6 +18,7 @@ export type ToolRecord = {
   name: string;
   notes: string;
   pricingUrl: string;
+  restoredAt?: string;
   status: SupabaseToolStatus;
 };
 
@@ -52,6 +55,7 @@ function asToolRecord(record: Record<string, unknown>, accounts: string[]): Tool
     name,
     notes: typeof record.notes === "string" ? record.notes : "",
     pricingUrl: typeof record.pricing_url === "string" && record.pricing_url ? record.pricing_url : "#",
+    restoredAt: typeof record.restored_at === "string" ? record.restored_at : undefined,
     status: typeof record.status === "string" ? record.status as SupabaseToolStatus : "Free Tier",
   };
 }
@@ -69,6 +73,7 @@ function toolPayload(input: ToolInput) {
     name: input.name,
     notes: input.notes,
     pricing_url: input.pricingUrl,
+    restored_at: input.restoredAt ?? null,
     status: input.status,
   };
 }
@@ -124,7 +129,7 @@ export async function getToolLinkDetailRecords() {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("tool_email_links")
-    .select("tool_id,plan,plan_name,status,billing_type,amount,currency,next_charge_date,last_top_up_date,trial_expiry_date,email_accounts(label)");
+    .select("tool_id,plan,plan_name,status,billing_type,amount,currency,next_charge_date,purchase_date,last_top_up_date,start_date,trial_expiry_date,trial_resolved,trial_resolution,trial_resolution_history,billing_history_entries,converted_date,email_accounts(label)");
 
   if (error) throw error;
 
@@ -132,19 +137,49 @@ export async function getToolLinkDetailRecords() {
     const rawLink = link as Record<string, unknown>;
     const joinedAccount = (link as { email_accounts?: { label?: string } | { label?: string }[] }).email_accounts;
     const account = Array.isArray(joinedAccount) ? joinedAccount[0] : joinedAccount;
+    const billingHistoryEntries = Array.isArray(rawLink.billing_history_entries)
+      ? rawLink.billing_history_entries
+          .filter((entry): entry is BillingHistoryEntry => Boolean(entry) && typeof entry === "object")
+      : [];
+    const trialResolutionHistory = Array.isArray(rawLink.trial_resolution_history)
+      ? rawLink.trial_resolution_history
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+          .filter((entry) => entry.outcome === "converted" || entry.outcome === "ended")
+          .map((entry): TrialResolutionHistoryEntry => ({
+            billingType: typeof entry.billingType === "string" ? entry.billingType : "",
+            convertedDate: typeof entry.convertedDate === "string" ? entry.convertedDate : "",
+            id: typeof entry.id === "string" ? entry.id : crypto.randomUUID(),
+            isCorrection: entry.isCorrection === true,
+            nextChargeDate: typeof entry.nextChargeDate === "string" ? entry.nextChargeDate : "",
+            purchaseDate: typeof entry.purchaseDate === "string" ? entry.purchaseDate : "",
+            outcome: entry.outcome as "converted" | "ended",
+            planName: typeof entry.planName === "string" ? entry.planName : "",
+          }))
+      : [];
 
     return {
       accountLabel: account?.label ?? "",
       amount: typeof rawLink.amount === "string" ? rawLink.amount : "",
+      billingHistoryEntries,
       billingType: typeof rawLink.billing_type === "string" && rawLink.billing_type ? rawLink.billing_type : "Monthly",
+      convertedDate: typeof rawLink.converted_date === "string" ? rawLink.converted_date : "",
       currency: typeof rawLink.currency === "string" && rawLink.currency ? rawLink.currency : "USD",
       lastTopUpDate: typeof rawLink.last_top_up_date === "string" ? rawLink.last_top_up_date : "",
       nextChargeDate: typeof rawLink.next_charge_date === "string" ? rawLink.next_charge_date : "",
+      purchaseDate: typeof rawLink.purchase_date === "string" ? rawLink.purchase_date : "",
+      startDate: typeof rawLink.start_date === "string" ? rawLink.start_date : "",
       plan: typeof rawLink.plan === "string" && rawLink.plan ? rawLink.plan : "Free Tier",
       planName: typeof rawLink.plan_name === "string" ? rawLink.plan_name : "",
       status: typeof rawLink.status === "string" && rawLink.status ? rawLink.status : "Active",
       toolId: String(rawLink.tool_id ?? ""),
       trialExpiryDate: typeof rawLink.trial_expiry_date === "string" ? rawLink.trial_expiry_date : "",
+      trialResolution: (
+        rawLink.trial_resolution === "converted" || rawLink.trial_resolution === "ended"
+          ? rawLink.trial_resolution
+          : ""
+      ) as "" | "converted" | "ended",
+      trialResolutionHistory,
+      trialResolved: rawLink.trial_resolved === true,
     };
   }).filter((link) => link.toolId && link.accountLabel);
 }
@@ -192,6 +227,8 @@ export async function patchToolRecord(id: string, input: Partial<ToolInput>) {
   if (input.favorite !== undefined) payload.is_favourite = input.favorite;
   if (input.logo !== undefined) payload.logo_text = input.logo;
   if (input.name !== undefined) payload.name = input.name;
+  if (input.notes !== undefined) payload.notes = input.notes;
+  if (input.restoredAt !== undefined) payload.restored_at = input.restoredAt ?? null;
   if (input.status !== undefined) payload.status = input.status;
 
   const { error } = await supabase.from("ai_tools").update(payload).eq("id", id);
@@ -232,14 +269,21 @@ export async function updateToolLinkDetails(
   accounts: AccountRef[],
   details: {
     amount?: string;
+    billingHistoryEntries?: BillingHistoryEntry[];
     billingType?: string;
+    convertedDate?: string;
     currency?: string;
     lastTopUpDate?: string;
     nextChargeDate?: string;
+    purchaseDate?: string;
+    startDate?: string;
     plan?: string;
     planName?: string;
     status?: string;
     trialExpiryDate?: string;
+    trialResolution?: "" | "converted" | "ended";
+    trialResolutionHistory?: TrialResolutionHistoryEntry[];
+    trialResolved?: boolean;
   },
 ) {
   const account = accounts.find((item) => item.label === accountLabel);
@@ -249,14 +293,21 @@ export async function updateToolLinkDetails(
   const payload: Record<string, unknown> = {};
 
   if (details.amount !== undefined) payload.amount = details.amount || null;
+  if (details.billingHistoryEntries !== undefined) payload.billing_history_entries = details.billingHistoryEntries;
   if (details.billingType !== undefined) payload.billing_type = details.billingType || null;
+  if (details.convertedDate !== undefined) payload.converted_date = details.convertedDate || null;
   if (details.currency !== undefined) payload.currency = details.currency || "USD";
   if (details.lastTopUpDate !== undefined) payload.last_top_up_date = details.lastTopUpDate || null;
   if (details.nextChargeDate !== undefined) payload.next_charge_date = details.nextChargeDate || null;
+  if (details.purchaseDate !== undefined) payload.purchase_date = details.purchaseDate || null;
+  if (details.startDate !== undefined) payload.start_date = details.startDate || null;
   if (details.plan !== undefined) payload.plan = details.plan;
   if (details.planName !== undefined) payload.plan_name = details.planName || null;
   if (details.status !== undefined) payload.status = details.status;
   if (details.trialExpiryDate !== undefined) payload.trial_expiry_date = details.trialExpiryDate || null;
+  if (details.trialResolution !== undefined) payload.trial_resolution = details.trialResolution || null;
+  if (details.trialResolutionHistory !== undefined) payload.trial_resolution_history = details.trialResolutionHistory;
+  if (details.trialResolved !== undefined) payload.trial_resolved = details.trialResolved;
 
   if (Object.keys(payload).length === 0) return;
 

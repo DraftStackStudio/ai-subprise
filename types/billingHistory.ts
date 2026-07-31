@@ -5,6 +5,8 @@ export type BillingHistoryEvent =
   | "Plan Changed"
   | "Refunded"
   | "Double Charged"
+  | "Paused"
+  | "Resumed"
   | "Cancelled";
 
 export type BillingHistoryEntry = {
@@ -14,6 +16,9 @@ export type BillingHistoryEntry = {
   date: string;
   event: BillingHistoryEvent;
   id: string;
+  isCorrection?: boolean;
+  isTrialOutcomeNote?: boolean;
+  nextChargeDate?: string;
   note?: string;
   planName?: string;
   resolvesEntryId?: string;
@@ -23,8 +28,10 @@ export type BillingHistoryEntry = {
 
 export type BillingHistorySection = {
   accountLabel: string;
+  conversionNotes?: string[];
   entries: BillingHistoryEntry[];
   planName: string;
+  startDate?: string;
 };
 
 export type BillingHistoryTarget = {

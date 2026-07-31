@@ -5,24 +5,20 @@ import {
   billingHistoryDisplayDate,
 } from "@/lib/billingHistory";
 import type {
-  BillingHistoryEntry,
   BillingHistorySection,
-  BillingHistoryTarget,
 } from "@/types/billingHistory";
 
 type BillingHistoryPanelProps = {
   historyEntries: BillingHistorySection[];
   onClose: () => void;
-  onUpdateNote: (recordKey: string, entry: BillingHistoryEntry, note: string) => void;
-  selectedToolAccount: BillingHistoryTarget;
+  restoredLabel?: string;
   toolName: string;
 };
 
 export default function BillingHistoryPanel({
   historyEntries,
   onClose,
-  onUpdateNote,
-  selectedToolAccount,
+  restoredLabel,
   toolName,
 }: BillingHistoryPanelProps) {
   return (
@@ -47,15 +43,24 @@ export default function BillingHistoryPanel({
           </button>
         </div>
         <h2 className="billing-history-heading">Billing History</h2>
-        <h3 className="billing-history-tool-heading">{toolName}</h3>
+        <h3 className="billing-history-tool-heading">
+          <span>{toolName}</span>
+          {restoredLabel ? <span className="restored-tool-tag">{restoredLabel}</span> : null}
+        </h3>
         <div className="billing-history-sections">
           {historyEntries.map((section) => {
-            const recordKey = `${selectedToolAccount.toolId}::${section.accountLabel}`;
             return (
               <section className="billing-history-account-section" key={section.accountLabel}>
-                <p className="billing-history-account-context">
+                <div className="billing-history-account-heading">
+                  <p className="billing-history-account-context">
                   {section.accountLabel}{section.planName ? ` · ${section.planName}` : ""}
-                </p>
+                  </p>
+                  {section.startDate ? (
+                    <span className="billing-history-start-date">
+                      Started {billingHistoryDisplayDate(section.startDate)}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="billing-history-table-wrap">
                   <table className="billing-history-table">
                     <thead>
@@ -77,16 +82,7 @@ export default function BillingHistoryPanel({
                           <td>{entry.event}</td>
                           <td>{billingHistoryDisplayAmount(entry)}</td>
                           <td>
-                            <span className="billing-history-note-editor">
-                              <input
-                                aria-label={`Note for ${entry.event}`}
-                                className="billing-history-note-input"
-                                onChange={(event) => onUpdateNote(recordKey, entry, event.target.value)}
-                                placeholder="Add note"
-                                type="text"
-                                value={entry.note ?? ""}
-                              />
-                            </span>
+                            <span className="billing-history-note-readonly">{entry.note ?? ""}</span>
                           </td>
                         </tr>
                       ))}
@@ -96,6 +92,11 @@ export default function BillingHistoryPanel({
                     </tbody>
                   </table>
                 </div>
+                {section.conversionNotes?.map((note, index) => (
+                  <aside className="trial-alert-banner billing-history-conversion-note" key={`${section.accountLabel}-conversion-${index}`}>
+                    <span>{note}</span>
+                  </aside>
+                ))}
               </section>
             );
           })}

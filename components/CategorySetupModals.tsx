@@ -210,10 +210,11 @@ export default function CategorySetupModals({
           <section
             aria-labelledby="category-selection-warning-title"
             aria-modal="true"
-            className="welcome-modal compact-copy-modal"
+            className="welcome-modal compact-copy-modal category-selection-warning-modal"
             role="dialog"
+            style={{ maxWidth: 360, padding: 28, textAlign: "center" }}
           >
-            <div className="category-selection-warning-icon" aria-hidden="true">
+            <div className="category-selection-warning-icon" aria-hidden="true" style={{ margin: "0 auto 14px" }}>
               <svg viewBox="0 0 24 24">
                 <rect x="4" y="4" width="16" height="16" rx="3" />
                 <path d="m8 9 1.5 1.5L12 8" />
@@ -224,8 +225,13 @@ export default function CategorySetupModals({
             </div>
             <h2 id="category-selection-warning-title">Select at least one category</h2>
             <p>You can always add more later from settings.</p>
-            <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-primary" onClick={onContinueSelecting} type="button">
+            <div className="welcome-modal-actions" style={{ justifyContent: "center", marginTop: 26 }}>
+              <button
+                className="btn-sm btn-sm-primary"
+                onClick={onContinueSelecting}
+                style={{ minWidth: 148 }}
+                type="button"
+              >
                 Continue selecting
               </button>
             </div>
