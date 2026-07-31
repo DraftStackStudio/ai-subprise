@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
-import toolboxPresetsData from "@/config/toolboxPresets.json";
+import toolboxPresetsData from "@/config/toolboxPresets";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
 import BillingRow, { type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";

@@ -1,6 +1,6 @@
 "use client";
 
-import toolboxPresetsData from "@/config/toolboxPresets.json";
+import toolboxPresetsData from "@/config/toolboxPresets";
 
 type ToolboxPresetCategory = {
   description: string;

@@ -1,4 +1,5 @@
-{
+// Preset data is kept in TypeScript so Turbopack can hot-reload it reliably.
+const toolboxPresets = {
   "_readme": "AI Subprise — AI Toolbox preset configuration. Edit this file directly to add/remove tools, categories, or adjust which categories each template checks. No need to re-explain structure to Codex — just point it at this file.",
   "clusters": [
     { "id": "everyday", "label": "Everyday", "categories": ["ai-assistant"] },
@@ -128,4 +129,6 @@
       "categories": []
     }
   }
-}
+};
+
+export default toolboxPresets;
