@@ -217,14 +217,25 @@ export default function AccountModal({
           </label>
           <label className="form-field">
             <span>Login</span>
-            <input onChange={(event) => setLogin(event.target.value)} placeholder="you@example.com or github.com/username" type="text" value={login} />
+            <input
+              onChange={(event) => setLogin(event.target.value)}
+              placeholder={
+                provider === "Discord"
+                  ? "your Discord username or email"
+                  : provider === "Github"
+                    ? "your GitHub username or email"
+                    : ["Gmail", "iCloud", "Outlook", "Yahoo"].includes(provider)
+                      ? "your email address"
+                      : "you@example.com or github.com/username"
+              }
+              type="text"
+              value={login}
+            />
             {loginRequiredError ? <small className="field-feedback error">{loginRequiredError}</small>
               : loginDuplicateError ? <small className="field-feedback error">{loginDuplicateError}</small>
               : hasSubmitted && loginFeedback ? <small className={loginFeedback.type === "error" ? "field-feedback error" : "field-feedback success"}>
                 {loginFeedback.type === "success" ? <span aria-hidden="true" className="field-check" /> : null}{loginFeedback.message}
-              </small>
-                : provider === "Discord" ? <small className="field-feedback neutral">your Discord username or email</small>
-                  : null}
+              </small> : null}
           </label>
           <div className="welcome-modal-actions account-modal-actions">
             {!editingAccount ? <button className="btn-sm btn-sm-charcoal" disabled={isSaving} onClick={() => void submit(undefined, { addAnother: true })} type="button">+ Add next</button> : null}

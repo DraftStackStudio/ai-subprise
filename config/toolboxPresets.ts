@@ -22,9 +22,9 @@ const toolboxPresets = {
       "label": "Visual & Audio",
       "description": "Image, video & audio creation",
       "subgroups": [
-        { "label": "Image", "tools": ["Flux.2", "Ideogram", "Krea", "Midjourney", "Seedream"] },
-        { "label": "Hybrid", "tools": ["ElevenLabs", "Hailuo AI", "HeyGen", "Higgsfield AI", "Kling AI", "Lovart", "Magnific", "Qwen", "Runway", "Wan AI"] },
-        { "label": "Video", "tools": ["Pika", "Seedance", "Veo 3"] },
+        { "label": "Image", "tools": ["Flux.2", "Ideogram", "Krea", "Midjourney"] },
+        { "label": "Hybrid", "tools": ["Dreamina", "ElevenLabs", "Hailuo AI", "HeyGen", "Higgsfield AI", "Kling AI", "Lovart", "Magnific", "Qwen", "Runway", "Wan AI"] },
+        { "label": "Video", "tools": ["Pika", "Veo 3"] },
         { "label": "Music", "tools": ["Suno", "Udio"] }
       ]
     },
@@ -56,7 +56,7 @@ const toolboxPresets = {
       "id": "ai-agents",
       "label": "AI Agents",
       "description": "Plans & executes independently",
-      "tools": ["Emergent", "GLM", "Kimi", "Manus", "MiniMax", "OpenClaw", "Pickaxe"]
+      "tools": ["Emergent", "GLM", "Kimi", "Manus", "MiniMax", "Pickaxe"]
     },
     {
       "id": "automation",
@@ -82,7 +82,7 @@ const toolboxPresets = {
       "id": "website-funnels",
       "label": "Website & Funnels",
       "description": "Sites & landing pages",
-      "tools": ["10Web", "ClickFunnels", "Framer AI", "Mixo", "Systeme", "Wordpress"]
+      "tools": ["10Web", "ClickFunnels", "Framer AI", "Mixo", "Systeme.io", "Wordpress"]
     },
     {
       "id": "niche",

@@ -1,6 +1,7 @@
 "use client";
 
 import toolboxPresetsData from "@/config/toolboxPresets";
+import { useState } from "react";
 
 type ToolboxPresetCategory = {
   description: string;
@@ -40,6 +41,11 @@ type PresetToolPickerModalProps = {
 
 const toolboxPresets = toolboxPresetsData as ToolboxPresetConfig;
 const presetCategoryById = new Map(toolboxPresets.categories.map((category) => [category.id, category]));
+const presetAliasText: Record<string, string> = {
+  Dreamina: "Also known as: Seedream, Seedance, Jimeng",
+  "Notebook LM": "Also known as: Gemini Notebook",
+  Windsurf: "Also known as: Devin Desktop",
+};
 
 export default function PresetToolPickerModal({
   expandedCategoryIds,
@@ -57,14 +63,17 @@ export default function PresetToolPickerModal({
   showAllCategories,
   tools,
 }: PresetToolPickerModalProps) {
+  const [aliasModalToolName, setAliasModalToolName] = useState<string | null>(null);
+
   return (
-    <div className="welcome-modal-overlay" role="presentation">
-      <section
-        aria-labelledby="preset-tool-picker-title"
-        aria-modal="true"
-        className="welcome-modal preset-tool-picker-modal"
-        role="dialog"
-      >
+    <>
+      <div className="welcome-modal-overlay" role="presentation">
+        <section
+          aria-labelledby="preset-tool-picker-title"
+          aria-modal="true"
+          className="welcome-modal preset-tool-picker-modal"
+          role="dialog"
+        >
         <button
           aria-label="Close tool suggestions"
           className="modal-close-button"
@@ -114,7 +123,73 @@ export default function PresetToolPickerModal({
                 {categories.map((category) => {
                   const renderPresetPill = (presetName: string) => {
                     const isAdded = selectedToolNames.includes(presetName.trim().toLowerCase());
-                    return (
+                    const aliasText = presetAliasText[presetName];
+                    const pillIcon = isAdded ? (
+                      <svg
+                        aria-hidden="true"
+                        className="preset-tool-pill-icon"
+                        fill="none"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        width="16"
+                      >
+                        <path
+                          d="m5 12 4 4L19 6"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                        />
+                      </svg>
+                    ) : (
+                      <svg
+                        aria-hidden="true"
+                        className="preset-tool-pill-icon"
+                        fill="none"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        width="16"
+                      >
+                        <path
+                          d="M12 5v14M5 12h14"
+                          stroke="currentColor"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth="2"
+                        />
+                      </svg>
+                    );
+
+                    if (aliasText) {
+                      return (
+                        <span
+                          className={isAdded ? "preset-tool-pill preset-tool-pill-with-info is-added" : "preset-tool-pill preset-tool-pill-with-info"}
+                          key={`${category.id}-${presetName}`}
+                        >
+                          <button
+                            aria-label={`${isAdded ? "Added" : "Add"} ${presetName}`}
+                            className="preset-tool-pill-main"
+                            disabled={isSaving}
+                            onClick={() => onToggleTool(presetName)}
+                            type="button"
+                          >
+                            {pillIcon}
+                            {presetName}
+                          </button>
+                          <button
+                            aria-label={`View other names for ${presetName}`}
+                            className="preset-tool-info-button tooltip-target"
+                            data-tooltip="Also known as"
+                            onClick={() => setAliasModalToolName(presetName)}
+                            type="button"
+                          >
+                            i
+                          </button>
+                        </span>
+                      );
+                    }
+
+                    const presetButton = (
                       <button
                         aria-label={`${isAdded ? "Added" : "Add"} ${presetName}`}
                         className={isAdded ? "preset-tool-pill is-added" : "preset-tool-pill"}
@@ -123,44 +198,11 @@ export default function PresetToolPickerModal({
                         onClick={() => onToggleTool(presetName)}
                         type="button"
                       >
-                        {isAdded ? (
-                          <svg
-                            aria-hidden="true"
-                            className="preset-tool-pill-icon"
-                            fill="none"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            width="16"
-                          >
-                            <path
-                              d="m5 12 4 4L19 6"
-                              stroke="currentColor"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                            />
-                          </svg>
-                        ) : (
-                          <svg
-                            aria-hidden="true"
-                            className="preset-tool-pill-icon"
-                            fill="none"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            width="16"
-                          >
-                            <path
-                              d="M12 5v14M5 12h14"
-                              stroke="currentColor"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth="2"
-                            />
-                          </svg>
-                        )}
+                        {pillIcon}
                         {presetName}
                       </button>
                     );
+                    return presetButton;
                   };
                   const categoryTools =
                     category.tools && category.tools.length > 0
@@ -170,7 +212,8 @@ export default function PresetToolPickerModal({
                           .map((tool) => tool.name)
                           .sort((firstName, secondName) => firstName.localeCompare(secondName));
                   const isExpanded = expandedCategoryIds.includes(category.id);
-                  const visibleCategoryTools = isExpanded ? categoryTools : categoryTools.slice(0, 8);
+                  const showsAllCategoryTools = isExpanded || category.id === "coding-dev";
+                  const visibleCategoryTools = showsAllCategoryTools ? categoryTools : categoryTools.slice(0, 8);
 
                   return (
                     <div className="preset-tool-category" key={category.id}>
@@ -188,7 +231,7 @@ export default function PresetToolPickerModal({
                           {categoryTools.length === 0 ? (
                             <span className="preset-tool-empty">No preset tools yet</span>
                           ) : null}
-                          {!isExpanded && categoryTools.length > 8 ? (
+                          {!showsAllCategoryTools && categoryTools.length > 8 ? (
                             <button
                               className="preset-tool-pill preset-tool-more"
                               onClick={() => onExpandCategory(category.id)}
@@ -211,7 +254,27 @@ export default function PresetToolPickerModal({
             Done
           </button>
         </div>
-      </section>
-    </div>
+        </section>
+      </div>
+
+      {aliasModalToolName ? (
+        <div className="welcome-modal-overlay preset-alias-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="preset-alias-modal-title"
+            aria-modal="true"
+            className="welcome-modal category-info-modal preset-alias-modal"
+            role="dialog"
+          >
+            <h2 id="preset-alias-modal-title">{aliasModalToolName}</h2>
+            <p>{presetAliasText[aliasModalToolName]}</p>
+            <div className="welcome-modal-actions">
+              <button className="btn-sm btn-sm-primary" onClick={() => setAliasModalToolName(null)} type="button">
+                Got it
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+    </>
   );
 }
