@@ -8,7 +8,7 @@ type GroupTool = {
 type ToolCategoryGroupProps<Tool extends GroupTool> = {
   category: string;
   isToolboxSection: boolean;
-  onToggleSelection: () => void;
+  onToggleSelection?: () => void;
   renderToolRow: (tool: Tool) => ReactNode;
   subgroups?: Array<{ label: string; tools: string[] }>;
   tools: Tool[];
@@ -33,7 +33,7 @@ export default function ToolCategoryGroup<Tool extends GroupTool>({
           <span>{category}</span>
           <span>{tools.length}</span>
         </span>
-        {tools.length > 0 ? (
+        {tools.length > 0 && onToggleSelection ? (
           <button onClick={onToggleSelection} type="button">
             Select all
           </button>

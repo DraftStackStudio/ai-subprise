@@ -3,10 +3,13 @@ import type { ReactNode } from "react";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 
 type ListPageToolbarProps = {
+  accountFilter: string;
+  accountLabels: string[];
   activeCategory: boolean;
-  activeSection: "tools" | "linked" | "watchlist" | "billing" | "favorites" | "archive";
+  activeSection: "tools" | "linked" | "accounts" | "watchlist" | "billing" | "favorites" | "archive";
   billingView: "All" | "Month";
-  linkedPlanFilter: ReactNode;
+  planFilter: ReactNode;
+  onAccountFilterChange: (value: string) => void;
   onBillingViewChange: (value: "All" | "Month") => void;
   onSearchQueryChange: (value: string) => void;
   onToolSortChange: (value: ToolSortRange) => void;
@@ -16,10 +19,13 @@ type ListPageToolbarProps = {
 };
 
 export default function ListPageToolbar({
+  accountFilter,
+  accountLabels,
   activeCategory,
   activeSection,
   billingView,
-  linkedPlanFilter,
+  planFilter,
+  onAccountFilterChange,
   onBillingViewChange,
   onSearchQueryChange,
   onToolSortChange,
@@ -53,6 +59,8 @@ export default function ListPageToolbar({
             ? "\u00a0"
             : activeSection === "billing"
               ? "Browse by billing."
+              : activeSection === "accounts"
+                ? "Browse by nicknames."
               : "Browse by type."}
         </span>
         <div className="category-view-action-row">
@@ -69,6 +77,19 @@ export default function ListPageToolbar({
                   type="button"
                 >
                   {option.label}
+                </button>
+              ))}
+            </div>
+          ) : activeSection === "accounts" ? (
+            <div className="category-view-tab-list">
+              {["All", ...accountLabels].map((label) => (
+                <button
+                  className={accountFilter === label ? "category-view-tab active" : "category-view-tab"}
+                  key={label}
+                  onClick={() => onAccountFilterChange(label)}
+                  type="button"
+                >
+                  {label === "All" ? "Overview" : label}
                 </button>
               ))}
             </div>
@@ -91,8 +112,8 @@ export default function ListPageToolbar({
             </div>
           )}
           <div className="table-search-filter-group">
-            {activeSection === "linked" ? linkedPlanFilter : null}
-            <label className="search-box">
+            {activeSection === "linked" || (activeSection === "accounts" && accountFilter !== "All") ? planFilter : null}
+            {activeSection === "accounts" && accountFilter === "All" ? null : <label className="search-box">
               <span className="search-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24">
                   <circle cx="11" cy="11" r="6" />
@@ -115,7 +136,7 @@ export default function ListPageToolbar({
                   ×
                 </button>
               ) : null}
-            </label>
+            </label>}
           </div>
         </div>
       </div>

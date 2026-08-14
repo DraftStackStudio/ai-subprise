@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-type ToolListSection = "tools" | "linked" | "watchlist" | "favorites" | "archive" | "recovery";
+type ToolListSection = "tools" | "linked" | "accounts" | "watchlist" | "favorites" | "archive" | "recovery";
 
 type ToolListItem = {
   id: string;
@@ -54,9 +54,9 @@ export default function ToolListView<Tool extends ToolListItem>({
   return (
     <>
       <div className="account-table-head tool-table-head">
-        {section === "linked" ? (
+        {section === "linked" || section === "accounts" ? (
           <>
-            {selectAll}
+            <span aria-hidden="true" />
             <FavouriteHeaderIcon />
             <span>Tool Name</span>
             <span>Account</span>
@@ -102,8 +102,10 @@ export default function ToolListView<Tool extends ToolListItem>({
       ) : visibleTools.length > 0 ? (
         visibleTools.map((tool) => renderToolRow(tool))
       ) : (
-        <div className="empty-state tool-onboarding-empty">
-          {section === "watchlist" && activeCategory ? (
+        <div className={section === "accounts" ? "empty-state compact-empty category-empty-state" : "empty-state tool-onboarding-empty"}>
+          {section === "accounts" ? (
+            <span className="plain-empty-copy">{emptyTitle}</span>
+          ) : section === "watchlist" && activeCategory ? (
             <span className="plain-empty-copy">{`Nothing on your ${activeCategory} radar yet`}</span>
           ) : (
             <strong>{emptyTitle}</strong>

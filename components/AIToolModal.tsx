@@ -49,6 +49,7 @@ type AIToolModalProps = {
   toolDataError: string;
   trashIcon: ReactNode;
   url: string;
+  urlInputRef: RefObject<HTMLInputElement | null>;
 };
 
 export default function AIToolModal({
@@ -75,6 +76,7 @@ export default function AIToolModal({
   toolDataError,
   trashIcon,
   url,
+  urlInputRef,
 }: AIToolModalProps) {
   return (
     <div className="welcome-modal-overlay" role="presentation">
@@ -159,6 +161,7 @@ export default function AIToolModal({
             <input
               onChange={(event) => onUrlChange(event.target.value)}
               placeholder="https://example.com"
+              ref={urlInputRef}
               type="url"
               value={url}
             />

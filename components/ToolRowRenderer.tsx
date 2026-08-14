@@ -69,20 +69,19 @@ export default function ToolRowRenderer({
   section,
   tool,
 }: ToolRowRendererProps) {
-  if (section === "linked") {
+  if (section === "linked" || section === "accounts") {
     return (
       <LinkedView
         accountLabels={accountLabels}
         isExpanded={isExpanded}
-        isSelected={isSelected}
         onEditAccount={onEditAccount}
         onToggleExpanded={onToggleExpanded}
         onToggleFavorite={onToggleFavorite}
-        onToggleSelected={onToggleSelected}
         renderAccount={renderAccount}
         renderPlan={renderPlan}
         renderStatusControl={renderStatusControl}
         renderToolName={renderToolName}
+        shiftExpandedActions={section === "linked"}
         tool={tool}
       />
     );
@@ -140,6 +139,7 @@ export default function ToolRowRenderer({
 }
 
 type ToolNameCellProps = {
+  aliasText?: string;
   displayName: string;
   draft: string;
   isEditing: boolean;
@@ -147,12 +147,14 @@ type ToolNameCellProps = {
   logoText: string;
   name: string;
   onDraftChange: (value: string) => void;
+  onOpenAlias?: () => void;
   onSave: () => void;
   onStartEditing: () => void;
   onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
 };
 
 export function ToolNameCell({
+  aliasText,
   displayName,
   draft,
   isEditing,
@@ -161,6 +163,7 @@ export function ToolNameCell({
   name,
   onDraftChange,
   onKeyDown,
+  onOpenAlias,
   onSave,
   onStartEditing,
 }: ToolNameCellProps) {
@@ -180,13 +183,26 @@ export function ToolNameCell({
             value={draft}
           />
         ) : (
-          <button
-            className="tool-name editable-tool-name"
-            onDoubleClick={onStartEditing}
-            type="button"
-          >
-            {displayName}
-          </button>
+          <>
+            <button
+              className="tool-name editable-tool-name"
+              onDoubleClick={onStartEditing}
+              type="button"
+            >
+              {displayName}
+            </button>
+            {aliasText && onOpenAlias ? (
+              <button
+                aria-label={`View other names for ${displayName}`}
+                className="tool-name-alias-button tooltip-target"
+                data-tooltip="Also known as"
+                onClick={onOpenAlias}
+                type="button"
+              >
+                i
+              </button>
+            ) : null}
+          </>
         )}
       </div>
     </div>
@@ -253,22 +269,53 @@ export function BillingAccountCell({ accountLabel, tagClass }: { accountLabel: s
   );
 }
 
-export function PricingUrlIcon({ name, pricingUrl }: { name: string; pricingUrl: string }) {
+function ToolUrlGlobeIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.25" />
+      <path d="M3.75 12h16.5" />
+      <path d="M12 3.75c2.05 2.2 3.15 5.05 3.15 8.25S14.05 18.05 12 20.25" />
+      <path d="M12 3.75C9.95 5.95 8.85 8.8 8.85 12s1.1 6.05 3.15 8.25" />
+    </svg>
+  );
+}
+
+export function ToolUrlIcon({
+  name,
+  onMissingUrlClick,
+  url,
+}: {
+  name: string;
+  onMissingUrlClick: () => void;
+  url?: string;
+}) {
+  if (!url) {
+    return (
+      <button
+        aria-label={`${name} has no URL added yet`}
+        className="tool-url-icon is-disabled"
+        onClick={(event) => {
+          event.stopPropagation();
+          onMissingUrlClick();
+        }}
+        title="No URL added yet"
+        type="button"
+      >
+        <ToolUrlGlobeIcon />
+      </button>
+    );
+  }
+
   return (
     <a
-      aria-label={`${name} pricing page`}
-      className="pricing-link-icon"
-      href={pricingUrl}
+      aria-label={`${name} official page`}
+      className="tool-url-icon"
+      href={url}
       onClick={(event) => event.stopPropagation()}
       rel="noreferrer"
       target="_blank"
     >
-      <svg aria-hidden="true" viewBox="0 0 24 24">
-        <circle cx="12" cy="12" r="8.25" />
-        <path d="M3.75 12h16.5" />
-        <path d="M12 3.75c2.05 2.2 3.15 5.05 3.15 8.25S14.05 18.05 12 20.25" />
-        <path d="M12 3.75C9.95 5.95 8.85 8.8 8.85 12s1.1 6.05 3.15 8.25" />
-      </svg>
+      <ToolUrlGlobeIcon />
     </a>
   );
 }

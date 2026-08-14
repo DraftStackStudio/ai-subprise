@@ -4,5 +4,11 @@
   },
   "n8n": {
     "preserveNameCase": true
+  },
+  "deepseek": {
+    "displayName": "DeepSeek"
+  },
+  "openrouter": {
+    "displayName": "OpenRouter"
   }
 }

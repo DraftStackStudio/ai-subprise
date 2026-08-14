@@ -5,7 +5,10 @@ import { useSearchParams } from "next/navigation";
 import toolCustomizationsData from "@/config/toolCustomizations.json";
 import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets";
+import { getToolAliasText } from "@/config/toolAliases";
+import { toolUrlForName } from "@/config/toolUrls";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import AccountsOverview from "@/components/AccountsOverview";
 import BillingRow, { type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
 import BulkToolActions from "@/components/BulkToolActions";
@@ -42,7 +45,7 @@ import ToolCategoryGroup from "@/components/ToolCategoryGroup";
 import ToolRowRenderer, {
   BillingAccountCell,
   LinkedAccountCell,
-  PricingUrlIcon,
+  ToolUrlIcon,
   ToolNameCell,
 } from "@/components/ToolRowRenderer";
 import {
@@ -108,7 +111,7 @@ import {
   useState,
 } from "react";
 
-type Section = "dashboard" | "tools" | "linked" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
+type Section = "dashboard" | "tools" | "linked" | "accounts" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 type LinkedPlanFilter = "All" | "Paid" | "Trial" | "Free";
 const toolboxSidebarClusterIds = new Set(["everyday", "create", "work", "automate", "build", "business"]);
@@ -146,6 +149,7 @@ type ToolPlanTierConfig = {
 type ArchivedStatusKey = "active" | "trial" | "free" | "paused" | "watchlist" | "cancelled";
 type ToolCustomization = {
   displayInitials?: string;
+  displayName?: string;
   preserveNameCase?: boolean;
 };
 type ToolItem = {
@@ -160,10 +164,10 @@ type ToolItem = {
   archived: boolean;
   archivedAt?: string;
   archivedStatus?: ToolStatus;
-  pricingUrl: string;
   logo: string;
   logoBg: string;
   restoredAt?: string;
+  url: string;
 };
 type Account = {
   id?: string;
@@ -713,10 +717,10 @@ function normaliseToolHostname(value?: string) {
   }
 }
 
-function toolPlanOverrideFor(tool?: string | Pick<ToolItem, "name" | "pricingUrl">) {
+function toolPlanOverrideFor(tool?: string | Pick<ToolItem, "name" | "url">) {
   if (!tool) return undefined;
   const toolName = typeof tool === "string" ? tool : tool.name;
-  const toolHostname = typeof tool === "string" ? "" : normaliseToolHostname(tool.pricingUrl);
+  const toolHostname = typeof tool === "string" ? "" : normaliseToolHostname(tool.url);
   const normalisedName = toolName.trim().toLowerCase();
   const overrides = Object.values(toolPlanTiers.overrides);
 
@@ -737,18 +741,19 @@ function toolPlanOverrideFor(tool?: string | Pick<ToolItem, "name" | "pricingUrl
   );
 }
 
-function supportedPlanKeysForTool(tool?: string | Pick<ToolItem, "name" | "pricingUrl">): PlanKey[] {
+function supportedPlanKeysForTool(tool?: string | Pick<ToolItem, "name" | "url">): PlanKey[] {
   if (!tool) return [...toolPlanTiers.default_tiers];
   return [...(toolPlanOverrideFor(tool)?.supported_tiers ?? toolPlanTiers.default_tiers)];
 }
 
-function notPaidPlanLabelForTool(tool?: string | Pick<ToolItem, "name" | "pricingUrl">) {
+function notPaidPlanLabelForTool(tool?: string | Pick<ToolItem, "name" | "url">) {
   if (!tool) return "Free";
   return toolPlanOverrideFor(tool)?.not_paid_label ?? "Free";
 }
 
 function displayToolName(value: string) {
   const customization = toolCustomizationFor(value);
+  if (customization?.displayName) return customization.displayName;
   if (customization?.preserveNameCase) return toolCustomizationKey(value);
   return formatNickname(value);
 }
@@ -799,9 +804,9 @@ function toolFromRecord(record: ToolRecord): ToolItem {
     logoBg: record.logoBg,
     name: record.name,
     notes: record.notes,
-    pricingUrl: record.pricingUrl,
     restoredAt: record.restoredAt,
     status: record.status as ToolStatus,
+    url: record.url || toolUrlForName(record.name),
   };
 }
 
@@ -819,9 +824,9 @@ function toolToInput(tool: ToolItem): ToolInput {
     logoBg: tool.logoBg,
     name: tool.name,
     notes: tool.notes,
-    pricingUrl: tool.pricingUrl,
     restoredAt: tool.restoredAt,
     status: tool.status,
+    url: tool.url,
   };
 }
 
@@ -830,6 +835,7 @@ function withToolIds(items: ToolItem[]) {
     ...item,
     category: categoryForTool(item.name, item.category),
     id: item.id || createToolId(item.name),
+    url: item.url || toolUrlForName(item.name),
   }));
 }
 
@@ -871,14 +877,14 @@ function sortCategoriesWithUncategorizedLast(categories: string[]) {
   });
 }
 
-function DashboardContent() {
+export function DashboardContent({ forcedSection }: { forcedSection?: Section } = {}) {
   const searchParams = useSearchParams();
   const isDemoMode = searchParams.get("demo") === "1";
   const shouldUseSupabase = isSupabaseConfigured && !isDemoMode;
   const createAccountPromptStorageKey = isDemoMode
     ? "ai-subprise-demo-create-account-prompt-seen"
     : "ai-subprise-create-account-prompt-seen";
-  const initialView = searchParams.get("view") === "account" ? "account" : "dashboard";
+  const initialView: Section = forcedSection ?? (searchParams.get("view") === "account" ? "account" : "dashboard");
   const [activeSection, setActiveSection] = useState<Section>(initialView);
   const [activeCategory, setActiveCategory] = useState("");
   const [activeToolboxClusterId, setActiveToolboxClusterId] = useState("everyday");
@@ -957,14 +963,21 @@ function DashboardContent() {
     [toolList, validAccountLabels],
   );
   const [currentUserEmail, setCurrentUserEmail] = useState("");
+  const [currentUserName, setCurrentUserName] = useState("");
+  const [profileFullName, setProfileFullName] = useState("");
+  const [canUpdatePassword, setCanUpdatePassword] = useState(false);
   const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [newPasswordError, setNewPasswordError] = useState("");
+  const [confirmPasswordError, setConfirmPasswordError] = useState("");
+  const [passwordMessage, setPasswordMessage] = useState("");
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [reminderDays, setReminderDays] = useState("7");
-  const [settingsTab, setSettingsTab] = useState<"profile" | "preferences">("profile");
-  const [profileMessage, setProfileMessage] = useState("");
+  const [settingsTab, setSettingsTab] = useState<"billing" | "profile">("billing");
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
   const [toolResetArchives, setToolResetArchives] = useState<ToolResetArchive[]>([]);
   const [hasLoadedStoredTools, setHasLoadedStoredTools] = useState(false);
   const [customProviders, setCustomProviders] = useState<string[]>([]);
@@ -984,6 +997,9 @@ function DashboardContent() {
   const [hasSubmittedLinkToolForm, setHasSubmittedLinkToolForm] = useState(false);
   const [toolboxSearch, setToolboxSearch] = useState("");
   const [linkedSearch, setLinkedSearch] = useState("");
+  const [accountsSearch, setAccountsSearch] = useState("");
+  const [accountsFilter, setAccountsFilter] = useState("All");
+  const [accountsPlanFilter, setAccountsPlanFilter] = useState<LinkedPlanFilter>("All");
   const [billingSearch, setBillingSearch] = useState("");
   const [watchlistSearch, setWatchlistSearch] = useState("");
   const [favouritesSearch, setFavouritesSearch] = useState("");
@@ -1025,6 +1041,7 @@ function DashboardContent() {
   const [selectedRole, setSelectedRole] = useState<RoleOption>("Creator");
   const [roleQuestionChoice, setRoleQuestionChoice] = useState<RoleOption | "">("");
   const toolNameInputRef = useRef<HTMLInputElement | null>(null);
+  const toolUrlInputRef = useRef<HTMLInputElement | null>(null);
   const mainContentRef = useRef<HTMLElement | null>(null);
   const accountToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trialResolutionUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1035,6 +1052,7 @@ function DashboardContent() {
   const [editingWatchlistNoteId, setEditingWatchlistNoteId] = useState<string | null>(null);
   const [editingToolCategoryId, setEditingToolCategoryId] = useState<string | null>(null);
   const [toolNameDraft, setToolNameDraft] = useState("");
+  const [toolAliasModal, setToolAliasModal] = useState<{ name: string; text: string } | null>(null);
   const [watchlistNoteDraft, setWatchlistNoteDraft] = useState("");
   const [hasSubmittedToolForm, setHasSubmittedToolForm] = useState(false);
   const hasConfirmedCategories = workspaceCategories.length > 0;
@@ -1401,6 +1419,15 @@ function DashboardContent() {
       }
 
       setCurrentUserEmail(data.user?.email ?? "");
+      const userMetadata = data.user?.user_metadata;
+      const storedName = typeof userMetadata?.full_name === "string"
+        ? userMetadata.full_name
+        : typeof userMetadata?.name === "string"
+          ? userMetadata.name
+          : "";
+      setCurrentUserName(storedName.trim() ? storedName : "");
+      setProfileFullName(storedName);
+      setCanUpdatePassword(data.user?.app_metadata?.provider === "email");
     });
 
     return () => {
@@ -1743,7 +1770,7 @@ function DashboardContent() {
     openAddToolModal();
   };
 
-  const openEditToolModal = (tool: ToolItem) => {
+  const openEditToolModal = (tool: ToolItem, options?: { focusUrl?: boolean }) => {
     const isKnownCategory =
       defaultToolCategories.includes(tool.category) ||
       customToolCategories.includes(tool.category) ||
@@ -1752,12 +1779,13 @@ function DashboardContent() {
 
     setToolName(tool.name);
     setToolCategory(tool.category);
-    setToolUrl(tool.pricingUrl === "#" ? "" : tool.pricingUrl);
+    setToolUrl(tool.url);
     setIsCustomCategoryMode(!isKnownCategory);
     setEditingTool(tool);
     setHasSubmittedToolForm(false);
     setToolDataError("");
     setShowAddToolModal(true);
+    if (options?.focusUrl) window.setTimeout(() => toolUrlInputRef.current?.focus(), 0);
   };
 
   const openRoleQuestionModal = () => {
@@ -2512,9 +2540,9 @@ function DashboardContent() {
       notes: editingTool?.notes ?? "",
       favorite: editingTool?.favorite ?? false,
       archived: editingTool?.archived ?? false,
-      pricingUrl: toolUrl.trim() || "#",
       logo: toolInitials(trimmedToolName),
       logoBg: editingTool?.logoBg ?? "#F0F4FF",
+      url: toolUrl.trim() || toolUrlForName(trimmedToolName),
     };
 
     const persistTool = async () => {
@@ -2606,9 +2634,9 @@ function DashboardContent() {
           notes: "",
           favorite: false,
           archived: false,
-          pricingUrl: "#",
           logo: toolInitials(presetName),
           logoBg: "#F0F4FF",
+          url: toolUrlForName(presetName),
         };
       });
 
@@ -2720,6 +2748,13 @@ function DashboardContent() {
         currentAccounts.filter((account) =>
           deletingAccount.id ? account.id !== deletingAccount.id : account.login !== deletingAccount.login,
         ),
+      );
+      setToolList((currentTools) =>
+        currentTools.map((tool) => (
+          tool.accounts.includes(deletingAccount.label)
+            ? { ...tool, accounts: tool.accounts.filter((accountLabel) => accountLabel !== deletingAccount.label) }
+            : tool
+        )),
       );
       setDeletingAccount(null);
       setEditingAccount(null);
@@ -3958,24 +3993,23 @@ function DashboardContent() {
     setEditingToolCategoryId(null);
   };
 
-  const saveNewPassword = async (event?: FormEvent<HTMLFormElement>) => {
-    event?.preventDefault();
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
     setProfileError("");
-    setProfileMessage("");
 
     if (!isSupabaseConfigured) {
       setProfileError("Supabase is not configured yet.");
       return;
     }
 
-    if (newPassword.trim().length < 6) {
-      setProfileError("Password must be at least 6 characters.");
-      return;
-    }
-
     setIsSavingProfile(true);
     const supabase = createSupabaseClient();
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        full_name: profileFullName,
+        name: profileFullName,
+      },
+    });
     setIsSavingProfile(false);
 
     if (error) {
@@ -3983,8 +4017,55 @@ function DashboardContent() {
       return;
     }
 
+    setCurrentUserName(profileFullName.trim() ? profileFullName : "");
+  };
+
+  const saveNewPassword = async (event?: FormEvent<HTMLFormElement>) => {
+    event?.preventDefault();
+    setNewPasswordError("");
+    setConfirmPasswordError("");
+    setPasswordMessage("");
+
+    if (!isSupabaseConfigured) {
+      setNewPasswordError("Supabase is not configured yet.");
+      return;
+    }
+
+    let hasPasswordError = false;
+    if (!newPassword) {
+      setNewPasswordError("New password is required.");
+      hasPasswordError = true;
+    } else if (newPassword.length < 6) {
+      setNewPasswordError("Password must be at least 6 characters.");
+      hasPasswordError = true;
+    }
+    if (!confirmPassword) {
+      setConfirmPasswordError("Please confirm your password.");
+      hasPasswordError = true;
+    } else if (confirmPassword.length < 6) {
+      setConfirmPasswordError("Password must be at least 6 characters.");
+      hasPasswordError = true;
+    } else if (newPassword !== confirmPassword) {
+      setConfirmPasswordError("Passwords do not match.");
+      hasPasswordError = true;
+    }
+    if (hasPasswordError) {
+      return;
+    }
+
+    setIsSavingPassword(true);
+    const supabase = createSupabaseClient();
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setIsSavingPassword(false);
+
+    if (error) {
+      setNewPasswordError(error.message);
+      return;
+    }
+
     setNewPassword("");
-    setProfileMessage("Password updated.");
+    setConfirmPassword("");
+    setPasswordMessage("Password updated.");
   };
 
   const signOut = async () => {
@@ -4065,6 +4146,8 @@ function DashboardContent() {
       ? toolboxSearch
       : activeSection === "linked"
         ? linkedSearch
+        : activeSection === "accounts"
+          ? accountsSearch
         : activeSection === "billing"
           ? billingSearch
           : activeSection === "watchlist"
@@ -4077,6 +4160,7 @@ function DashboardContent() {
   const setActiveToolSearchQuery = (value: string) => {
     if (activeSection === "tools") setToolboxSearch(value);
     else if (activeSection === "linked") setLinkedSearch(value);
+    else if (activeSection === "accounts") setAccountsSearch(value);
     else if (activeSection === "billing") setBillingSearch(value);
     else if (activeSection === "watchlist") setWatchlistSearch(value);
     else if (activeSection === "favorites") setFavouritesSearch(value);
@@ -4093,7 +4177,7 @@ function DashboardContent() {
     const filterBySection = () => {
       if (activeSection === "favorites") return toolsWithValidAccountLinks.filter((tool) => tool.favorite && !tool.archived);
       if (activeSection === "archive") return toolsWithValidAccountLinks.filter((tool) => tool.archived);
-      if (activeSection === "linked") return toolsWithValidAccountLinks.filter((tool) => tool.accounts.length > 0 && !tool.archived);
+      if (activeSection === "linked" || activeSection === "accounts") return toolsWithValidAccountLinks.filter((tool) => tool.accounts.length > 0 && !tool.archived);
       if (activeSection === "watchlist") return toolsWithValidAccountLinks.filter((tool) => tool.status === "Considering" && !tool.archived);
       if (activeSection === "tools" && activeCategory) {
         return toolsWithValidAccountLinks.filter((tool) => !tool.archived && tool.category === activeCategory);
@@ -4105,6 +4189,14 @@ function DashboardContent() {
     const nextTools = filterBySection()
       .filter((tool) => isInSelectedRange(tool.name))
       .filter((tool) => {
+        if (activeSection === "accounts" && accountsFilter !== "All") {
+          if (!tool.accounts.includes(accountsFilter)) return false;
+          if (accountsPlanFilter !== "All") {
+            const status = toolAccountStatuses[tool.id]?.[accountsFilter] ?? tool.status;
+            const plan = status === "Active" || status === "Paid" ? "Paid" : status === "Trial" ? "Trial" : "Free";
+            if (plan !== accountsPlanFilter) return false;
+          }
+        }
         if (activeSection !== "linked" || linkedPlanFilter === "All") return true;
 
         return tool.accounts.some((accountLabel) => {
@@ -4124,6 +4216,7 @@ function DashboardContent() {
     if (
       (activeSection === "tools" && !hasCustomToolOrder) ||
       activeSection === "linked" ||
+      activeSection === "accounts" ||
       activeSection === "favorites" ||
       activeSection === "archive" ||
       activeSection === "watchlist"
@@ -4136,7 +4229,7 @@ function DashboardContent() {
     }
 
     return nextTools;
-  }, [activeCategory, activeSection, activeToolSearchQuery, hasCustomToolOrder, linkedPlanFilter, selectedToolSort, toolAccountStatuses, toolsWithValidAccountLinks]);
+  }, [accountsFilter, accountsPlanFilter, activeCategory, activeSection, activeToolSearchQuery, hasCustomToolOrder, linkedPlanFilter, selectedToolSort, toolAccountStatuses, toolsWithValidAccountLinks]);
   const totalToolboxCount = useMemo(
     () => toolsWithValidAccountLinks.filter((tool) => !tool.archived).length,
     [toolsWithValidAccountLinks],
@@ -4235,7 +4328,7 @@ function DashboardContent() {
         }))
         .filter((group) => {
           if (query) return group.tools.length > 0;
-          if (activeSection === "tools") return group.tools.length > 0;
+          if (activeSection === "tools" || activeSection === "accounts") return group.tools.length > 0;
 
           return group.category !== "Uncategorized" || group.tools.length > 0;
         });
@@ -4520,7 +4613,15 @@ function DashboardContent() {
             };
 
   const title =
-    activeSection === "account"
+    activeSection === "dashboard"
+      ? isDemoMode
+        ? "Dashboard"
+        : currentUserName
+          ? `Good to see you, ${currentUserName}`
+          : "Good to see you"
+      : activeSection === "accounts"
+      ? "By Accounts"
+      : activeSection === "account"
       ? "Logins"
       : activeSection === "providers"
         ? "Edit Provider"
@@ -4534,6 +4635,7 @@ function DashboardContent() {
     account: "All the accounts you sign up with. Add them once, use them everywhere.",
     tools: "Every tool you use, paid or free. Nothing forgotten.",
     linked: "See which account belongs to which tool. No more guessing.",
+    accounts: "Every account you use, and the tools behind it.",
     billing: "All your bills, one place, no surprises.",
     watchlist: "Tools you're considering. Keep them close before you link an account.",
     favorites: "The tools you reach for every day. Right here.",
@@ -4631,6 +4733,32 @@ function DashboardContent() {
     if (status === "Trial") return "Trial";
     return "Free";
   };
+  const accountOverviewItems = accountList.map((account) => {
+    const linkedTools = toolsWithValidAccountLinks.filter(
+      (tool) => !tool.archived && tool.accounts.includes(account.label),
+    );
+    const paidCount = linkedTools.filter(
+      (tool) => relationPlan(tool, account.label) === "Paid",
+    ).length;
+    const trialCount = trialsEndingSoon.filter(
+      (trial) => trial.accountLabel === account.label,
+    ).length;
+    const trialEndedCount = linkedTools.filter((tool) => {
+      const detail = toolAccountDetails[tool.id]?.[account.label];
+      const daysRemaining = detail?.trialExpiryDate ? daysUntilDate(detail.trialExpiryDate) : null;
+      return relationStatus(tool, account.label) === "Trial" && daysRemaining !== null && daysRemaining < 0;
+    }).length;
+
+    return {
+      label: account.label,
+      login: account.login,
+      paidCount,
+      tag: account.tag,
+      toolCount: linkedTools.length,
+      trialCount,
+      trialEndedCount,
+    };
+  });
 
   const relationPlanStatusValue = (tool: ToolItem, accountLabel: string): ToolStatus => {
     const plan = relationPlan(tool, accountLabel);
@@ -4991,6 +5119,7 @@ function DashboardContent() {
         renderStatusControl={(accountLabel) => renderLinkedStatusControl(tool, accountLabel)}
         renderToolName={() => (
           <ToolNameCell
+            aliasText={activeSection === "tools" ? getToolAliasText(tool.name) : undefined}
             displayName={displayToolName(tool.name)}
             draft={toolNameDraft}
             isEditing={editingToolId === tool.id}
@@ -4999,11 +5128,21 @@ function DashboardContent() {
             name={tool.name}
             onDraftChange={setToolNameDraft}
             onKeyDown={handleInlineToolNameKeyDown}
+            onOpenAlias={() => {
+              const aliasText = getToolAliasText(tool.name);
+              if (aliasText) setToolAliasModal({ name: displayToolName(tool.name), text: aliasText });
+            }}
             onSave={saveInlineToolName}
             onStartEditing={() => startEditingToolName(tool)}
           />
         )}
-        renderUrl={() => <PricingUrlIcon name={tool.name} pricingUrl={tool.pricingUrl} />}
+        renderUrl={() => (
+          <ToolUrlIcon
+            name={tool.name}
+            onMissingUrlClick={() => openEditToolModal(tool, { focusUrl: true })}
+            url={tool.url}
+          />
+        )}
         renderWatchlistNote={() => (
           editingWatchlistNoteId === tool.id ? (
             <input
@@ -5058,7 +5197,7 @@ function DashboardContent() {
         category={group.category}
         isToolboxSection={activeSection === "tools"}
         key={group.category}
-        onToggleSelection={toggleGroupSelection}
+        onToggleSelection={activeSection === "linked" || activeSection === "accounts" ? undefined : toggleGroupSelection}
         renderToolRow={renderToolRow}
         subgroups={activeSection === "tools" ? categoryPreset?.subgroups : undefined}
         tools={group.tools}
@@ -5544,16 +5683,10 @@ function DashboardContent() {
           hasMoreSidebarAccounts={hasMoreSidebarAccounts}
           isSidebarCollapsed={isSidebarCollapsed}
           isSidebarOpen={isSidebarOpen}
-          isToolsNavOpen={isToolsNavOpen}
           navBadgeCounts={navBadgeCounts}
           navItems={navItems}
           onCloseMobile={() => setIsSidebarOpen(false)}
-          onSelectAccount={() => {
-            window.history.pushState(null, "", accountViewUrl);
-            setActiveSection("account");
-            setShowRecoveryPanel(false);
-            setIsSidebarOpen(false);
-          }}
+          viewAllAccountsHref={isDemoMode ? "/accounts?demo=1" : "/accounts"}
           onSelectCategory={(category) => {
             setActiveSection("tools");
             setActiveCategory(category);
@@ -5568,20 +5701,11 @@ function DashboardContent() {
             setIsSidebarOpen(false);
           }}
           onSelectTools={() => {
-            const isReturningFromToolCategory = activeSection === "tools" && Boolean(activeCategory);
             setActiveSection("tools");
             setActiveCategory("");
+            setSelectedToolSort("Category");
             setShowRecoveryPanel(false);
-            if (isReturningFromToolCategory) {
-              setIsToolsNavOpen(true);
-              try {
-                window.localStorage.setItem("ai-subprise-tools-nav-open", "true");
-              } catch {
-                // Local storage can be unavailable in private or embedded browser contexts.
-              }
-              return;
-            }
-            toggleToolsNav();
+            setIsSidebarOpen(false);
           }}
           onSelectUtility={(section) => {
             if (section === "recovery") {
@@ -5594,11 +5718,14 @@ function DashboardContent() {
             setShowRecoveryPanel(false);
             setIsSidebarOpen(false);
           }}
+          onSignOut={signOut}
           onToggleCollapsed={() => setIsSidebarCollapsed((isCollapsed) => !isCollapsed)}
           renderIcon={(name) => <SidebarIcon name={name} />}
           showRecoveryPanel={showRecoveryPanel}
           toolboxSidebarCategoryGroups={toolboxSidebarCategoryGroups}
           visibleSidebarAccounts={visibleSidebarAccounts}
+          userEmail={currentUserEmail}
+          userName={currentUserName}
         />
 
         {showRecoveryPanel ? (
@@ -5628,6 +5755,7 @@ function DashboardContent() {
                 "providers",
                 "tools",
                 "linked",
+                "accounts",
                 "billing",
                 "watchlist",
                 "favorites",
@@ -5635,14 +5763,17 @@ function DashboardContent() {
                 "settings",
               ] as Section[]
             ).includes(activeSection)
-              ? "main-content list-page-content"
+              ? `main-content list-page-content${
+                  activeSection === "tools" && selectedVisibleToolIds.length > 0
+                    ? " has-floating-bulk-actions"
+                    : ""
+                }`
               : "main-content"
           }
         >
           <DashboardPageHeader
             activeSection={activeSection}
             hasConfirmedCategories={hasConfirmedCategories}
-            isDemoMode={isDemoMode}
             isPendingActionsExpanded={isPendingActionsExpanded}
             onAddAccount={openAddAccountModal}
             onAddTool={handleAddToolClick}
@@ -5650,7 +5781,6 @@ function DashboardContent() {
             onEditCategories={openEditCategoryModal}
             onEditProviders={() => setActiveSection("providers")}
             onOpenPresets={openPresetToolPicker}
-            onReseedDemo={reseedDemoWorkspace}
             onResetTools={openResetToolsFlow}
             onTogglePendingActions={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
             pendingActionCount={pendingBillingActions.length}
@@ -5703,30 +5833,46 @@ function DashboardContent() {
             />
           ) : activeSection === "settings" ? (
             <SettingsView
+              canUpdatePassword={canUpdatePassword}
+              confirmPassword={confirmPassword}
+              confirmPasswordError={confirmPasswordError}
               currentUserEmail={currentUserEmail}
+              fullName={profileFullName}
+              isSavingPassword={isSavingPassword}
               isSavingProfile={isSavingProfile}
               newPassword={newPassword}
-              onNewPasswordChange={setNewPassword}
+              newPasswordError={newPasswordError}
+              onConfirmPasswordChange={(value) => {
+                setConfirmPassword(value);
+                setConfirmPasswordError("");
+              }}
+              onFullNameChange={setProfileFullName}
+              onNewPasswordChange={(value) => {
+                setNewPassword(value);
+                setNewPasswordError("");
+              }}
               onRemindersEnabledChange={(nextValue) => {
                 setRemindersEnabled(nextValue);
                 window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
               }}
-              onSaveNewPassword={saveNewPassword}
+              onReseedDemo={reseedDemoWorkspace}
+              onSavePassword={saveNewPassword}
+              onSaveProfile={saveProfile}
               onSettingsTabChange={setSettingsTab}
-              onSignOut={signOut}
+              passwordMessage={passwordMessage}
               profileError={profileError}
-              profileMessage={profileMessage}
               reminderDaysDropdown={renderDropdown({
                 id: "settings-reminder-days",
                 onChange: (days) => {
                   setReminderDays(days);
                   window.localStorage.setItem("ai-subprise-reminder-days", days);
                 },
-                options: [3, 7, 14].map((days) => ({ label: `${days} days before`, value: String(days) })),
+                options: [3, 7, 14].map((days) => ({ label: `${days} days`, value: String(days) })),
                 value: reminderDays,
               })}
               remindersEnabled={remindersEnabled}
               settingsTab={settingsTab}
+              showDeveloperTools={isDemoMode}
             />
           ) : activeSection === "dashboard" ? (
             <DashboardSummaryView
@@ -5751,22 +5897,31 @@ function DashboardContent() {
             <>
               {activeSection !== "billing" || !isPendingActionsExpanded || pendingBillingActions.length === 0 ? (
               <section className="table-section">
-                {activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist" || activeSection === "billing" || activeSection === "favorites" || activeSection === "archive" ? (
+                {activeSection === "tools" || activeSection === "linked" || activeSection === "accounts" || activeSection === "watchlist" || activeSection === "billing" || activeSection === "favorites" || activeSection === "archive" ? (
                   <ListPageToolbar
+                    accountFilter={accountsFilter}
+                    accountLabels={accountList.map((account) => account.label)}
                     activeCategory={Boolean(activeCategory)}
                     activeSection={activeSection}
                     billingView={selectedBillingView}
-                    linkedPlanFilter={renderDropdown({
-                      ariaLabel: "Filter linked tools by plan",
+                    planFilter={renderDropdown({
+                      ariaLabel: activeSection === "accounts" ? "Filter account tools by plan" : "Filter linked tools by plan",
                       className: "linked-plan-filter",
-                      id: "linked-plan-filter",
-                      onChange: (nextPlan) => setLinkedPlanFilter(nextPlan as LinkedPlanFilter),
+                      id: activeSection === "accounts" ? "accounts-plan-filter" : "linked-plan-filter",
+                      onChange: (nextPlan) => {
+                        if (activeSection === "accounts") {
+                          setAccountsPlanFilter(nextPlan as LinkedPlanFilter);
+                          return;
+                        }
+                        setLinkedPlanFilter(nextPlan as LinkedPlanFilter);
+                      },
                       options: (["All", "Paid", "Trial", "Free"] as LinkedPlanFilter[]).map((plan) => ({
                         label: `Plan: ${plan}`,
                         value: plan,
                       })),
-                      value: linkedPlanFilter,
+                      value: activeSection === "accounts" ? accountsPlanFilter : linkedPlanFilter,
                     })}
+                    onAccountFilterChange={setAccountsFilter}
                     onBillingViewChange={setSelectedBillingView}
                     onSearchQueryChange={setActiveToolSearchQuery}
                     onToolSortChange={setSelectedToolSort}
@@ -5784,6 +5939,7 @@ function DashboardContent() {
 
                 {(activeSection === "tools" || activeSection === "watchlist" || activeSection === "archive") && selectedVisibleToolIds.length > 0 ? (
                   <BulkToolActions
+                    isFloating={activeSection === "tools"}
                     isArchiveSection={activeSection === "archive"}
                     onArchive={() => archiveToolIds(selectedVisibleToolIds)}
                     onClear={clearToolSelection}
@@ -5798,7 +5954,12 @@ function DashboardContent() {
                   />
                 ) : null}
 
-                {activeSection === "billing" ? (
+                {activeSection === "accounts" && accountsFilter === "All" ? (
+                  <AccountsOverview
+                    accounts={accountOverviewItems}
+                    onSelectAccount={setAccountsFilter}
+                  />
+                ) : activeSection === "billing" ? (
                   <div className="account-table tool-database tool-database-billing tool-database-flat">
                     <BillingView
                       billingMonthLabel={billingMonthLabel}
@@ -5819,7 +5980,7 @@ function DashboardContent() {
                       emptyBody={
                         activeSection === "tools" ? (
                           toolboxEmptyState.body
-                        ) : activeSection === "linked" ? (
+                        ) : activeSection === "linked" || activeSection === "accounts" ? (
                           linkedEmptyState.body
                         ) : toolSearchTerm ? (
                           <button className="inline-text-link" onClick={() => setActiveToolSearchQuery("")} type="button">
@@ -5842,7 +6003,7 @@ function DashboardContent() {
                       emptyTitle={
                         activeSection === "tools"
                           ? toolboxEmptyState.title
-                          : activeSection === "linked"
+                          : activeSection === "linked" || activeSection === "accounts"
                             ? linkedEmptyState.title
                             : activeSection === "watchlist"
                               ? totalWatchlistToolCount === 0
@@ -5868,7 +6029,7 @@ function DashboardContent() {
                       groupedEmptyTitle={toolboxEmptyState.title}
                       groupedToolCategories={groupedToolCategories}
                       isGroupedView={
-                        (activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist") &&
+                        (activeSection === "tools" || activeSection === "linked" || activeSection === "watchlist" || (activeSection === "accounts" && accountsFilter !== "All")) &&
                         workspaceCategories.length > 0 &&
                         !activeCategory &&
                         selectedToolSort === "Category" &&
@@ -5878,6 +6039,7 @@ function DashboardContent() {
                             ? totalLinkedToolCount > 0
                             : visibleTools.length > 0)
                       }
+                      isAccountFiltered={activeSection === "accounts" && accountsFilter !== "All"}
                       isLoadingTools={isLoadingTools}
                       renderToolCategoryGroup={renderToolCategoryGroup}
                       renderToolRow={renderToolRow}
@@ -6102,6 +6264,25 @@ function DashboardContent() {
         />
       ) : null}
 
+      {toolAliasModal ? (
+        <div className="welcome-modal-overlay preset-alias-modal-overlay" role="presentation">
+          <section
+            aria-labelledby="tool-alias-modal-title"
+            aria-modal="true"
+            className="welcome-modal category-info-modal preset-alias-modal"
+            role="dialog"
+          >
+            <h2 id="tool-alias-modal-title">{toolAliasModal.name}</h2>
+            <p>{toolAliasModal.text}</p>
+            <div className="welcome-modal-actions">
+              <button className="btn-sm btn-sm-primary" onClick={() => setToolAliasModal(null)} type="button">
+                Got it
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {showAddToolModal ? (
         <AIToolModal
           archiveIcon={<ArchiveBoxIconPaths />}
@@ -6138,6 +6319,7 @@ function DashboardContent() {
           toolDataError={toolDataError}
           trashIcon={<TrashIconPaths />}
           url={toolUrl}
+          urlInputRef={toolUrlInputRef}
         />
       ) : null}
 
@@ -6334,6 +6516,9 @@ function DashboardContent() {
       {deletingAccount ? (
         <DeleteAccountModal
           accountLabel={deletingAccount.label}
+          linkedToolCount={toolsWithValidAccountLinks.filter(
+            (tool) => tool.accounts.includes(deletingAccount.label),
+          ).length}
           error={accountDataError}
           isDeleting={isSavingAccount}
           trashIcon={<TrashIconPaths />}

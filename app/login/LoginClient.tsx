@@ -1,31 +1,30 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { type FormEvent, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 export type AuthMode = "login" | "signup";
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const capitalizeFirstLetter = (value: string) => value.replace(/^(\s*)([a-z])/, (_, spaces: string, letter: string) => `${spaces}${letter.toUpperCase()}`);
 
 const isSupabaseConfigured = Boolean(
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 );
 
 export default function LoginClient({ initialMode }: { initialMode: AuthMode }) {
-  const router = useRouter();
-  const [authMode, setAuthMode] = useState<AuthMode>(initialMode);
-  const [name, setName] = useState("");
+  const isSignup = initialMode === "signup";
+  const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [authMessage, setAuthMessage] = useState("");
   const [authError, setAuthError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isGoogleSubmitting, setIsGoogleSubmitting] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
 
-  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+  const callbackUrl = () => `${window.location.origin}/auth/callback`;
+
+  const sendMagicLink = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setAuthError("");
     setAuthMessage("");
@@ -36,33 +35,25 @@ export default function LoginClient({ initialMode }: { initialMode: AuthMode }) 
       return;
     }
 
-    if (
-      (authMode === "signup" && !name.trim()) ||
-      !email.trim() ||
-      !emailPattern.test(email.trim()) ||
-      !password.trim() ||
-      (authMode === "signup" && (!confirmPassword.trim() || confirmPassword !== password))
-    ) {
-      return;
-    }
+    const trimmedEmail = email.trim();
+    const trimmedUsername = username.trim();
+    if ((isSignup && !trimmedUsername) || !trimmedEmail || !emailPattern.test(trimmedEmail)) return;
 
     setIsSubmitting(true);
     const supabase = createClient();
-    const { error } =
-      authMode === "login"
-        ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
-        : await supabase.auth.signUp({
-            email: email.trim(),
-            password,
-            options: {
-              data: {
-                name: name.trim(),
-                full_name: name.trim(),
-              },
-              emailRedirectTo: `${window.location.origin}/dashboard?welcome=1`,
-            },
-          });
-
+    const { error } = await supabase.auth.signInWithOtp({
+      email: trimmedEmail,
+      options: {
+        emailRedirectTo: callbackUrl(),
+        shouldCreateUser: isSignup,
+        data: isSignup
+          ? {
+              name: trimmedUsername,
+              full_name: trimmedUsername,
+            }
+          : undefined,
+      },
+    });
     setIsSubmitting(false);
 
     if (error) {
@@ -70,12 +61,31 @@ export default function LoginClient({ initialMode }: { initialMode: AuthMode }) 
       return;
     }
 
-    if (authMode === "signup") {
-      setAuthMessage("Account created. Check your email if confirmation is required.");
+    setAuthMessage("Check your email for your magic link.");
+  };
+
+  const continueWithGoogle = async () => {
+    setAuthError("");
+    setAuthMessage("");
+
+    if (!isSupabaseConfigured) {
+      setAuthError("Supabase is not configured yet. Add your project URL and anon key first.");
+      return;
     }
 
-    router.push("/dashboard?welcome=1");
-    router.refresh();
+    setIsGoogleSubmitting(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: callbackUrl(),
+      },
+    });
+
+    if (error) {
+      setIsGoogleSubmitting(false);
+      setAuthError(error.message);
+    }
   };
 
   const emailError = hasSubmitted
@@ -85,107 +95,35 @@ export default function LoginClient({ initialMode }: { initialMode: AuthMode }) 
         ? "Enter a valid email address"
         : ""
     : "";
-  const nameError = authMode === "signup" && hasSubmitted && !name.trim() ? "Your name is required" : "";
-  const passwordRequiredError = hasSubmitted && !password.trim() ? "Password is required" : "";
-  const confirmPasswordError =
-    authMode === "signup" && hasSubmitted
-      ? !confirmPassword.trim()
-        ? "Confirm password is required"
-        : confirmPassword !== password
-          ? "Passwords do not match"
-          : ""
-      : "";
-  const passwordStrength = (() => {
-    if (!password) return null;
-    const normalizedPassword = password.toLowerCase().replace(/\s+/g, "");
-    const commonPasswordPatterns = [
-      "password",
-      "password123",
-      "12345678",
-      "123456789",
-      "qwerty123",
-      "letmein",
-      "admin123",
-    ];
-    const characterTypeCount = [
-      /[A-Z]/.test(password),
-      /[a-z]/.test(password),
-      /\d/.test(password),
-      /[^A-Za-z0-9]/.test(password),
-    ].filter(Boolean).length;
-
-    const isCommonPassword = commonPasswordPatterns.some(
-      (pattern) => normalizedPassword === pattern || normalizedPassword.startsWith(`${pattern}123`),
-    );
-    const isLowercaseOnly = /^[a-z]+$/.test(password);
-
-    if (password.length < 8 || isLowercaseOnly || isCommonPassword) {
-      return { label: "Weak", tone: "weak" };
-    }
-    if (password.length >= 12 && characterTypeCount >= 3) {
-      return { label: "Strong", tone: "strong" };
-    }
-    if (password.length >= 8 && characterTypeCount >= 2) {
-      return { label: "Good", tone: "good" };
-    }
-    return { label: "Weak", tone: "weak" };
-  })();
-
-  const sendPasswordReset = async () => {
-    setAuthError("");
-    setAuthMessage("");
-
-    if (!isSupabaseConfigured) {
-      setAuthError("Supabase is not configured yet. Add your project URL and anon key first.");
-      return;
-    }
-
-    if (!email.trim()) {
-      setAuthError("Enter your email address first.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    const supabase = createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/login`,
-    });
-    setIsSubmitting(false);
-
-    if (error) {
-      setAuthError(error.message);
-      return;
-    }
-
-    setAuthMessage("Password reset email sent.");
-  };
+  const usernameError = isSignup && hasSubmitted && !username.trim() ? "Username is required" : "";
 
   return (
     <main className="landing-frame" data-theme="dark" data-dark-variant="cool">
       <div className="landing-inner">
-        <div className="landing-logo">
+        <div className={`landing-logo${isSignup ? " is-signup" : ""}`}>
           <div className="landing-logo-icon">AI</div>
-          <div className="landing-logo-name">AI Subprise</div>
+          {!isSignup ? <div className="landing-logo-name">AI Subprise</div> : null}
         </div>
 
-        <section className="landing-card" aria-label="Sign in to AI Subprise">
-          <h1>{authMode === "login" ? "Welcome back" : "Create your account"}</h1>
-          <p>{authMode === "login" ? "No more second-guessing which one." : "Start your AI account directory"}</p>
+        <section className={`landing-card${isSignup ? " auth-signup-card" : ""}`} aria-label={isSignup ? "Sign up for AI Subprise" : "Sign in to AI Subprise"}>
+          <h1>{isSignup ? "Welcome to AI Subprise" : "Welcome back"}</h1>
+          {!isSignup ? <p>No more second-guessing which one.</p> : null}
 
-          <form noValidate onSubmit={submitAuth}>
-            {authMode === "signup" ? (
+          <form noValidate onSubmit={sendMagicLink}>
+            {isSignup ? (
               <label className="form-field">
-                <span>Your Name</span>
+                <span>Username</span>
                 <input
                   autoComplete="name"
-                  className={nameError ? "input-error" : undefined}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="Enter your name"
+                  autoFocus
+                  className={usernameError ? "input-error" : undefined}
+                  onChange={(event) => setUsername(capitalizeFirstLetter(event.target.value))}
+                  placeholder="Enter your username"
                   type="text"
-                  value={name}
+                  value={username}
                 />
-                <small className={nameError ? "field-feedback error" : "field-feedback error field-feedback-placeholder"}>
-                  {nameError || "Name validation placeholder"}
+                <small className={usernameError ? "field-feedback error" : "field-feedback error field-feedback-placeholder"}>
+                  {usernameError || "Username validation placeholder"}
                 </small>
               </label>
             ) : null}
@@ -193,7 +131,7 @@ export default function LoginClient({ initialMode }: { initialMode: AuthMode }) 
               <span>Email</span>
               <input
                 autoComplete="email"
-                autoFocus
+                autoFocus={!isSignup}
                 className={emailError ? "input-error" : undefined}
                 onChange={(event) => setEmail(event.target.value)}
                 placeholder="you@example.com"
@@ -204,126 +142,38 @@ export default function LoginClient({ initialMode }: { initialMode: AuthMode }) 
                 {emailError || "Email validation placeholder"}
               </small>
             </label>
-            <label className="form-field">
-              <span>Password</span>
-              <span className="password-input-wrap">
-                <input
-                  autoComplete={authMode === "login" ? "current-password" : "new-password"}
-                  className={passwordRequiredError ? "input-error" : undefined}
-                  data-1p-ignore={authMode === "signup" ? "true" : undefined}
-                  data-lpignore={authMode === "signup" ? "true" : undefined}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Enter your password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                />
-                <button
-                  aria-label={showPassword ? "Hide password" : "Show password"}
-                  aria-pressed={showPassword}
-                  className="password-visibility-toggle"
-                  onClick={() => setShowPassword((isVisible) => !isVisible)}
-                  type="button"
-                >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    {showPassword ? (
-                      <>
-                        <path d="M4 12s2.8-5 8-5 8 5 8 5-2.8 5-8 5-8-5-8-5Z" />
-                        <circle cx="12" cy="12" r="2.2" />
-                      </>
-                    ) : (
-                      <>
-                        <path d="M4 9.5c2.1 2.5 4.8 3.8 8 3.8s5.9-1.3 8-3.8" />
-                        <path d="m6.3 12-1.5 1.8M9.8 13.1l-.6 2.2M14.2 13.1l.6 2.2M17.7 12l1.5 1.8" />
-                      </>
-                    )}
-                  </svg>
-                </button>
-              </span>
-              <small
-                className={
-                  passwordRequiredError
-                    ? "field-feedback error"
-                    : authMode === "signup" && passwordStrength
-                      ? `field-feedback password-strength ${passwordStrength.tone}`
-                      : "field-feedback error field-feedback-placeholder"
-                }
-              >
-                {passwordRequiredError ||
-                  (authMode === "signup" && passwordStrength?.label) ||
-                  "Password validation placeholder"}
-              </small>
-            </label>
-            {authMode === "signup" ? (
-              <label className="form-field">
-                <span>Confirm password</span>
-                <input
-                  autoComplete="new-password"
-                  className={confirmPasswordError ? "input-error" : undefined}
-                  data-1p-ignore="true"
-                  data-lpignore="true"
-                  onChange={(event) => setConfirmPassword(event.target.value)}
-                  placeholder="Confirm your password"
-                  type="password"
-                  value={confirmPassword}
-                />
-                <small
-                  className={
-                    confirmPasswordError
-                      ? "field-feedback error"
-                      : "field-feedback error field-feedback-placeholder"
-                  }
-                >
-                  {confirmPasswordError || "Confirm password validation placeholder"}
-                </small>
-              </label>
-            ) : (
-              <div className="forgot-password-row">
-                <button className="inline-text-link" onClick={sendPasswordReset} type="button">
-                  Forgot password?
-                </button>
-              </div>
-            )}
-            {authError ? (
-              <small className="auth-inline-error" role="alert">
-                {authError}
-              </small>
-            ) : null}
-            {authMessage ? (
-              <small className="auth-inline-message" role="status">
-                {authMessage}
-              </small>
-            ) : null}
-            <button className="btn-primary auth-primary-action" disabled={isSubmitting} type="submit">
-              {isSubmitting ? "Please wait..." : authMode === "login" ? "Log in" : "Create Account"}
+            {authError ? <small className="auth-inline-error" role="alert">{authError}</small> : null}
+            {authMessage ? <small className="auth-inline-message" role="status">{authMessage}</small> : null}
+            <button className="btn-primary auth-primary-action" disabled={isSubmitting || isGoogleSubmitting} type="submit">
+              {isSubmitting ? "Sending link..." : isSignup ? "Sign up with magic link" : "Send me the Magic Link"}
             </button>
           </form>
+
+          <div className="auth-divider" aria-hidden="true">
+            <span className="auth-divider-line" />
+            <span>or</span>
+            <span className="auth-divider-line" />
+          </div>
+
+          <button className="btn-outline auth-google-action" disabled={isSubmitting || isGoogleSubmitting} onClick={continueWithGoogle} type="button">
+            <svg aria-hidden="true" className="auth-google-logo" viewBox="0 0 24 24">
+              <path d="M21.6 12.23c0-.71-.06-1.4-.18-2.06H12v3.9h5.38a4.6 4.6 0 0 1-2 3.02v2.53h3.24c1.9-1.75 2.98-4.33 2.98-7.39Z" fill="#4285F4" />
+              <path d="M12 22c2.7 0 4.98-.9 6.64-2.38l-3.24-2.53c-.9.6-2.05.96-3.4.96-2.61 0-4.82-1.76-5.61-4.13H3.04v2.61A10 10 0 0 0 12 22Z" fill="#34A853" />
+              <path d="M6.39 13.92A6 6 0 0 1 6.08 12c0-.67.11-1.32.31-1.92V7.47H3.04A10 10 0 0 0 2 12c0 1.62.39 3.15 1.04 4.53l3.35-2.61Z" fill="#FBBC05" />
+              <path d="M12 5.95c1.47 0 2.79.5 3.83 1.5l2.88-2.88A9.65 9.65 0 0 0 12 2a10 10 0 0 0-8.96 5.47l3.35 2.61C7.18 7.71 9.39 5.95 12 5.95Z" fill="#EA4335" />
+            </svg>
+            <span>{isGoogleSubmitting ? "Opening Google..." : "Continue with Google"}</span>
+          </button>
         </section>
 
         <div className="auth-footer">
           <span>
-            {authMode === "login" ? (
-              <>
-                New to AI Subprise?{" "}
-                <button
-                  className="inline-text-link auth-create-account-link"
-                  onClick={() => setAuthMode("signup")}
-                  type="button"
-                >
-                  Create an account
-                </button>
-              </>
-            ) : (
-              <>
-                Already have an account?{" "}
-                <button className="inline-text-link auth-login-link" onClick={() => setAuthMode("login")} type="button">
-                  Log in
-                </button>
-              </>
-            )}
+            {isSignup ? "Already have an account? " : "New to AI Subprise? "}
+            <a className="inline-text-link" href={isSignup ? "/login" : "/login?mode=signup"}>
+              {isSignup ? "Log in" : "Create an account"}
+            </a>
           </span>
-          {authMode === "login" ? (
-            <a className="auth-guest-link" href="/dashboard?demo=1">Continue to Explore as guest</a>
-          ) : null}
+          <a className="auth-guest-link" href="/dashboard?demo=1">Continue to Explore as guest</a>
         </div>
       </div>
     </main>

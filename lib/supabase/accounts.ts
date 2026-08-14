@@ -15,6 +15,32 @@ export type AccountInput = {
   provider: string;
 };
 
+type LoginRecordWithProvider = Omit<AccountRecord, "provider"> & {
+  providers?: { name?: string | null } | { name?: string | null }[] | null;
+};
+
+function accountRecordFromLogin(record: LoginRecordWithProvider): AccountRecord {
+  const joinedProvider = Array.isArray(record.providers) ? record.providers[0] : record.providers;
+  const { providers: _providers, ...login } = record;
+
+  return {
+    ...login,
+    provider: joinedProvider?.name ?? null,
+  };
+}
+
+async function providerIdForName(providerName: string) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("providers")
+    .select("id")
+    .eq("name", providerName)
+    .single();
+
+  if (error) throw error;
+  return String(data.id);
+}
+
 async function currentUserId() {
   const supabase = createClient();
   const {
@@ -32,8 +58,8 @@ export async function getAccountRecords() {
   const supabase = createClient();
 
   const { data: accounts, error: accountError } = await supabase
-    .from("email_accounts")
-    .select("*")
+    .from("logins")
+    .select("*,providers(name)")
     .order("created_at", { ascending: true });
 
   if (accountError) throw accountError;
@@ -50,40 +76,49 @@ export async function getAccountRecords() {
     linkCounts.set(accountId, (linkCounts.get(accountId) ?? 0) + 1);
   });
 
-  return (accounts ?? []).map((account) => ({
-    ...(account as AccountRecord),
-    linked: linkCounts.get((account as AccountRecord).id) ?? 0,
-  }));
+  return (accounts ?? []).map((account) => {
+    const normalizedAccount = accountRecordFromLogin(account as LoginRecordWithProvider);
+    return {
+      ...normalizedAccount,
+      linked: linkCounts.get(normalizedAccount.id) ?? 0,
+    };
+  });
 }
 
 export async function createAccountRecord(input: AccountInput) {
   const supabase = createClient();
   const userId = await currentUserId();
+  const providerId = await providerIdForName(input.provider);
+  const { provider: _provider, ...loginInput } = input;
   const { data, error } = await supabase
-    .from("email_accounts")
-    .insert({ ...input, user_id: userId })
-    .select("*")
+    .from("logins")
+    .insert({ ...loginInput, provider_id: providerId, user_id: userId })
+    .select("*,providers(name)")
     .single();
 
   if (error) throw error;
-  return data as AccountRecord;
+  return accountRecordFromLogin(data as LoginRecordWithProvider);
 }
 
 export async function updateAccountRecord(id: string, input: AccountInput) {
   const supabase = createClient();
+  const providerId = await providerIdForName(input.provider);
+  const { provider: _provider, ...loginInput } = input;
   const { data, error } = await supabase
-    .from("email_accounts")
-    .update(input)
+    .from("logins")
+    .update({ ...loginInput, provider_id: providerId })
     .eq("id", id)
-    .select("*")
+    .select("*,providers(name)")
     .single();
 
   if (error) throw error;
-  return data as AccountRecord;
+  return accountRecordFromLogin(data as LoginRecordWithProvider);
 }
 
 export async function deleteAccountRecord(id: string) {
   const supabase = createClient();
-  const { error } = await supabase.from("email_accounts").delete().eq("id", id);
+  const { error } = await supabase.rpc("delete_login_preserving_history", {
+    target_account_id: id,
+  });
   if (error) throw error;
 }

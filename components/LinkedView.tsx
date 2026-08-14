@@ -9,30 +9,28 @@ type LinkedTool = {
 type LinkedViewProps = {
   accountLabels: string[];
   isExpanded: boolean;
-  isSelected: boolean;
   onEditAccount: (accountLabel: string) => void;
   onToggleExpanded: () => void;
   onToggleFavorite: () => void;
-  onToggleSelected: () => void;
   renderAccount: (accountLabel: string, compact?: boolean) => ReactNode;
   renderPlan: (accountLabel: string) => ReactNode;
   renderStatusControl: (accountLabel: string) => ReactNode;
   renderToolName: () => ReactNode;
+  shiftExpandedActions?: boolean;
   tool: LinkedTool;
 };
 
 export default function LinkedView({
   accountLabels,
   isExpanded,
-  isSelected,
   onEditAccount,
   onToggleExpanded,
   onToggleFavorite,
-  onToggleSelected,
   renderAccount,
   renderPlan,
   renderStatusControl,
   renderToolName,
+  shiftExpandedActions = false,
   tool,
 }: LinkedViewProps) {
   const accountLabel = accountLabels[0] ?? "";
@@ -50,15 +48,7 @@ export default function LinkedView({
           if (hasManyAccounts) onToggleExpanded();
         }}
       >
-        <span className="tool-select-cell linked-select-cell" onClick={(event) => event.stopPropagation()}>
-          <input
-            aria-label={`Select ${tool.name}`}
-            checked={isSelected}
-            className="tool-row-checkbox"
-            onChange={onToggleSelected}
-            type="checkbox"
-          />
-        </span>
+        <span aria-hidden="true" className="linked-select-cell" />
         <button
           aria-label={tool.favorite ? `Remove ${tool.name} from favourites` : `Add ${tool.name} to favourites`}
           aria-pressed={tool.favorite}
@@ -146,7 +136,7 @@ export default function LinkedView({
               <span className="linked-expanded-plan-cell" data-label="Plan" style={{ padding: "8px 12px" }}>
                 {renderPlan(expandedAccountLabel)}
               </span>
-              <span className="linked-row-actions" style={{ padding: "8px 12px", transform: "translateX(-40px)" }}>
+              <span className="linked-row-actions" style={{ padding: "8px 12px", transform: shiftExpandedActions ? "translateX(-40px)" : "none" }}>
                 {renderStatusControl(expandedAccountLabel)}
                 <button
                   className="linked-text-action"

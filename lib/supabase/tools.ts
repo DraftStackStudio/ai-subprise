@@ -17,9 +17,9 @@ export type ToolRecord = {
   logoBg: string;
   name: string;
   notes: string;
-  pricingUrl: string;
   restoredAt?: string;
   status: SupabaseToolStatus;
+  url: string;
 };
 
 export type ToolInput = Omit<ToolRecord, "id"> & { id?: string };
@@ -54,9 +54,9 @@ function asToolRecord(record: Record<string, unknown>, accounts: string[]): Tool
     logoBg: typeof record.logo_bg === "string" && record.logo_bg ? record.logo_bg : "#F0F4FF",
     name,
     notes: typeof record.notes === "string" ? record.notes : "",
-    pricingUrl: typeof record.pricing_url === "string" && record.pricing_url ? record.pricing_url : "#",
     restoredAt: typeof record.restored_at === "string" ? record.restored_at : undefined,
     status: typeof record.status === "string" ? record.status as SupabaseToolStatus : "Free Tier",
+    url: typeof record.url === "string" ? record.url : "",
   };
 }
 
@@ -72,9 +72,9 @@ function toolPayload(input: ToolInput) {
     logo_text: input.logo,
     name: input.name,
     notes: input.notes,
-    pricing_url: input.pricingUrl,
     restored_at: input.restoredAt ?? null,
     status: input.status,
+    url: input.url || null,
   };
 }
 
@@ -108,14 +108,14 @@ export async function getToolRecords() {
 
   const { data: links, error: linkError } = await supabase
     .from("tool_email_links")
-    .select("tool_id,email_account_id,email_accounts(label)");
+    .select("tool_id,email_account_id,logins(label)");
 
   if (linkError) throw linkError;
 
   const labelsByToolId = new Map<string, string[]>();
   (links ?? []).forEach((link) => {
     const toolId = String((link as Record<string, unknown>).tool_id ?? "");
-    const joinedAccount = (link as { email_accounts?: { label?: string } | { label?: string }[] }).email_accounts;
+    const joinedAccount = (link as { logins?: { label?: string } | { label?: string }[] }).logins;
     const account = Array.isArray(joinedAccount) ? joinedAccount[0] : joinedAccount;
     const label = account?.label;
     if (!toolId || !label) return;
@@ -129,13 +129,13 @@ export async function getToolLinkDetailRecords() {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("tool_email_links")
-    .select("tool_id,plan,plan_name,status,billing_type,amount,currency,next_charge_date,purchase_date,last_top_up_date,start_date,trial_expiry_date,trial_resolved,trial_resolution,trial_resolution_history,billing_history_entries,converted_date,email_accounts(label)");
+    .select("*,logins(label)");
 
   if (error) throw error;
 
   return (data ?? []).map((link) => {
     const rawLink = link as Record<string, unknown>;
-    const joinedAccount = (link as { email_accounts?: { label?: string } | { label?: string }[] }).email_accounts;
+    const joinedAccount = (link as { logins?: { label?: string } | { label?: string }[] }).logins;
     const account = Array.isArray(joinedAccount) ? joinedAccount[0] : joinedAccount;
     const billingHistoryEntries = Array.isArray(rawLink.billing_history_entries)
       ? rawLink.billing_history_entries
@@ -230,6 +230,7 @@ export async function patchToolRecord(id: string, input: Partial<ToolInput>) {
   if (input.notes !== undefined) payload.notes = input.notes;
   if (input.restoredAt !== undefined) payload.restored_at = input.restoredAt ?? null;
   if (input.status !== undefined) payload.status = input.status;
+  if (input.url !== undefined) payload.url = input.url || null;
 
   const { error } = await supabase.from("ai_tools").update(payload).eq("id", id);
   if (error) throw error;
@@ -244,7 +245,10 @@ export async function deleteToolRecords(ids: string[]) {
 
 export async function replaceToolLinks(toolId: string, labels: string[], accounts: AccountRef[]) {
   const supabase = createClient();
-  const { error: deleteError } = await supabase.from("tool_email_links").delete().eq("tool_id", toolId);
+  const { error: deleteError } = await supabase
+    .from("tool_email_links")
+    .delete()
+    .eq("tool_id", toolId);
   if (deleteError) throw deleteError;
 
   const selectedAccounts = accountIdsForLabels(accounts, labels);

@@ -1,7 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import ToolListView from "@/components/ToolListView";
 
-type ToolSection = "tools" | "linked" | "watchlist" | "favorites" | "archive" | "recovery";
+type ToolSection = "tools" | "linked" | "accounts" | "watchlist" | "favorites" | "archive" | "recovery";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 
 type ToolListItem = {
@@ -22,6 +22,7 @@ type AIToolboxViewProps<Tool extends ToolListItem> = {
   groupedEmptyTitle: ReactNode;
   groupedToolCategories: ToolCategoryGroup<Tool>[];
   isGroupedView: boolean;
+  isAccountFiltered?: boolean;
   isLoadingTools: boolean;
   renderToolCategoryGroup: (group: ToolCategoryGroup<Tool>) => ReactNode;
   renderToolRow: (tool: Tool) => ReactNode;
@@ -50,6 +51,7 @@ export default function AIToolboxView<Tool extends ToolListItem>({
   groupedEmptyTitle,
   groupedToolCategories,
   isGroupedView,
+  isAccountFiltered = false,
   isLoadingTools,
   renderToolCategoryGroup,
   renderToolRow,
@@ -65,9 +67,8 @@ export default function AIToolboxView<Tool extends ToolListItem>({
           "account-table",
           "tool-database",
           `tool-database-${section}`,
-          !["tools", "linked", "watchlist"].includes(section) || activeCategory || selectedToolSort !== "Category"
-            ? "tool-database-flat"
-            : "",
+          section === "accounts" && isAccountFiltered ? "tool-database-accounts-filtered" : "",
+          !isGroupedView ? "tool-database-flat" : "",
           section === "tools" && (activeCategory || selectedToolSort !== "Category")
             ? "tool-database-tools-flat-view"
             : "",
@@ -77,7 +78,7 @@ export default function AIToolboxView<Tool extends ToolListItem>({
       {isGroupedView ? (
         <>
           <div className="account-table-head tool-table-head">
-            {section === "linked" ? (
+            {section === "linked" || section === "accounts" ? (
               <>
                 <span />
                 <FavouriteHeaderIcon />

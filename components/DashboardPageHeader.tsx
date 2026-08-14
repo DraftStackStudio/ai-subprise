@@ -1,7 +1,6 @@
 type DashboardPageHeaderProps = {
   activeSection: string;
   hasConfirmedCategories: boolean;
-  isDemoMode: boolean;
   isPendingActionsExpanded: boolean;
   onAddAccount: () => void;
   onAddTool: () => void;
@@ -9,7 +8,6 @@ type DashboardPageHeaderProps = {
   onEditCategories: () => void;
   onEditProviders: () => void;
   onOpenPresets: () => void;
-  onReseedDemo: () => void;
   onResetTools: () => void;
   onTogglePendingActions: () => void;
   pendingActionCount: number;
@@ -20,7 +18,6 @@ type DashboardPageHeaderProps = {
 export default function DashboardPageHeader({
   activeSection,
   hasConfirmedCategories,
-  isDemoMode,
   isPendingActionsExpanded,
   onAddAccount,
   onAddTool,
@@ -28,7 +25,6 @@ export default function DashboardPageHeader({
   onEditCategories,
   onEditProviders,
   onOpenPresets,
-  onReseedDemo,
   onResetTools,
   onTogglePendingActions,
   pendingActionCount,
@@ -58,7 +54,6 @@ export default function DashboardPageHeader({
             {pendingActionCount} {pendingActionCount === 1 ? "item needs" : "items need"} attention
           </button>
         ) : null}
-        {activeSection === "account" && isDemoMode ? <button className="btn-sm btn-sm-ghost" onClick={onReseedDemo} type="button">Reseed demo data</button> : null}
         {activeSection === "account" ? <button className="btn-sm btn-sm-charcoal" onClick={onEditProviders} type="button">+ Edit Provider</button> : null}
         {activeSection === "tools" && hasConfirmedCategories ? (
           <>
@@ -67,7 +62,7 @@ export default function DashboardPageHeader({
           </>
         ) : null}
         {activeSection === "tools" ? <button className="btn-sm btn-sm-ghost" onClick={onOpenPresets} type="button">Presets</button> : null}
-        {activeSection !== "dashboard" && activeSection !== "billing" ? (
+        {activeSection !== "dashboard" && activeSection !== "billing" && activeSection !== "settings" ? (
           <button className="btn-sm btn-sm-primary" onClick={activeSection === "account" || activeSection === "providers" ? onAddAccount : onAddTool} type="button">
             {activeSection === "account" || activeSection === "providers" ? "+ Add Logins" : activeSection === "linked" ? "+ Link AI Tool" : "+ AI Tool"}
           </button>

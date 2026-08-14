@@ -1,4 +1,5 @@
 type BulkToolActionsProps = {
+  isFloating?: boolean;
   isArchiveSection: boolean;
   onArchive: () => void;
   onClear: () => void;
@@ -7,6 +8,7 @@ type BulkToolActionsProps = {
 };
 
 export default function BulkToolActions({
+  isFloating = false,
   isArchiveSection,
   onArchive,
   onClear,
@@ -16,8 +18,11 @@ export default function BulkToolActions({
   if (selectedCount === 0) return null;
 
   return (
-    <div className="bulk-action-bar" role="status">
-      <span>{selectedCount} selected</span>
+    <div className={isFloating ? "bulk-action-bar is-floating" : "bulk-action-bar"} role="status">
+      <span className="bulk-action-count">
+        <span className="bulk-action-count-number">{selectedCount}</span>
+        selected
+      </span>
       {!isArchiveSection ? (
         <button className="bulk-action-btn" onClick={onArchive} type="button">
           Archive

@@ -15,7 +15,7 @@ const toolboxPresets = {
       "id": "ai-assistant",
       "label": "AI Assistant",
       "description": "Chat & reasoning tools",
-      "tools": ["ChatGPT", "Claude", "Co-pilot", "Deepseek", "Google Gemini", "Grok"]
+      "tools": ["ChatGPT", "Claude", "Co-pilot", "DeepSeek", "Google Gemini", "Grok"]
     },
     {
       "id": "visual-audio",
@@ -25,7 +25,7 @@ const toolboxPresets = {
         { "label": "Image", "tools": ["Flux.2", "Ideogram", "Krea", "Midjourney"] },
         { "label": "Hybrid", "tools": ["Dreamina", "ElevenLabs", "Hailuo AI", "HeyGen", "Higgsfield AI", "Kling AI", "Lovart", "Magnific", "Qwen", "Runway", "Wan AI"] },
         { "label": "Video", "tools": ["Pika", "Veo 3"] },
-        { "label": "Music", "tools": ["Suno", "Udio"] }
+        { "label": "Music", "tools": ["Soundraw", "Suno", "Udio"] }
       ]
     },
     {
@@ -38,7 +38,7 @@ const toolboxPresets = {
       "id": "research",
       "label": "Research",
       "description": "Search & knowledge tools",
-      "tools": ["Notebook LM", "Perplexity"]
+      "tools": ["Ithy", "Notebook LM", "Perplexity"]
     },
     {
       "id": "productivity",
@@ -74,7 +74,7 @@ const toolboxPresets = {
       "id": "coding-dev",
       "label": "Coding & Dev",
       "description": "Dev & coding assistants",
-      "tools": ["Cursor", "Firebase", "Github", "Hostinger", "Openrouter", "Pinecone", "PostHog", "Resend", "Supabase", "Vercel", "Windsurf"],
+      "tools": ["Cloudflare", "Cursor", "Firebase", "Github", "Google AI Studio", "Hostinger", "OpenRouter", "Pinecone", "PostHog", "Resend", "Supabase", "Vercel", "Windsurf"],
       "pendingTools": ["Warp", "Cline", "Aider", "Zed", "Amazon Q Developer"],
       "_note": "pendingTools are proposed but not yet confirmed — move into 'tools' once approved"
     },

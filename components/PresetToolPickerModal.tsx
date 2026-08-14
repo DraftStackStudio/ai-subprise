@@ -1,6 +1,7 @@
 "use client";
 
 import toolboxPresetsData from "@/config/toolboxPresets";
+import { getToolAliasText, toolAliasTextByName } from "@/config/toolAliases";
 import { useState } from "react";
 
 type ToolboxPresetCategory = {
@@ -41,12 +42,6 @@ type PresetToolPickerModalProps = {
 
 const toolboxPresets = toolboxPresetsData as ToolboxPresetConfig;
 const presetCategoryById = new Map(toolboxPresets.categories.map((category) => [category.id, category]));
-const presetAliasText: Record<string, string> = {
-  Dreamina: "Also known as: Seedream, Seedance, Jimeng",
-  "Notebook LM": "Also known as: Gemini Notebook",
-  Windsurf: "Also known as: Devin Desktop",
-};
-
 export default function PresetToolPickerModal({
   expandedCategoryIds,
   isSaving,
@@ -123,7 +118,7 @@ export default function PresetToolPickerModal({
                 {categories.map((category) => {
                   const renderPresetPill = (presetName: string) => {
                     const isAdded = selectedToolNames.includes(presetName.trim().toLowerCase());
-                    const aliasText = presetAliasText[presetName];
+                    const aliasText = getToolAliasText(presetName);
                     const pillIcon = isAdded ? (
                       <svg
                         aria-hidden="true"
@@ -266,7 +261,7 @@ export default function PresetToolPickerModal({
             role="dialog"
           >
             <h2 id="preset-alias-modal-title">{aliasModalToolName}</h2>
-            <p>{presetAliasText[aliasModalToolName]}</p>
+            <p>{toolAliasTextByName[aliasModalToolName]}</p>
             <div className="welcome-modal-actions">
               <button className="btn-sm btn-sm-primary" onClick={() => setAliasModalToolName(null)} type="button">
                 Got it

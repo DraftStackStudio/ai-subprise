@@ -59,7 +59,18 @@ function validateLogin(provider: string, login: string) {
 
   if (!trimmedLogin) return null;
   if (provider === "Github") {
-    if (/\s/.test(login)) return { message: "Username cannot contain spaces", type: "error" as const };
+    if (/\s/.test(login)) {
+      return {
+        message: trimmedLogin.includes("@") ? "Email address cannot contain spaces" : "Username cannot contain spaces",
+        type: "error" as const,
+      };
+    }
+    if (trimmedLogin.includes("@")) {
+      if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)*\.[A-Za-z]{2,}$/.test(trimmedLogin)) {
+        return { message: "Please enter a complete email address", type: "error" as const };
+      }
+      return { message: "Email format looks good", type: "success" as const };
+    }
     if (!/^[A-Za-z0-9-]+$/.test(trimmedLogin)) {
       return { message: "GitHub username: letters, numbers, hyphens (-) only", type: "error" as const };
     }
@@ -196,7 +207,7 @@ export default function AccountModal({
           <label className="form-field">
             <span>Provider</span>
             {isCustomProviderMode ? (
-              <input onChange={(event) => setProvider(formatNickname(event.target.value))} placeholder="Provider name" type="text" value={provider} />
+              <input onChange={(event) => setProvider(formatNickname(event.target.value))} placeholder="Enter provider name" type="text" value={provider} />
             ) : (
               <div className={isProviderMenuOpen ? "custom-select is-open" : "custom-select"} id="account-provider"
                 onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsProviderMenuOpen(false); }}>
