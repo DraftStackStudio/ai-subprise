@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 type DashboardPageHeaderProps = {
   activeSection: string;
   hasConfirmedCategories: boolean;
@@ -11,7 +13,7 @@ type DashboardPageHeaderProps = {
   onResetTools: () => void;
   onTogglePendingActions: () => void;
   pendingActionCount: number;
-  subtitle: string;
+  subtitle: ReactNode;
   title: string;
 };
 
@@ -34,14 +36,7 @@ export default function DashboardPageHeader({
   return (
     <header className="main-header">
       <div>
-        <h1 className={activeSection === "providers" ? "main-title main-title-with-back" : "main-title"}>
-          {activeSection === "providers" ? (
-            <button aria-label="Back to Logins" className="title-back-button tooltip-target" data-tooltip="Back to Logins" onClick={onBackToLogins} type="button">
-              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M19 12H5" /><path d="m12 19-7-7 7-7" /></svg>
-            </button>
-          ) : null}
-          <span>{title}</span>
-        </h1>
+        <h1 className="main-title">{title}</h1>
         <p className="main-subtitle">{activeSection === "linked" ? "Every tool, matched to the account behind it." : subtitle}</p>
       </div>
       <div className="header-actions">
@@ -52,6 +47,15 @@ export default function DashboardPageHeader({
               <path d="M12 9v4M12 17h.01" stroke="currentColor" strokeLinecap="round" strokeWidth="2" />
             </svg>
             {pendingActionCount} {pendingActionCount === 1 ? "item needs" : "items need"} attention
+          </button>
+        ) : null}
+        {activeSection === "providers" ? (
+          <button className="btn-sm btn-sm-ghost button-with-icon" onClick={onBackToLogins} type="button">
+            <svg aria-hidden="true" className="button-inline-icon" fill="none" viewBox="0 0 24 24">
+              <path d="M19 12H5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+              <path d="m12 19-7-7 7-7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+            </svg>
+            Back
           </button>
         ) : null}
         {activeSection === "account" ? <button className="btn-sm btn-sm-charcoal" onClick={onEditProviders} type="button">+ Edit Provider</button> : null}

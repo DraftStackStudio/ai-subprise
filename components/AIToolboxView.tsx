@@ -78,13 +78,35 @@ export default function AIToolboxView<Tool extends ToolListItem>({
       {isGroupedView ? (
         <>
           <div className="account-table-head tool-table-head">
-            {section === "linked" || section === "accounts" ? (
+            {section === "linked" ? (
               <>
                 <span />
                 <FavouriteHeaderIcon />
                 <span>Tool Name</span>
                 <span>Account</span>
                 <span>Plan</span>
+                <span>Status</span>
+                <span>Action</span>
+              </>
+            ) : section === "accounts" ? (
+              <>
+                <span />
+                <FavouriteHeaderIcon />
+                <span>Tool Name</span>
+                <span>Account</span>
+                <span>Plan</span>
+                <span>Status</span>
+                <span>Action</span>
+              </>
+            ) : section === "tools" ? (
+              <>
+                <span />
+                <FavouriteHeaderIcon />
+                <span>Tool Name</span>
+                <span>Category</span>
+                <span>URL</span>
+                <span>Watchlist</span>
+                <span>Accounts</span>
                 <span>Action</span>
               </>
             ) : (
@@ -95,7 +117,9 @@ export default function AIToolboxView<Tool extends ToolListItem>({
                 <span>Category</span>
                 <span>URL</span>
                 <span>Watchlist</span>
-                <span>{section === "watchlist" ? "Notes" : "Action"}</span>
+                <span className={section === "watchlist" ? "watchlist-notes-head" : undefined}>
+                  {section === "watchlist" ? "Notes" : "Action"}
+                </span>
               </>
             )}
           </div>

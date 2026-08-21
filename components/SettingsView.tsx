@@ -1,4 +1,5 @@
 import type { FormEvent, ReactNode } from "react";
+import Link from "next/link";
 
 type SettingsTab = "billing" | "profile";
 
@@ -69,7 +70,7 @@ export default function SettingsView({
             <section className="settings-plan-card">
               <div className="settings-card-header">
                 <div><span className="settings-eyebrow">Current plan</span><h2>Starter</h2></div>
-                <a className="btn-sm btn-sm-primary settings-billing-action" href="/pricing">Manage plan</a>
+                <Link className="btn-sm btn-sm-primary settings-billing-action" href="/pricing">Manage plan</Link>
               </div>
             </section>
             <section className="settings-section settings-content-card settings-promo-card">

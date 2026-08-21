@@ -91,24 +91,37 @@ export default function ToolboxToolRow({
         <span className="watchlist-notes-cell" data-label="Notes">
           {renderWatchlistNote()}
         </span>
+      ) : section === "tools" ? (
+        <>
+          <span className="tool-accounts-cell" data-label="Accounts">
+            {tool.accounts.length > 0 ? (
+              <button className="linked-account-count-pill toolbox-account-count-badge" onClick={onOpenLinkState} type="button">
+                {tool.accounts.length} {tool.accounts.length === 1 ? "account" : "accounts"}
+              </button>
+            ) : (
+              <button className="action-btn" onClick={onOpenLinkState} type="button">
+                Not linked
+              </button>
+            )}
+          </span>
+          <span className="row-actions toolbox-edit-actions" data-label="Action">
+            <button className="action-btn" onClick={onEdit} type="button">
+              Edit
+            </button>
+          </span>
+        </>
       ) : (
         <span
-          className={`row-actions tool-link-state-actions${section === "tools" && tool.accounts.length > 0 ? " has-account-count" : ""}`}
+          className="row-actions tool-link-state-actions"
           data-label="Action"
         >
-          {section === "tools" && tool.accounts.length > 0 ? (
-            <button className="linked-account-count-pill toolbox-account-count-badge" onClick={onOpenLinkState} type="button">
-              {tool.accounts.length} {tool.accounts.length === 1 ? "account" : "accounts"}
-            </button>
-          ) : (
-            <button
-              className="action-btn"
-              onClick={onOpenLinkState}
-              type="button"
-            >
-              {tool.accounts.length > 0 ? "Link" : "Not linked"}
-            </button>
-          )}
+          <button
+            className="action-btn"
+            onClick={onOpenLinkState}
+            type="button"
+          >
+            {tool.accounts.length > 0 ? "Link" : "Not linked"}
+          </button>
           <button className="action-btn" onClick={onEdit} type="button">
             Edit
           </button>

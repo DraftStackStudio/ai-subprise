@@ -105,7 +105,7 @@ export default function LoginsView({
                   {group.accounts.map((account) => (
                     <div
                       className={draggedAccountLogin === account.login ? "account-table-row is-dragging" : "account-table-row"}
-                      key={account.login}
+                      key={account.id ?? `${group.provider}-${account.label}`}
                       data-account-login={account.login}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={(event) => handleDrop(event, account)}

@@ -29,6 +29,7 @@ type DashboardConfirmationModalsProps = {
   onConfirmDuplicateRestore: () => void;
   onConfirmToolStateChange: () => void;
   onConfirmWatchlistMove: () => void;
+  onCloseCreateAccount: () => void;
   onDismissCreateAccount: () => void;
   onDontShowOnboardingAgainChange: (checked: boolean) => void;
   onOpenAccountSetup: () => void;
@@ -53,6 +54,7 @@ export default function DashboardConfirmationModals({
   onConfirmDuplicateRestore,
   onConfirmToolStateChange,
   onConfirmWatchlistMove,
+  onCloseCreateAccount,
   onDismissCreateAccount,
   onDontShowOnboardingAgainChange,
   onOpenAccountSetup,
@@ -67,10 +69,18 @@ export default function DashboardConfirmationModals({
             className="welcome-modal compact-copy-modal duplicate-restore-modal"
             role="dialog"
           >
-            <h2 id="duplicate-restore-title">This tool already exists</h2>
-            <p className="duplicate-restore-existing-copy">
-              You already have &quot;{duplicateRestoreToolName}.&quot;
-            </p>
+            <header className="duplicate-restore-header">
+              <div aria-hidden="true" className="duplicate-restore-icon">
+                <svg viewBox="0 0 24 24">
+                  <rect height="10" rx="2" width="10" x="4" y="4" />
+                  <rect height="10" rx="2" width="10" x="10" y="10" />
+                </svg>
+              </div>
+              <h2 id="duplicate-restore-title">This tool already exists</h2>
+              <p className="duplicate-restore-existing-copy">
+                You already have &quot;{duplicateRestoreToolName}.&quot;
+              </p>
+            </header>
             <div className="duplicate-restore-rename-copy">
               <p>Restoring will rename this one:</p>
               <label className="duplicate-restore-name-field">
@@ -108,18 +118,58 @@ export default function DashboardConfirmationModals({
 
       {showCreateAccountModal ? (
         <div className="welcome-modal-overlay" role="presentation">
-          <section aria-labelledby="welcome-modal-title" aria-modal="true" className="welcome-modal" role="dialog">
+          <section
+            aria-labelledby="welcome-modal-title"
+            aria-modal="true"
+            className="welcome-modal onboarding-how-it-works-modal"
+            role="dialog"
+          >
             <button
               aria-label="Close onboarding modal"
               className="modal-close-button"
-              onClick={onDismissCreateAccount}
+              onClick={onCloseCreateAccount}
               type="button"
             >
               x
             </button>
-            <div className="welcome-modal-icon">AI</div>
-            <h2 id="welcome-modal-title">Start by adding your first login.</h2>
-            <p>Add the login you use most often, then link your AI tools to it as you build your directory.</p>
+            <header className="onboarding-how-it-works-header">
+              <div className="onboarding-brand-row">
+                <div className="welcome-modal-icon">AI</div>
+                <span className="onboarding-eyebrow">Welcome to AI Subprise</span>
+              </div>
+              <h2 id="welcome-modal-title">How it works</h2>
+            </header>
+            <ol className="onboarding-steps">
+              <li>
+                <span className="onboarding-step-number">1</span>
+                <div>
+                  <strong>Add Logins</strong>
+                  <p>Save the accounts you use for your AI tools.</p>
+                  <p>View all in By Accounts.</p>
+                </div>
+              </li>
+              <li>
+                <span className="onboarding-step-number">2</span>
+                <div>
+                  <strong>Build your AI Toolbox</strong>
+                  <p>Add every AI tool you subscribe to or want to track.</p>
+                </div>
+              </li>
+              <li>
+                <span className="onboarding-step-number">3</span>
+                <div>
+                  <strong>Link tools to accounts</strong>
+                  <p>Match each tool to the account behind it.</p>
+                </div>
+              </li>
+              <li>
+                <span className="onboarding-step-number">4</span>
+                <div>
+                  <strong>Track spend and trials</strong>
+                  <p>View billing dates, costs, and trial status.</p>
+                </div>
+              </li>
+            </ol>
             <label className="onboarding-opt-out">
               <input
                 checked={dontShowOnboardingAgain}
@@ -133,7 +183,7 @@ export default function DashboardConfirmationModals({
                 Not now
               </button>
               <button className="btn-sm btn-sm-primary" onClick={onOpenAccountSetup} type="button">
-                Go to Logins
+                Add my first account
               </button>
             </div>
           </section>
@@ -187,7 +237,9 @@ export default function DashboardConfirmationModals({
               x
             </button>
             <h2 id="tool-state-confirm-modal-title">
-              {toolStateConfirmation.action === "unwatchlist" ? "Remove from Watchlist?" : "Unarchive Tool?"}
+              {toolStateConfirmation.action === "unwatchlist"
+                ? `Remove ${toolStateConfirmation.toolName} from Watchlist?`
+                : "Unarchive Tool?"}
             </h2>
             <p>
               {toolStateConfirmation.action === "unwatchlist" ? (

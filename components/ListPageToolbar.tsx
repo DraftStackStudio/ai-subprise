@@ -15,6 +15,7 @@ type ListPageToolbarProps = {
   onToolSortChange: (value: ToolSortRange) => void;
   searchQuery: string;
   selectedToolSort: ToolSortRange;
+  showWatchlistCategoryTabs: boolean;
   toolSortOptions: Array<{ label: string; value: ToolSortRange }>;
 };
 
@@ -31,10 +32,17 @@ export default function ListPageToolbar({
   onToolSortChange,
   searchQuery,
   selectedToolSort,
+  showWatchlistCategoryTabs,
   toolSortOptions,
 }: ListPageToolbarProps) {
   return (
-    <div className="table-controls">
+    <div
+      className={
+        activeSection === "favorites" || activeSection === "archive"
+          ? "table-controls narrow-table-controls"
+          : "table-controls"
+      }
+    >
       <div
         className={activeSection === "tools" && activeCategory ? "category-view-tabs subcategory-view-tabs" : "category-view-tabs"}
         aria-label={
@@ -50,12 +58,14 @@ export default function ListPageToolbar({
           aria-hidden={
             (activeSection === "tools" && activeCategory) ||
             activeSection === "favorites" ||
-            activeSection === "archive"
+            activeSection === "archive" ||
+            (activeSection === "watchlist" && !showWatchlistCategoryTabs)
           }
         >
           {(activeSection === "tools" && activeCategory) ||
           activeSection === "favorites" ||
-          activeSection === "archive"
+          activeSection === "archive" ||
+          (activeSection === "watchlist" && !showWatchlistCategoryTabs)
             ? "\u00a0"
             : activeSection === "billing"
               ? "Browse by billing."
@@ -95,7 +105,10 @@ export default function ListPageToolbar({
             </div>
           ) : activeSection === "tools" && activeCategory ? (
             <span className="category-view-tab-spacer" aria-hidden="true" />
-          ) : activeSection === "favorites" || activeSection === "archive" ? (
+          ) :
+          activeSection === "favorites" ||
+          activeSection === "archive" ||
+          (activeSection === "watchlist" && !showWatchlistCategoryTabs) ? (
             <span className="category-view-tab-spacer" aria-hidden="true" />
           ) : (
             <div className="category-view-tab-list">

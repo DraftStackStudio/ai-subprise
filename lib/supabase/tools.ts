@@ -11,6 +11,7 @@ export type ToolRecord = {
   archivedStatus?: SupabaseToolStatus;
   billing: string;
   category: string;
+  deletedAt?: string;
   favorite: boolean;
   id: string;
   logo: string;
@@ -48,6 +49,7 @@ function asToolRecord(record: Record<string, unknown>, accounts: string[]): Tool
     archivedStatus: typeof record.archived_status === "string" ? record.archived_status as SupabaseToolStatus : undefined,
     billing: typeof record.billing_type === "string" && record.billing_type ? record.billing_type : "None",
     category: typeof record.category === "string" ? record.category : "Uncategorized",
+    deletedAt: typeof record.deleted_at === "string" ? record.deleted_at : undefined,
     favorite: Boolean(record.is_favourite),
     id: String(record.id),
     logo: typeof record.logo_text === "string" && record.logo_text ? record.logo_text : toolInitials(name),
@@ -102,13 +104,15 @@ export async function getToolRecords() {
   const { data: tools, error: toolError } = await supabase
     .from("ai_tools")
     .select("*")
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
   if (toolError) throw toolError;
 
   const { data: links, error: linkError } = await supabase
     .from("tool_email_links")
-    .select("tool_id,email_account_id,logins(label)");
+    .select("tool_id,email_account_id,logins(label)")
+    .is("unlinked_at", null);
 
   if (linkError) throw linkError;
 
@@ -125,11 +129,50 @@ export async function getToolRecords() {
   return (tools ?? []).map((tool) => asToolRecord(tool as Record<string, unknown>, labelsByToolId.get(String((tool as Record<string, unknown>).id)) ?? []));
 }
 
+export async function getDeletedToolRecords() {
+  const supabase = createClient();
+
+  const { data: tools, error: toolError } = await supabase
+    .from("ai_tools")
+    .select("*")
+    .not("deleted_at", "is", null)
+    .order("deleted_at", { ascending: false });
+
+  if (toolError) throw toolError;
+
+  const toolIds = (tools ?? []).map((tool) => String((tool as Record<string, unknown>).id));
+  if (toolIds.length === 0) return [];
+
+  const { data: links, error: linkError } = await supabase
+    .from("tool_email_links")
+    .select("tool_id,email_account_id,logins(label)")
+    .in("tool_id", toolIds);
+
+  if (linkError) throw linkError;
+
+  const labelsByToolId = new Map<string, string[]>();
+  (links ?? []).forEach((link) => {
+    const toolId = String((link as Record<string, unknown>).tool_id ?? "");
+    const joinedAccount = (link as { logins?: { label?: string } | { label?: string }[] }).logins;
+    const account = Array.isArray(joinedAccount) ? joinedAccount[0] : joinedAccount;
+    const label = account?.label;
+    if (!toolId || !label) return;
+    const labels = labelsByToolId.get(toolId) ?? [];
+    if (!labels.includes(label)) labelsByToolId.set(toolId, [...labels, label]);
+  });
+
+  return (tools ?? []).map((tool) => {
+    const rawTool = tool as Record<string, unknown>;
+    return asToolRecord(rawTool, labelsByToolId.get(String(rawTool.id)) ?? []);
+  });
+}
+
 export async function getToolLinkDetailRecords() {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("tool_email_links")
-    .select("*,logins(label)");
+    .select("*,logins(label)")
+    .is("unlinked_at", null);
 
   if (error) throw error;
 
@@ -236,7 +279,23 @@ export async function patchToolRecord(id: string, input: Partial<ToolInput>) {
   if (error) throw error;
 }
 
-export async function deleteToolRecords(ids: string[]) {
+export async function softDeleteToolRecords(ids: string[]) {
+  if (ids.length === 0) return;
+  const supabase = createClient();
+  const { error } = await supabase.rpc("soft_delete_ai_tools", { target_tool_ids: ids });
+  if (error) throw error;
+}
+
+export async function restoreToolRecord(id: string, name?: string) {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("restore_ai_tool", {
+    restored_name: name?.trim() || null,
+    target_tool_id: id,
+  });
+  if (error) throw error;
+}
+
+export async function permanentlyDeleteToolRecords(ids: string[]) {
   if (ids.length === 0) return;
   const supabase = createClient();
   const { error } = await supabase.from("ai_tools").delete().in("id", ids);

@@ -25,6 +25,7 @@ type PresetTool = {
 
 type PresetToolPickerModalProps = {
   expandedCategoryIds: string[];
+  isObscured: boolean;
   isSaving: boolean;
   normalizeCategory: (category: string) => string;
   onClose: () => void;
@@ -32,6 +33,7 @@ type PresetToolPickerModalProps = {
   onExpandCategory: (categoryId: string) => void;
   onToggleShowAllCategories: () => void;
   onToggleTool: (toolName: string) => void;
+  ownedToolNames: string[];
   selectedCategoryLabels: string[];
   selectedRole: string;
   selectedRoleCategoryLabels: string[];
@@ -44,6 +46,7 @@ const toolboxPresets = toolboxPresetsData as ToolboxPresetConfig;
 const presetCategoryById = new Map(toolboxPresets.categories.map((category) => [category.id, category]));
 export default function PresetToolPickerModal({
   expandedCategoryIds,
+  isObscured,
   isSaving,
   normalizeCategory,
   onClose,
@@ -51,6 +54,7 @@ export default function PresetToolPickerModal({
   onExpandCategory,
   onToggleShowAllCategories,
   onToggleTool,
+  ownedToolNames,
   selectedCategoryLabels,
   selectedRole,
   selectedRoleCategoryLabels,
@@ -65,8 +69,9 @@ export default function PresetToolPickerModal({
       <div className="welcome-modal-overlay" role="presentation">
         <section
           aria-labelledby="preset-tool-picker-title"
+          aria-hidden={isObscured}
           aria-modal="true"
-          className="welcome-modal preset-tool-picker-modal"
+          className={`welcome-modal preset-tool-picker-modal${isObscured ? " is-obscured" : ""}`}
           role="dialog"
         >
         <button
@@ -117,7 +122,9 @@ export default function PresetToolPickerModal({
                 <h3>{cluster.label}</h3>
                 {categories.map((category) => {
                   const renderPresetPill = (presetName: string) => {
-                    const isAdded = selectedToolNames.includes(presetName.trim().toLowerCase());
+                    const normalizedName = presetName.trim().toLowerCase();
+                    const isAdded = selectedToolNames.includes(normalizedName);
+                    const isOwned = ownedToolNames.includes(normalizedName);
                     const aliasText = getToolAliasText(presetName);
                     const pillIcon = isAdded ? (
                       <svg
@@ -158,11 +165,11 @@ export default function PresetToolPickerModal({
                     if (aliasText) {
                       return (
                         <span
-                          className={isAdded ? "preset-tool-pill preset-tool-pill-with-info is-added" : "preset-tool-pill preset-tool-pill-with-info"}
+                          className={`preset-tool-pill preset-tool-pill-with-info${isAdded ? " is-added" : ""}`}
                           key={`${category.id}-${presetName}`}
                         >
                           <button
-                            aria-label={`${isAdded ? "Added" : "Add"} ${presetName}`}
+                            aria-label={`${isAdded ? "Deselect" : "Select"} ${presetName}${isOwned ? " (already in your toolbox)" : ""}`}
                             className="preset-tool-pill-main"
                             disabled={isSaving}
                             onClick={() => onToggleTool(presetName)}
@@ -186,8 +193,8 @@ export default function PresetToolPickerModal({
 
                     const presetButton = (
                       <button
-                        aria-label={`${isAdded ? "Added" : "Add"} ${presetName}`}
-                        className={isAdded ? "preset-tool-pill is-added" : "preset-tool-pill"}
+                        aria-label={`${isAdded ? "Deselect" : "Select"} ${presetName}${isOwned ? " (already in your toolbox)" : ""}`}
+                        className={`preset-tool-pill${isAdded ? " is-added" : ""}`}
                         disabled={isSaving}
                         key={`${category.id}-${presetName}`}
                         onClick={() => onToggleTool(presetName)}

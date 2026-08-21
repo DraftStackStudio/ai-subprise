@@ -81,7 +81,7 @@ export default function ToolRowRenderer({
         renderPlan={renderPlan}
         renderStatusControl={renderStatusControl}
         renderToolName={renderToolName}
-        shiftExpandedActions={section === "linked"}
+        splitStatusAction={section === "linked" || section === "accounts"}
         tool={tool}
       />
     );

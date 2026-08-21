@@ -54,13 +54,34 @@ export default function ToolListView<Tool extends ToolListItem>({
   return (
     <>
       <div className="account-table-head tool-table-head">
-        {section === "linked" || section === "accounts" ? (
+        {section === "linked" ? (
           <>
             <span aria-hidden="true" />
             <FavouriteHeaderIcon />
             <span>Tool Name</span>
             <span>Account</span>
             <span>Plan</span>
+            <span>Status</span>
+            <span>Action</span>
+          </>
+        ) : section === "accounts" ? (
+          <>
+            <span aria-hidden="true" />
+            <FavouriteHeaderIcon />
+            <span>Tool Name</span>
+            <span>Account</span>
+            <span>Plan</span>
+            <span>Action</span>
+          </>
+        ) : section === "tools" ? (
+          <>
+            {selectAll}
+            <FavouriteHeaderIcon />
+            <span>Tool Name</span>
+            <span>Category</span>
+            <span>URL</span>
+            <span>Watchlist</span>
+            <span>Accounts</span>
             <span>Action</span>
           </>
         ) : section === "favorites" ? (
@@ -76,6 +97,7 @@ export default function ToolListView<Tool extends ToolListItem>({
         ) : section === "archive" ? (
           <>
             {selectAll}
+            <span aria-hidden="true" />
             <span>Tool Name</span>
             <span>Category</span>
             <span>Last Status</span>
@@ -90,7 +112,9 @@ export default function ToolListView<Tool extends ToolListItem>({
             <span>Category</span>
             <span>URL</span>
             <span>Watchlist</span>
-            <span>{section === "watchlist" ? "Notes" : "Action"}</span>
+            <span className={section === "watchlist" ? "watchlist-notes-head" : undefined}>
+              {section === "watchlist" ? "Notes" : "Action"}
+            </span>
           </>
         )}
       </div>

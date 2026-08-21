@@ -25,6 +25,7 @@ type NavItem = {
 };
 
 type SidebarAccount = {
+  id?: string;
   label: string;
   linked: number;
   login: string;
@@ -228,12 +229,12 @@ export default function DashboardSidebar({
         <div className="sidebar-emails">
           <div className="nav-label sidebar-section-label">Top Accounts</div>
           {visibleSidebarAccounts.map((account) => (
-            <div className="email-account-item sidebar-account-display" key={account.login}>
+            <div className="email-account-item sidebar-account-display" key={account.id ?? account.label}>
               <span className="email-account-info"><span className={`email-tag sidebar-email-tag ${account.tag}`}><span className="tag-dot" />{account.label}</span><span className="email-account-address">{account.login}</span></span>
               <span className="email-tool-count">{account.linked}</span>
             </div>
           ))}
-          {hasMoreSidebarAccounts ? <a className="email-account-item email-view-all" href={viewAllAccountsHref}>View all</a> : null}
+          {hasMoreSidebarAccounts ? <a className="email-account-item email-view-all" href={viewAllAccountsHref}>View all accounts</a> : null}
         </div>
       </nav>
 

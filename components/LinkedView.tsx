@@ -16,7 +16,7 @@ type LinkedViewProps = {
   renderPlan: (accountLabel: string) => ReactNode;
   renderStatusControl: (accountLabel: string) => ReactNode;
   renderToolName: () => ReactNode;
-  shiftExpandedActions?: boolean;
+  splitStatusAction?: boolean;
   tool: LinkedTool;
 };
 
@@ -30,7 +30,7 @@ export default function LinkedView({
   renderPlan,
   renderStatusControl,
   renderToolName,
-  shiftExpandedActions = false,
+  splitStatusAction = false,
   tool,
 }: LinkedViewProps) {
   const accountLabel = accountLabels[0] ?? "";
@@ -97,23 +97,45 @@ export default function LinkedView({
           ) : null}
         </div>
         <span data-label="Plan">{!hasManyAccounts && accountLabel ? renderPlan(accountLabel) : null}</span>
-        <span className="linked-tool-action-cell" data-label="Action">
-          {!hasManyAccounts && accountLabel ? (
-            <span className="linked-row-actions">
-              {renderStatusControl(accountLabel)}
-              <button
-                className="linked-text-action"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onEditAccount(accountLabel);
-                }}
-                type="button"
-              >
-                Edit
-              </button>
+        {splitStatusAction ? (
+          <>
+            <span className="linked-tool-status-cell" data-label="Status">
+              {!hasManyAccounts && accountLabel ? renderStatusControl(accountLabel) : null}
             </span>
-          ) : null}
-        </span>
+            <span className="linked-tool-action-cell" data-label="Action">
+              {!hasManyAccounts && accountLabel ? (
+                <button
+                  className="linked-text-action"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEditAccount(accountLabel);
+                  }}
+                  type="button"
+                >
+                  Edit
+                </button>
+              ) : null}
+            </span>
+          </>
+        ) : (
+          <span className="linked-tool-action-cell" data-label="Action">
+            {!hasManyAccounts && accountLabel ? (
+              <span className="linked-row-actions">
+                {renderStatusControl(accountLabel)}
+                <button
+                  className="linked-text-action"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEditAccount(accountLabel);
+                  }}
+                  type="button"
+                >
+                  Edit
+                </button>
+              </span>
+            ) : null}
+          </span>
+        )}
       </article>
       {isExpanded ? (
         <div className="linked-accordion-panel">
@@ -136,16 +158,33 @@ export default function LinkedView({
               <span className="linked-expanded-plan-cell" data-label="Plan" style={{ padding: "8px 12px" }}>
                 {renderPlan(expandedAccountLabel)}
               </span>
-              <span className="linked-row-actions" style={{ padding: "8px 12px", transform: shiftExpandedActions ? "translateX(-40px)" : "none" }}>
-                {renderStatusControl(expandedAccountLabel)}
-                <button
-                  className="linked-text-action"
-                  onClick={() => onEditAccount(expandedAccountLabel)}
-                  type="button"
-                >
-                  Edit
-                </button>
-              </span>
+              {splitStatusAction ? (
+                <>
+                  <span className="linked-expanded-status-cell" data-label="Status" style={{ padding: "8px 12px" }}>
+                    {renderStatusControl(expandedAccountLabel)}
+                  </span>
+                  <span className="linked-expanded-action-cell" data-label="Action" style={{ padding: "8px 12px" }}>
+                    <button
+                      className="linked-text-action"
+                      onClick={() => onEditAccount(expandedAccountLabel)}
+                      type="button"
+                    >
+                      Edit
+                    </button>
+                  </span>
+                </>
+              ) : (
+                <span className="linked-row-actions" style={{ padding: "8px 12px" }}>
+                  {renderStatusControl(expandedAccountLabel)}
+                  <button
+                    className="linked-text-action"
+                    onClick={() => onEditAccount(expandedAccountLabel)}
+                    type="button"
+                  >
+                    Edit
+                  </button>
+                </span>
+              )}
             </div>
           ))}
         </div>

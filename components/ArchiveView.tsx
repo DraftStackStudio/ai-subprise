@@ -39,11 +39,12 @@ export default function ArchiveView({
           type="checkbox"
         />
       </span>
+      <span aria-hidden="true" />
       <div data-label="Tool Name">{renderToolName()}</div>
       <div className="category-cell" data-label="Category">{renderCategory()}</div>
       <div className="status-cell" data-label="Last Status">{renderLastStatus()}</div>
       <span className="muted-cell small-date" data-label="Archived On">{archivedOn}</span>
-      <span className="row-actions" data-label="Action">
+      <span className="row-actions archive-row-actions" data-label="Action">
         <button className="text-action-link" onClick={onRestore} type="button">
           Restore
         </button>

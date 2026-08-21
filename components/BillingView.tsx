@@ -5,6 +5,7 @@ type BillingViewRow = {
   accountLabel: string;
   billingDate: string;
   billingGroupDate: string;
+  billingType: string;
   id: string;
   planName: string;
   tool: {
@@ -82,7 +83,7 @@ export default function BillingView<Row extends BillingViewRow>({
           const isPlanGroupEnd = isPlanGrouped && !matchesPlanGroup(nextRow);
 
           return (
-            <Fragment key={row.id}>
+            <Fragment key={`${row.tool.id}:${row.accountLabel}:${row.billingType}:${row.id}:${rowIndex}`}>
               {showMonthHeader ? <div className="billing-month-row-header">{monthLabel}</div> : null}
               {renderBillingRow(row, {
                 isAccountContinuation,

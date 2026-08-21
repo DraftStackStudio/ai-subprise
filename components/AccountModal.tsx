@@ -56,8 +56,31 @@ function detectDefaultProviderLogin(login: string) {
 function validateLogin(provider: string, login: string) {
   const trimmedLogin = login.trim();
   const emailProviders = ["Gmail", "iCloud", "Outlook", "Yahoo"];
+  const emailPattern = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)*\.[A-Za-z]{2,}$/;
+  const emailLocalPartPattern = /^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+$/;
 
   if (!trimmedLogin) return null;
+  if (emailProviders.includes(provider)) {
+    const emailParts = trimmedLogin.split("@");
+    const hasValidLocalPart = emailParts.length === 2 && emailLocalPartPattern.test(emailParts[0]);
+    if (!hasValidLocalPart) {
+      return { message: "Please enter a valid email address.", type: "error" as const };
+    }
+
+    const domain = emailParts[1].toLowerCase();
+    if (provider === "Gmail" && domain !== "gmail.com") return { message: "Gmail login must end with @gmail.com", type: "error" as const };
+    if (provider === "iCloud" && domain !== "icloud.com") return { message: "iCloud login must end with @icloud.com", type: "error" as const };
+    if (provider === "Outlook" && domain !== "outlook.com" && domain !== "hotmail.com") {
+      return { message: "Outlook login must end with @outlook.com or @hotmail.com", type: "error" as const };
+    }
+    if (provider === "Yahoo" && domain !== "yahoo.com" && !domain.startsWith("yahoo.com.")) {
+      return { message: "Yahoo login must end with @yahoo.com or a local Yahoo domain", type: "error" as const };
+    }
+    if (!emailPattern.test(trimmedLogin)) {
+      return { message: "Yahoo login must end with @yahoo.com or a local Yahoo domain", type: "error" as const };
+    }
+    return { message: "Email format looks good", type: "success" as const };
+  }
   if (provider === "Github") {
     if (/\s/.test(login)) {
       return {
@@ -66,8 +89,8 @@ function validateLogin(provider: string, login: string) {
       };
     }
     if (trimmedLogin.includes("@")) {
-      if (!/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)*\.[A-Za-z]{2,}$/.test(trimmedLogin)) {
-        return { message: "Please enter a complete email address", type: "error" as const };
+      if (!emailPattern.test(trimmedLogin)) {
+        return { message: "Please enter a valid email address.", type: "error" as const };
       }
       return { message: "Email format looks good", type: "success" as const };
     }
@@ -76,28 +99,19 @@ function validateLogin(provider: string, login: string) {
     }
     return { message: "Username format looks good", type: "success" as const };
   }
-  if (/\s/.test(login)) return { message: "Email address cannot contain spaces", type: "error" as const };
   if (!emailProviders.includes(provider)) {
+    if (/\s/.test(login)) return { message: "Email address cannot contain spaces", type: "error" as const };
+    if (trimmedLogin.includes("@")) {
+      return emailPattern.test(trimmedLogin)
+        ? { message: "Login format looks good", type: "success" as const }
+        : { message: "Please enter a valid email address.", type: "error" as const };
+    }
     const defaultProviderMatch = detectDefaultProviderLogin(trimmedLogin);
     return defaultProviderMatch
       ? { message: `This looks like a ${defaultProviderMatch} login. Check if the provider should be ${defaultProviderMatch}.`, type: "error" as const }
-      : null;
+      : { message: "Login format looks good", type: "success" as const };
   }
-  if (!trimmedLogin.includes("@")) return { message: "Please include an '@' in the email address.", type: "error" as const };
-  const emailParts = trimmedLogin.split("@");
-  if (emailParts.length !== 2 || !emailParts[0] || !emailParts[1]) {
-    return { message: "Please enter a complete email address", type: "error" as const };
-  }
-  const domain = emailParts[1].toLowerCase();
-  if (provider === "Gmail" && domain !== "gmail.com") return { message: "Gmail login must end with @gmail.com", type: "error" as const };
-  if (provider === "iCloud" && domain !== "icloud.com") return { message: "iCloud login must end with @icloud.com", type: "error" as const };
-  if (provider === "Outlook" && domain !== "outlook.com" && domain !== "hotmail.com") {
-    return { message: "Outlook login must end with @outlook.com or @hotmail.com", type: "error" as const };
-  }
-  if (provider === "Yahoo" && domain !== "yahoo.com" && !domain.startsWith("yahoo.com.")) {
-    return { message: "Yahoo login must end with @yahoo.com or a local Yahoo domain", type: "error" as const };
-  }
-  return { message: "Email format looks good", type: "success" as const };
+  return null;
 }
 
 export default function AccountModal({
@@ -129,23 +143,35 @@ export default function AccountModal({
   const [isColourMenuOpen, setIsColourMenuOpen] = useState(false);
   const [isProviderMenuOpen, setIsProviderMenuOpen] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [showNicknameCorrectionSuccess, setShowNicknameCorrectionSuccess] = useState(false);
   const nicknameInputRef = useRef<HTMLInputElement | null>(null);
   const providerOptions = useMemo(() => [...defaultProviders, ...customProviders], [customProviders, defaultProviders]);
   const loginFeedback = useMemo(() => validateLogin(provider, login), [login, provider]);
   const trimmedNickname = nickname.trim();
   const trimmedLogin = login.trim();
   const nicknameRequiredError = hasSubmitted && !trimmedNickname ? "Nickname is required" : "";
-  const nicknameDuplicateError = hasSubmitted && trimmedNickname && accounts.some((account) =>
-    account.login !== editingAccount?.login && account.label.trim().toLowerCase() === trimmedNickname.toLowerCase())
-    ? "This nickname already exists" : "";
+  const nicknameDuplicateError = trimmedNickname && trimmedNickname.length <= nicknameMaxLength &&
+    !hasAttemptedNicknameOverflow && accounts.some((account) => {
+      const isEditingThisAccount = editingAccount?.id
+        ? account.id === editingAccount.id
+        : account === editingAccount;
+      return !isEditingThisAccount && account.label.trim().toLowerCase() === trimmedNickname.toLowerCase();
+    }) ? "This nickname already exists." : "";
   const providerRequiredError = hasSubmitted && !provider.trim() ? "Provider is required" : "";
   const loginRequiredError = hasSubmitted && !trimmedLogin ? "Login is required" : "";
-  const loginDuplicateError = hasSubmitted && trimmedLogin && accounts.some((account) =>
-    account.login !== editingAccount?.login && account.login.trim().toLowerCase() === trimmedLogin.toLowerCase())
-    ? "This login already exists" : "";
+  const loginDuplicateError = trimmedLogin && loginFeedback?.type === "success" && accounts.some((account) => {
+    const isEditingThisAccount = editingAccount?.id
+      ? account.id === editingAccount.id
+      : account === editingAccount;
+    return !isEditingThisAccount && account.login.trim().toLowerCase() === trimmedLogin.toLowerCase();
+  }) ? "This email is already in use." : "";
+  const isNicknameValid = Boolean(!editingAccount && hasSubmitted && showNicknameCorrectionSuccess && trimmedNickname &&
+    !nicknameDuplicateError && !hasAttemptedNicknameOverflow);
+  const isLoginValid = Boolean(!editingAccount && provider.trim() && trimmedLogin && loginFeedback?.type === "success" && !loginDuplicateError);
 
   const submit = async (event?: FormEvent<HTMLFormElement>, options?: { addAnother?: boolean }) => {
     event?.preventDefault();
+    setShowNicknameCorrectionSuccess(!trimmedNickname && !trimmedLogin);
     setHasSubmitted(true);
     if (!trimmedNickname || !provider.trim() || !trimmedLogin || loginFeedback?.type === "error" ||
       nicknameDuplicateError || loginDuplicateError || trimmedNickname.length > nicknameMaxLength) return;
@@ -159,6 +185,7 @@ export default function AccountModal({
       setIsCustomProviderMode(false);
       setIsColourMenuOpen(false);
       setHasSubmitted(false);
+      setShowNicknameCorrectionSuccess(false);
       window.setTimeout(() => nicknameInputRef.current?.focus(), 0);
     }
   };
@@ -177,12 +204,19 @@ export default function AccountModal({
           {accountDataError ? <div className="data-state-message error" role="alert">{accountDataError}</div> : null}
           <label className="form-field">
             <span>Nickname</span>
-            <input ref={nicknameInputRef} onChange={(event) => {
-              const nextNickname = event.target.value;
-              const isOverflowing = nextNickname.length > nicknameMaxLength;
-              setHasAttemptedNicknameOverflow(isOverflowing || (hasAttemptedNicknameOverflow && nextNickname.length === nicknameMaxLength));
-              setNickname(formatNickname(nextNickname.slice(0, nicknameMaxLength)));
-            }} placeholder="Personal, Work, Dev, Burner, Client..." type="text" value={nickname} />
+            <span className={isNicknameValid ? "login-input-wrap is-valid" : "login-input-wrap"}>
+              <input className={isNicknameValid ? "input-success" : ""} ref={nicknameInputRef} onChange={(event) => {
+                const nextNickname = event.target.value;
+                const isOverflowing = nextNickname.length > nicknameMaxLength;
+                setHasAttemptedNicknameOverflow(isOverflowing || (hasAttemptedNicknameOverflow && nextNickname.length === nicknameMaxLength));
+                setNickname(formatNickname(nextNickname.slice(0, nicknameMaxLength)));
+              }} placeholder="Personal, Work, Dev, Burner, Client..." type="text" value={nickname} />
+              {isNicknameValid ? (
+                <svg aria-hidden="true" className="login-valid-check" viewBox="0 0 24 24">
+                  <path d="m5 12 4 4L19 6" />
+                </svg>
+              ) : null}
+            </span>
             <span className="nickname-feedback-row">
               {nicknameRequiredError || nicknameDuplicateError || hasAttemptedNicknameOverflow ? (
                 <small className="field-feedback error">{nicknameRequiredError || nicknameDuplicateError || `Max ${nicknameMaxLength} characters`}</small>
@@ -218,7 +252,10 @@ export default function AccountModal({
                 </button>
                 {isProviderMenuOpen ? <div className="custom-select-options">{[...providerOptions, customProviderOption].map((option) => (
                   <button className={provider === option ? "custom-select-option is-selected" : "custom-select-option"} key={option}
-                    onClick={() => { setIsProviderMenuOpen(false); if (option === customProviderOption) { setIsCustomProviderMode(true); setProvider(""); } else setProvider(option); }} type="button">
+                    onClick={() => {
+                      setIsProviderMenuOpen(false);
+                      if (option === customProviderOption) { setIsCustomProviderMode(true); setProvider(""); } else setProvider(option);
+                    }} type="button">
                     <span className="dropdown-option-label">{option}</span>
                   </button>
                 ))}</div> : null}
@@ -228,29 +265,35 @@ export default function AccountModal({
           </label>
           <label className="form-field">
             <span>Login</span>
-            <input
-              onChange={(event) => setLogin(event.target.value)}
-              placeholder={
-                provider === "Discord"
-                  ? "your Discord username or email"
-                  : provider === "Github"
-                    ? "your GitHub username or email"
-                    : ["Gmail", "iCloud", "Outlook", "Yahoo"].includes(provider)
-                      ? "your email address"
-                      : "you@example.com or github.com/username"
-              }
-              type="text"
-              value={login}
-            />
+            <span className={isLoginValid ? "login-input-wrap is-valid" : "login-input-wrap"}>
+              <input
+                className={isLoginValid ? "input-success" : ""}
+                onChange={(event) => setLogin(event.target.value)}
+                placeholder={
+                  provider === "Discord"
+                    ? "your Discord username or email"
+                    : provider === "Github"
+                      ? "your GitHub username or email"
+                      : ["Gmail", "iCloud", "Outlook", "Yahoo"].includes(provider)
+                        ? "your email address"
+                        : "you@example.com or github.com/username"
+                }
+                type="text"
+                value={login}
+              />
+              {isLoginValid ? (
+                <svg aria-hidden="true" className="login-valid-check" viewBox="0 0 24 24">
+                  <path d="m5 12 4 4L19 6" />
+                </svg>
+              ) : null}
+            </span>
             {loginRequiredError ? <small className="field-feedback error">{loginRequiredError}</small>
               : loginDuplicateError ? <small className="field-feedback error">{loginDuplicateError}</small>
-              : hasSubmitted && loginFeedback ? <small className={loginFeedback.type === "error" ? "field-feedback error" : "field-feedback success"}>
-                {loginFeedback.type === "success" ? <span aria-hidden="true" className="field-check" /> : null}{loginFeedback.message}
-              </small> : null}
+              : hasSubmitted && loginFeedback?.type === "error" ? <small className="field-feedback error">{loginFeedback.message}</small> : null}
           </label>
           <div className="welcome-modal-actions account-modal-actions">
-            {!editingAccount ? <button className="btn-sm btn-sm-charcoal" disabled={isSaving} onClick={() => void submit(undefined, { addAnother: true })} type="button">+ Add next</button> : null}
-            <button className="btn-sm btn-sm-primary" disabled={isSaving} type="submit">{isSaving ? "Saving..." : editingAccount ? "Save changes" : "Save"}</button>
+            {!editingAccount ? <button className="btn-sm btn-sm-charcoal" disabled={isSaving || Boolean(nicknameDuplicateError || loginDuplicateError)} onClick={() => void submit(undefined, { addAnother: true })} type="button">+ Add next</button> : null}
+            <button className="btn-sm btn-sm-primary" disabled={isSaving || Boolean(nicknameDuplicateError || loginDuplicateError)} type="submit">{isSaving ? "Saving..." : editingAccount ? "Save changes" : "Save"}</button>
           </div>
         </form>
       </section>

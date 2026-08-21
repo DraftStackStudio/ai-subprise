@@ -60,13 +60,15 @@ export async function getAccountRecords() {
   const { data: accounts, error: accountError } = await supabase
     .from("logins")
     .select("*,providers(name)")
+    .is("deleted_at", null)
     .order("created_at", { ascending: true });
 
   if (accountError) throw accountError;
 
   const { data: links, error: linkError } = await supabase
     .from("tool_email_links")
-    .select("email_account_id");
+    .select("email_account_id")
+    .is("unlinked_at", null);
 
   if (linkError) throw linkError;
 

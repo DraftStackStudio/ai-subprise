@@ -1,4 +1,5 @@
 type AccountOverviewItem = {
+  id?: string;
   label: string;
   login: string;
   paidCount: number;
@@ -19,7 +20,7 @@ export default function AccountsOverview({ accounts, onSelectAccount }: Accounts
       {accounts.map((account) => (
         <button
           className="accounts-overview-card"
-          key={account.label}
+          key={account.id ?? account.label}
           onClick={() => onSelectAccount(account.label)}
           type="button"
         >

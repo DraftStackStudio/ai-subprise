@@ -49,6 +49,7 @@ type LinkAIToolModalProps = {
   hasSubmitted: boolean;
   isLocked: boolean;
   isPickerOpen: boolean;
+  isSaving: boolean;
   isPlanAllowedForTool: (plan: ToolStatus | "") => boolean;
   linkBillingTypeOptions: LinkToolDropdownOption[];
   linkToolId: string;
@@ -85,6 +86,7 @@ export default function LinkAIToolModal({
   hasSubmitted,
   isLocked,
   isPickerOpen,
+  isSaving,
   isPlanAllowedForTool,
   linkBillingTypeOptions,
   linkToolId,
@@ -195,7 +197,7 @@ export default function LinkAIToolModal({
                   option.value === block.accountLabel ||
                   (!selectedTool?.accounts.includes(option.value) && !otherSelectedAccountLabels.includes(option.value)),
               );
-              const isAlreadyLinked = Boolean(block.accountLabel && selectedTool?.accounts.includes(block.accountLabel));
+              const isAlreadyLinked = Boolean(!isSaving && block.accountLabel && selectedTool?.accounts.includes(block.accountLabel));
               const isDuplicateInSubmission = Boolean(
                 block.accountLabel &&
                 blocks.some((otherBlock, otherIndex) => otherIndex !== blockIndex && otherBlock.accountLabel === block.accountLabel),
@@ -368,6 +370,7 @@ export default function LinkAIToolModal({
             <button
               className="btn-sm btn-sm-primary"
               disabled={
+                isSaving ||
                 !linkToolId ||
                 blocks.some((block) => !isPlanAllowedForTool(block.plan)) ||
                 blocks.some((block) => Boolean(block.accountLabel && selectedTool?.accounts.includes(block.accountLabel))) ||
@@ -375,7 +378,7 @@ export default function LinkAIToolModal({
               }
               type="submit"
             >
-              Save
+              {isSaving ? "Saving..." : "Save"}
             </button>
           </div>
         </form>

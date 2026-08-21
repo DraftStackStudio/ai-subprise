@@ -1,18 +1,20 @@
 type BulkToolActionsProps = {
+  actionSet?: "toolbox" | "watchlist" | "archive";
   isFloating?: boolean;
-  isArchiveSection: boolean;
   onArchive: () => void;
   onClear: () => void;
   onDelete: () => void;
+  onUnwatch?: () => void;
   selectedCount: number;
 };
 
 export default function BulkToolActions({
+  actionSet = "toolbox",
   isFloating = false,
-  isArchiveSection,
   onArchive,
   onClear,
   onDelete,
+  onUnwatch,
   selectedCount,
 }: BulkToolActionsProps) {
   if (selectedCount === 0) return null;
@@ -23,14 +25,26 @@ export default function BulkToolActions({
         <span className="bulk-action-count-number">{selectedCount}</span>
         selected
       </span>
-      {!isArchiveSection ? (
+      {actionSet === "toolbox" ? (
+        <button className="bulk-action-btn danger" onClick={onDelete} type="button">
+          Delete
+        </button>
+      ) : null}
+      {actionSet === "watchlist" ? (
+        <button className="bulk-action-btn" onClick={onUnwatch} type="button">
+          Unwatch
+        </button>
+      ) : null}
+      {actionSet !== "archive" ? (
         <button className="bulk-action-btn" onClick={onArchive} type="button">
           Archive
         </button>
       ) : null}
-      <button className="bulk-action-btn danger" onClick={onDelete} type="button">
-        Delete
-      </button>
+      {actionSet === "archive" ? (
+        <button className="bulk-action-btn danger" onClick={onDelete} type="button">
+          Delete
+        </button>
+      ) : null}
       <button className="bulk-action-btn ghost" onClick={onClear} type="button">
         Clear
       </button>

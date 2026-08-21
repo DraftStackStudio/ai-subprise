@@ -34,6 +34,7 @@ import LinkAIToolModal from "@/components/LinkAIToolModal";
 import ListPageToolbar from "@/components/ListPageToolbar";
 import LoginsView from "@/components/LoginsView";
 import PresetToolPickerModal from "@/components/PresetToolPickerModal";
+import PresetToolRemovalModal from "@/components/PresetToolRemovalModal";
 import PendingBillingActionsPanel from "@/components/PendingBillingActionsPanel";
 import ProviderManagementModals from "@/components/ProviderManagementModals";
 import ProvidersView from "@/components/ProvidersView";
@@ -88,11 +89,14 @@ import type {
 import type { LinkToolAccountBlock } from "@/types/linkTool";
 import {
   createToolRecord,
+  getDeletedToolRecords,
   getToolLinkDetailRecords,
-  deleteToolRecords,
   getToolRecords,
   patchToolRecord,
+  permanentlyDeleteToolRecords,
   replaceToolLinks,
+  restoreToolRecord,
+  softDeleteToolRecords,
   updateToolLinkDetails,
   updateToolRecord,
   type ToolInput,
@@ -156,6 +160,7 @@ type ToolItem = {
   id: string;
   name: string;
   category: string;
+  deletedAt?: string;
   status: ToolStatus;
   accounts: string[];
   billing: string;
@@ -215,6 +220,13 @@ type TrialResolutionUndo = {
   previousDetail: ToolAccountDetail;
   previousPlan: ToolStatus;
   toolId: string;
+};
+type ArchiveUndo = {
+  toolIds: string[];
+};
+
+type UnwatchUndo = {
+  toolIds: string[];
 };
 
 const navItems: Array<{ id: Section; icon: string; label: string; badge?: number }> = [
@@ -798,6 +810,7 @@ function toolFromRecord(record: ToolRecord): ToolItem {
     archivedStatus: record.archivedStatus as ToolStatus | undefined,
     billing: record.billing,
     category: categoryForTool(record.name, record.category),
+    deletedAt: record.deletedAt,
     favorite: record.favorite,
     id: record.id,
     logo: record.logo,
@@ -884,7 +897,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const createAccountPromptStorageKey = isDemoMode
     ? "ai-subprise-demo-create-account-prompt-seen"
     : "ai-subprise-create-account-prompt-seen";
-  const initialView: Section = forcedSection ?? (searchParams.get("view") === "account" ? "account" : "dashboard");
+  const requestedView = searchParams.get("view");
+  const initialView: Section = forcedSection ?? (requestedView === "account" || requestedView === "settings" ? requestedView : "dashboard");
   const [activeSection, setActiveSection] = useState<Section>(initialView);
   const [activeCategory, setActiveCategory] = useState("");
   const [activeToolboxClusterId, setActiveToolboxClusterId] = useState("everyday");
@@ -893,6 +907,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [isToolsNavOpen, setIsToolsNavOpen] = useState(true);
   const [showCreateAccountModal, setShowCreateAccountModal] = useState(false);
   const [dontShowOnboardingAgain, setDontShowOnboardingAgain] = useState(false);
+  const [hasLoadedWelcomePreference, setHasLoadedWelcomePreference] = useState(false);
+  const [hasHandledWelcomeThisSession, setHasHandledWelcomeThisSession] = useState(false);
+  const [suppressWelcomeModal, setSuppressWelcomeModal] = useState(false);
   const [showAddAccountModal, setShowAddAccountModal] = useState(false);
   const [showAddToolModal, setShowAddToolModal] = useState(false);
   const [showPresetToolPicker, setShowPresetToolPicker] = useState(false);
@@ -901,6 +918,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [showAllPresetCategories, setShowAllPresetCategories] = useState(false);
   const [expandedPresetCategories, setExpandedPresetCategories] = useState<string[]>([]);
   const [selectedPresetToolNames, setSelectedPresetToolNames] = useState<string[]>([]);
+  const [ownedPresetToolNames, setOwnedPresetToolNames] = useState<string[]>([]);
+  const [pendingPresetToolRemovals, setPendingPresetToolRemovals] = useState<ToolItem[] | null>(null);
+  const [pendingPresetToolAdditions, setPendingPresetToolAdditions] = useState<string[]>([]);
+  const [pendingToolRemovalMode, setPendingToolRemovalMode] = useState<"delete" | "preset" | null>(null);
   const [showRoleQuestionModal, setShowRoleQuestionModal] = useState(false);
   const [showCategoryPreviewModal, setShowCategoryPreviewModal] = useState(false);
   const [showCategoryInfoModal, setShowCategoryInfoModal] = useState(false);
@@ -916,6 +937,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [accountToastVariant, setAccountToastVariant] = useState<"success" | "warning" | "blocked">("success");
   const [trialResolutionUndo, setTrialResolutionUndo] = useState<TrialResolutionUndo | null>(null);
   const [trialResolutionUndoMessage, setTrialResolutionUndoMessage] = useState("");
+  const [archiveUndo, setArchiveUndo] = useState<ArchiveUndo | null>(null);
+  const [archiveUndoMessage, setArchiveUndoMessage] = useState("");
+  const [unwatchUndo, setUnwatchUndo] = useState<UnwatchUndo | null>(null);
+  const [unwatchUndoMessage, setUnwatchUndoMessage] = useState("");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [editingTool, setEditingTool] = useState<ToolItem | null>(null);
   const [confirmToolStateChange, setConfirmToolStateChange] = useState<{
@@ -995,6 +1020,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
   const [hasSubmittedLinkToolForm, setHasSubmittedLinkToolForm] = useState(false);
+  const [isSavingLinkTool, setIsSavingLinkTool] = useState(false);
   const [toolboxSearch, setToolboxSearch] = useState("");
   const [linkedSearch, setLinkedSearch] = useState("");
   const [accountsSearch, setAccountsSearch] = useState("");
@@ -1044,6 +1070,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const toolUrlInputRef = useRef<HTMLInputElement | null>(null);
   const mainContentRef = useRef<HTMLElement | null>(null);
   const accountToastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const archiveUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const unwatchUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isSavingPresetSelectionRef = useRef(false);
   const trialResolutionUndoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRoleCategories, setSelectedRoleCategories] = useState<string[]>(roleCategoryMap.Creator);
   const [draggedAccountLogin, setDraggedAccountLogin] = useState<string | null>(null);
@@ -1150,12 +1179,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (showConfirmation) showToast("Demo Logins, Linked, and Billing data reseeded.");
   };
 
-  useEffect(() => {
-    if (activeSection === "watchlist" && selectedToolSort !== "Category" && selectedToolSort !== "All") {
-      setSelectedToolSort("Category");
-    }
-  }, [activeSection, selectedToolSort]);
-
   const renderDropdown = (props: Omit<DropdownControlProps, "isOpen" | "onOpenChange">) => (
     <DropdownControl
       {...props}
@@ -1176,7 +1199,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
   useEffect(() => {
     if (activeSection !== "dashboard") return;
-    if (!isDemoMode && searchParams.get("welcome") !== "1") return;
+    if (hasHandledWelcomeThisSession) return;
+
+    if (shouldUseSupabase) {
+      if (searchParams.get("welcome") !== "1" || !hasLoadedWelcomePreference || suppressWelcomeModal) return;
+      setShowCreateAccountModal(true);
+      return;
+    }
+
+    if (!isDemoMode) return;
 
     let hasSeenCreateAccountPrompt = false;
     try {
@@ -1188,7 +1219,16 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (!hasSeenCreateAccountPrompt) {
       setShowCreateAccountModal(true);
     }
-  }, [activeSection, createAccountPromptStorageKey, isDemoMode, searchParams]);
+  }, [
+    activeSection,
+    createAccountPromptStorageKey,
+    hasHandledWelcomeThisSession,
+    hasLoadedWelcomePreference,
+    isDemoMode,
+    searchParams,
+    shouldUseSupabase,
+    suppressWelcomeModal,
+  ]);
 
   useEffect(() => {
     try {
@@ -1304,7 +1344,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         }
       }
 
-      if (storedArchive) {
+      if (storedArchive && !shouldUseSupabase) {
         const parsedArchive = JSON.parse(storedArchive) as ToolResetArchive[] | (ToolResetArchive & { tools?: ToolItem[] });
         const archiveEvents = Array.isArray(parsedArchive)
           ? parsedArchive
@@ -1340,7 +1380,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     } finally {
       setHasLoadedStoredTools(true);
     }
-  }, [isDemoMode]);
+  }, [isDemoMode, shouldUseSupabase]);
 
   useEffect(() => {
     if (!isDemoMode || !hasLoadedStoredTools || toolList.length === 0) return;
@@ -1420,6 +1460,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
       setCurrentUserEmail(data.user?.email ?? "");
       const userMetadata = data.user?.user_metadata;
+      setSuppressWelcomeModal(userMetadata?.dont_show_welcome_modal === true);
+      setHasLoadedWelcomePreference(true);
       const storedName = typeof userMetadata?.full_name === "string"
         ? userMetadata.full_name
         : typeof userMetadata?.name === "string"
@@ -1442,10 +1484,13 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setIsLoadingTools(true);
     setToolDataError("");
 
-    getToolRecords()
-      .then(async (records) => {
+    Promise.all([getToolRecords(), getDeletedToolRecords()])
+      .then(async ([records, deletedRecords]) => {
         if (isCancelled) return;
         setToolList(records.map(toolFromRecord));
+        const deletedArchives = deletedToolRecordsToArchives(deletedRecords);
+        setToolResetArchives(deletedArchives);
+        setExpandedRecoveryIds(deletedArchives.map((archive) => archive.id));
         const linkDetails = await getToolLinkDetailRecords();
         if (isCancelled) return;
 
@@ -1572,6 +1617,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   }, [toolList]);
 
   useEffect(() => {
+    if (shouldUseSupabase) return;
     if (toolResetArchives.length === 0) return;
 
     const removeExpiredArchive = () => {
@@ -1598,7 +1644,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const expiryInterval = window.setInterval(removeExpiredArchive, 60 * 60 * 1000);
 
     return () => window.clearInterval(expiryInterval);
-  }, [toolResetArchives]);
+  }, [shouldUseSupabase, toolResetArchives]);
 
   useEffect(() => {
     return () => {
@@ -1607,6 +1653,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       }
       if (trialResolutionUndoTimeoutRef.current) {
         clearTimeout(trialResolutionUndoTimeoutRef.current);
+      }
+      if (archiveUndoTimeoutRef.current) {
+        clearTimeout(archiveUndoTimeoutRef.current);
+      }
+      if (unwatchUndoTimeoutRef.current) {
+        clearTimeout(unwatchUndoTimeoutRef.current);
       }
     };
   }, []);
@@ -1634,6 +1686,32 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       setTrialResolutionUndo(null);
       setTrialResolutionUndoMessage("");
       trialResolutionUndoTimeoutRef.current = null;
+    }, 12000);
+  };
+
+  const showArchiveUndo = (message: string, undo: ArchiveUndo) => {
+    if (archiveUndoTimeoutRef.current) {
+      clearTimeout(archiveUndoTimeoutRef.current);
+    }
+    setArchiveUndo(undo);
+    setArchiveUndoMessage(message);
+    archiveUndoTimeoutRef.current = setTimeout(() => {
+      setArchiveUndo(null);
+      setArchiveUndoMessage("");
+      archiveUndoTimeoutRef.current = null;
+    }, 12000);
+  };
+
+  const showUnwatchUndo = (message: string, undo: UnwatchUndo) => {
+    if (unwatchUndoTimeoutRef.current) {
+      clearTimeout(unwatchUndoTimeoutRef.current);
+    }
+    setUnwatchUndo(undo);
+    setUnwatchUndoMessage(message);
+    unwatchUndoTimeoutRef.current = setTimeout(() => {
+      setUnwatchUndo(null);
+      setUnwatchUndoMessage("");
+      unwatchUndoTimeoutRef.current = null;
     }, 12000);
   };
 
@@ -1708,21 +1786,52 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     });
   };
 
-  const dismissCreateAccountModal = () => {
-    try {
-      window.localStorage.setItem(createAccountPromptStorageKey, "true");
-    } catch {
-      // Storage can be unavailable in private or embedded browser contexts.
+  const saveWelcomePreference = async () => {
+    if (!shouldUseSupabase || !dontShowOnboardingAgain) return true;
+
+    const supabase = createSupabaseClient();
+    const { error } = await supabase.auth.updateUser({
+      data: { dont_show_welcome_modal: true },
+    });
+
+    if (error) {
+      showToast("Could not save your welcome preference.", "warning");
+      return false;
     }
+
+    setSuppressWelcomeModal(true);
+    return true;
+  };
+
+  const closeCreateAccountModal = () => {
+    setDontShowOnboardingAgain(false);
+    setHasHandledWelcomeThisSession(true);
     setShowCreateAccountModal(false);
   };
 
-  const openAccountSetup = () => {
-    try {
-      window.localStorage.setItem(createAccountPromptStorageKey, "true");
-    } catch {
-      // Storage can be unavailable in private or embedded browser contexts.
+  const dismissCreateAccountModal = async () => {
+    if (!(await saveWelcomePreference())) return;
+    if (isDemoMode) {
+      try {
+        window.localStorage.setItem(createAccountPromptStorageKey, "true");
+      } catch {
+        // Storage can be unavailable in private or embedded browser contexts.
+      }
     }
+    setHasHandledWelcomeThisSession(true);
+    setShowCreateAccountModal(false);
+  };
+
+  const openAccountSetup = async () => {
+    if (!(await saveWelcomePreference())) return;
+    if (isDemoMode) {
+      try {
+        window.localStorage.setItem(createAccountPromptStorageKey, "true");
+      } catch {
+        // Storage can be unavailable in private or embedded browser contexts.
+      }
+    }
+    setHasHandledWelcomeThisSession(true);
     setActiveSection("account");
     setShowCreateAccountModal(false);
   };
@@ -1750,14 +1859,24 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setShowAddToolModal(true);
   };
 
-  const openPresetToolPicker = () => {
+  const openPresetToolPicker = async () => {
     setExpandedPresetCategories([]);
     setShowAllPresetCategories(false);
-    setSelectedPresetToolNames(
-      toolList
-        .map((tool) => tool.name.trim().toLowerCase())
-        .filter((toolName) => presetToolCategoryByName.has(toolName)),
-    );
+    let currentTools = toolList;
+    if (shouldUseSupabase) {
+      try {
+        currentTools = (await getToolRecords()).map(toolFromRecord);
+        setToolList(currentTools);
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not load AI tools.");
+      }
+    }
+    const ownedNames = currentTools.map((tool) => tool.name.trim().toLowerCase());
+    setOwnedPresetToolNames(ownedNames);
+    setSelectedPresetToolNames(ownedNames);
+    setPendingPresetToolRemovals(null);
+    setPendingPresetToolAdditions([]);
+    setPendingToolRemovalMode(null);
     setShowPresetToolPicker(true);
   };
 
@@ -2148,7 +2267,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setSelectedRecoveryKeys((currentKeys) => currentKeys.filter((currentKey) => !keySet.has(currentKey)));
   };
 
-  const performSingleArchivedToolRestore = (
+  const performSingleArchivedToolRestore = async (
     archiveId: string,
     toolId: string,
     options?: { forceNewId?: boolean; name?: string },
@@ -2158,6 +2277,25 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
     const toolToRestore = archiveTools(archive).find((tool) => tool.id === toolId);
     if (!toolToRestore) return;
+    if (shouldUseSupabase) {
+      try {
+        await restoreToolRecord(toolId, options?.name);
+        const [activeRecords, deletedRecords] = await Promise.all([
+          getToolRecords(),
+          getDeletedToolRecords(),
+        ]);
+        setToolList(activeRecords.map(toolFromRecord));
+        const deletedArchives = deletedToolRecordsToArchives(deletedRecords);
+        setToolResetArchives(deletedArchives);
+        setExpandedRecoveryIds(deletedArchives.map((currentArchive) => currentArchive.id));
+        setSelectedRecoveryKeys((currentKeys) =>
+          currentKeys.filter((key) => !key.endsWith(`:${toolId}`)),
+        );
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not restore AI tool.");
+      }
+      return;
+    }
     const hasIdCollision =
       options?.forceNewId === true ||
       toolList.some((tool) => tool.id === toolToRestore.id);
@@ -2254,10 +2392,26 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       });
       return;
     }
-    performSingleArchivedToolRestore(archiveId, toolId);
+    void performSingleArchivedToolRestore(archiveId, toolId);
   };
 
-  const deleteSingleArchivedTool = (archiveId: string, toolId: string) => {
+  const deleteSingleArchivedTool = async (archiveId: string, toolId: string) => {
+    if (shouldUseSupabase) {
+      try {
+        await permanentlyDeleteToolRecords([toolId]);
+        const deletedRecords = await getDeletedToolRecords();
+        const deletedArchives = deletedToolRecordsToArchives(deletedRecords);
+        setToolResetArchives(deletedArchives);
+        setExpandedRecoveryIds(deletedArchives.map((currentArchive) => currentArchive.id));
+        setSelectedRecoveryKeys((currentKeys) =>
+          currentKeys.filter((key) => !key.endsWith(`:${toolId}`)),
+        );
+        showToast("Gone for good.");
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not permanently delete AI tool.");
+      }
+      return;
+    }
     removeRecoveryTools([`${archiveId}:${toolId}`]);
     showToast("Gone for good.");
   };
@@ -2279,7 +2433,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     );
   };
 
-  const restoreSelectedRecoveryTools = (archiveId?: string, explicitSelectedKeys?: string[]) => {
+  const restoreSelectedRecoveryTools = async (archiveId?: string, explicitSelectedKeys?: string[]) => {
     const targetArchives = archiveId
       ? toolResetArchives.filter((currentArchive) => currentArchive.id === archiveId)
       : toolResetArchives;
@@ -2296,6 +2450,24 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         .filter((tool) => selectedKeySet.has(`${archive.id}:${tool.id}`))
         .map((tool) => ({ ...tool, category: restoreCategory(tool.category, workspaceCategories) })),
     );
+
+    if (shouldUseSupabase) {
+      try {
+        for (const tool of selectedTools) await restoreToolRecord(tool.id);
+        const [activeRecords, deletedRecords] = await Promise.all([
+          getToolRecords(),
+          getDeletedToolRecords(),
+        ]);
+        setToolList(activeRecords.map(toolFromRecord));
+        const deletedArchives = deletedToolRecordsToArchives(deletedRecords);
+        setToolResetArchives(deletedArchives);
+        setExpandedRecoveryIds(deletedArchives.map((currentArchive) => currentArchive.id));
+        setSelectedRecoveryKeys([]);
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not restore AI tools.");
+      }
+      return;
+    }
 
     const missingCategories = Array.from(
       new Set(selectedTools.map((tool) => tool.category).filter((category) => !workspaceCategories.includes(category))),
@@ -2572,6 +2744,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         ? currentTools.map((tool) => (tool.id === editingTool.id ? savedTool : tool))
         : insertToolAlphabetically(currentTools, savedTool),
     );
+
+    if (!editingTool) showToast(`${savedTool.name} added.`);
     setEditingTool(null);
     setIsCustomCategoryMode(false);
     setHasSubmittedToolForm(false);
@@ -2596,34 +2770,52 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     );
   };
 
-  const savePresetToolSelection = async () => {
-    if (selectedPresetToolNames.length === 0) {
+  const savePresetToolSelection = async (confirmedRemovals?: ToolItem[]) => {
+    if (selectedPresetToolNames.length === 0 && ownedPresetToolNames.length === 0) {
       setShowPresetSelectionWarning(true);
       return;
     }
 
-    const finalSelection = new Set(selectedPresetToolNames);
-    const existingPresetTools = toolList.filter((tool) =>
-      presetToolCategoryByName.has(tool.name.trim().toLowerCase()),
-    );
-    const existingPresetNames = new Set(
-      existingPresetTools.map((tool) => tool.name.trim().toLowerCase()),
-    );
-    const toolsToRemove = existingPresetTools.filter(
-      (tool) => !finalSelection.has(tool.name.trim().toLowerCase()),
-    );
-    const toolsToAdd = Array.from(finalSelection)
-      .filter((toolName) => !existingPresetNames.has(toolName))
-      .map((toolName) => {
-        const presetName =
-          toolboxPresets.categories
-            .flatMap((category) =>
-              category.subgroups
-                ? category.subgroups.flatMap((subgroup) => subgroup.tools)
-                : (category.tools ?? []),
-            )
-            .find((name) => name.trim().toLowerCase() === toolName) ?? toolName;
-        const category = presetToolCategoryByName.get(toolName) ?? "Niche";
+    if (isSavingPresetSelectionRef.current) return;
+    isSavingPresetSelectionRef.current = true;
+
+    setIsSavingTool(true);
+    setToolDataError("");
+    try {
+      // Supabase is the source of truth here. The client list can be stale after
+      // another session imports presets, which previously allowed duplicate rows.
+      const currentTools = shouldUseSupabase
+        ? (await getToolRecords()).map(toolFromRecord)
+        : toolList;
+      const finalSelection = new Set(selectedPresetToolNames);
+      const existingPresetNames = new Set(
+        currentTools.map((tool) => tool.name.trim().toLowerCase()),
+      );
+      const toolsToRemove = currentTools.filter((tool) =>
+        ownedPresetToolNames.includes(tool.name.trim().toLowerCase()) &&
+        !finalSelection.has(tool.name.trim().toLowerCase()),
+      );
+      const presetNamesToAdd = Array.from(finalSelection)
+        .filter((toolName) => !existingPresetNames.has(toolName))
+        .map(
+          (toolName) =>
+            toolboxPresets.categories
+              .flatMap((category) =>
+                category.subgroups
+                  ? category.subgroups.flatMap((subgroup) => subgroup.tools)
+                  : (category.tools ?? []),
+              )
+              .find((name) => name.trim().toLowerCase() === toolName) ?? toolName,
+        );
+      if (toolsToRemove.length > 0 && confirmedRemovals === undefined) {
+        setPendingPresetToolRemovals(toolsToRemove);
+        setPendingPresetToolAdditions(presetNamesToAdd);
+        setPendingToolRemovalMode("preset");
+        return;
+      }
+      const toolsToAdd = presetNamesToAdd.map((presetName) => {
+        const normalizedPresetName = presetName.trim().toLowerCase();
+        const category = presetToolCategoryByName.get(normalizedPresetName) ?? "Niche";
         return {
           id: createToolId(presetName),
           name: presetName,
@@ -2640,30 +2832,51 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         };
       });
 
-    setIsSavingTool(true);
-    setToolDataError("");
-    try {
-      const savedTools = shouldUseSupabase
-        ? await Promise.all(
-            toolsToAdd.map(async (tool) =>
+      const savedTools: ToolItem[] = [];
+      if (shouldUseSupabase) {
+        for (const tool of toolsToAdd) {
+          try {
+            savedTools.push(
               toolFromRecord(await createToolRecord(toolToInput(tool), accountList)),
-            ),
-          )
-        : toolsToAdd;
-
-      if (shouldUseSupabase && toolsToRemove.length > 0) {
-        await deleteToolRecords(toolsToRemove.map((tool) => tool.id));
+            );
+          } catch (error) {
+            if (
+              error &&
+              typeof error === "object" &&
+              "code" in error &&
+              error.code === "23505"
+            ) {
+              continue;
+            }
+            throw error;
+          }
+        }
+      } else {
+        savedTools.push(...toolsToAdd);
       }
 
-      const removedIds = new Set(toolsToRemove.map((tool) => tool.id));
-      setToolList((currentTools) => {
-        let nextTools = currentTools.filter((tool) => !removedIds.has(tool.id));
-        savedTools.forEach((tool) => {
-          nextTools = insertToolAlphabetically(nextTools, tool);
-        });
-        return nextTools;
-      });
-      setSelectedToolIds((currentIds) => currentIds.filter((id) => !removedIds.has(id)));
+      const removalsToApply = confirmedRemovals ?? [];
+      if (toolsToAdd.length === 0 && removalsToApply.length === 0) {
+        setShowPresetToolPicker(false);
+        return;
+      }
+      if (removalsToApply.length > 0) {
+        const removed = await deleteToolIds(
+          removalsToApply.map((tool) => tool.id),
+          { showToast: false },
+        );
+        if (!removed) throw new Error("Could not remove selected AI tools.");
+      }
+
+      const refreshedTools = shouldUseSupabase
+        ? (await getToolRecords()).map(toolFromRecord)
+        : savedTools.reduce(
+            insertToolAlphabetically,
+            currentTools.filter(
+              (tool) => !removalsToApply.some((removedTool) => removedTool.id === tool.id),
+            ),
+          );
+      setToolList(refreshedTools);
 
       const addedCategories = new Set(toolsToAdd.map((tool) => tool.category));
       if (addedCategories.size > 0) {
@@ -2681,10 +2894,27 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         setIsToolsNavOpen(true);
       }
 
+      setPendingPresetToolRemovals(null);
+      setPendingPresetToolAdditions([]);
+      setPendingToolRemovalMode(null);
       setShowPresetToolPicker(false);
+      if (savedTools.length > 0 && removalsToApply.length > 0) {
+        showToast(`${savedTools.length} ${savedTools.length === 1 ? "tool" : "tools"} added, ${removalsToApply.length} removed.`);
+      } else if (removalsToApply.length > 0) {
+        showToast(`${removalsToApply.length} ${removalsToApply.length === 1 ? "tool" : "tools"} removed.`);
+      } else {
+        showToast(`${savedTools.length} ${savedTools.length === 1 ? "tool" : "tools"} added.`);
+      }
     } catch (error) {
-      setToolDataError(error instanceof Error ? error.message : "Could not update AI tools.");
+      const message =
+        error instanceof Error
+          ? error.message
+          : error && typeof error === "object" && "message" in error && typeof error.message === "string"
+            ? error.message
+            : "Could not update AI tools.";
+      setToolDataError(message);
     } finally {
+      isSavingPresetSelectionRef.current = false;
       setIsSavingTool(false);
     }
   };
@@ -2879,16 +3109,17 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const confirmPendingToolStateChange = async () => {
     if (!confirmToolStateChange) return;
 
-    if (confirmToolStateChange.action === "unarchive") {
-      unarchiveToolIds([confirmToolStateChange.tool.id]);
-      showToast(`${confirmToolStateChange.tool.name} is back.`);
-    }
-
-    if (confirmToolStateChange.action === "unwatchlist") {
-      await toggleToolWatchlist(confirmToolStateChange.tool.id);
-    }
-
+    const pendingStateChange = confirmToolStateChange;
     setConfirmToolStateChange(null);
+
+    if (pendingStateChange.action === "unarchive") {
+      unarchiveToolIds([pendingStateChange.tool.id]);
+      showToast(`${pendingStateChange.tool.name} is back.`);
+    }
+
+    if (pendingStateChange.action === "unwatchlist") {
+      await toggleToolWatchlist(pendingStateChange.tool.id);
+    }
   };
 
   const confirmMoveWatchlistToolToLinked = () => {
@@ -3043,6 +3274,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setIsLinkToolPickerOpen(false);
     setIsLinkToolLocked(false);
     setLinkToolActivateToolId("");
+    setIsSavingLinkTool(false);
   };
 
   const openLinkToolModal = (tool?: ToolItem, options?: { activateToolOnSave?: boolean }) => {
@@ -3596,6 +3828,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
     if (!selectedTool || filledBlocks.length !== linkToolAccountBlocks.length || hasDuplicateSelection || hasExistingLink) return;
 
+    setIsSavingLinkTool(true);
+
     const previousTools = toolList;
     const nextAccounts = Array.from(new Set([...selectedTool.accounts, ...selectedAccountLabels]));
     const shouldActivateTool = linkToolActivateToolId === selectedTool.id;
@@ -3702,6 +3936,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         const message = error instanceof Error ? error.message : "Could not link AI tool.";
         setToolDataError(message);
         setToolList(previousTools);
+        setIsSavingLinkTool(false);
         return;
       }
     }
@@ -3752,7 +3987,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   };
 
   const archiveToolIds = async (toolIds: string[]) => {
-    if (toolIds.length === 0) return;
+    if (toolIds.length === 0) return false;
 
     const selectedIds = new Set(toolIds);
     const archivedAt = new Date().toISOString();
@@ -3780,10 +4015,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             }),
           ),
       );
+      return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not archive AI tool.";
       setToolDataError(message);
       setToolList(previousTools);
+      return false;
     }
   };
 
@@ -3823,45 +4060,174 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     }
   };
 
-  const deleteToolIds = async (toolIds: string[]) => {
-    if (toolIds.length === 0) return;
+  const archiveSelectedToolIds = async (toolIds: string[]) => {
+    const uniqueToolIds = [...new Set(toolIds)];
+    if (uniqueToolIds.length === 0) return;
+
+    const didArchive = await archiveToolIds(uniqueToolIds);
+    if (!didArchive) return;
+
+    showArchiveUndo(`${uniqueToolIds.length} tools archived`, { toolIds: uniqueToolIds });
+  };
+
+  const undoBulkArchive = async () => {
+    if (!archiveUndo) return;
+    const undo = archiveUndo;
+
+    if (archiveUndoTimeoutRef.current) {
+      clearTimeout(archiveUndoTimeoutRef.current);
+      archiveUndoTimeoutRef.current = null;
+    }
+    setArchiveUndo(null);
+    setArchiveUndoMessage("");
+    await unarchiveToolIds(undo.toolIds);
+  };
+
+  const deleteToolIds = async (toolIds: string[], options?: { showToast?: boolean }) => {
+    if (toolIds.length === 0) return true;
 
     const selectedIds = new Set(toolIds);
     const toolsToDelete = toolList.filter((tool) => selectedIds.has(tool.id));
+    if (shouldUseSupabase) {
+      try {
+        await softDeleteToolRecords(toolIds);
+        const [activeRecords, deletedRecords] = await Promise.all([
+          getToolRecords(),
+          getDeletedToolRecords(),
+        ]);
+        setToolList(activeRecords.map(toolFromRecord));
+        const deletedArchives = deletedToolRecordsToArchives(deletedRecords);
+        setToolResetArchives(deletedArchives);
+        setExpandedRecoveryIds(deletedArchives.map((archive) => archive.id));
+        setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Could not delete AI tool.";
+        setToolDataError(message);
+        return false;
+      }
+    } else {
+      createDeletedToolsArchive(toolsToDelete);
+      setToolList((currentTools) => currentTools.filter((tool) => !selectedIds.has(tool.id)));
+      setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
+    }
+
+    if (options?.showToast !== false) {
+      showToast(
+        toolsToDelete.length === 1
+          ? `${toolsToDelete[0].name} removed.`
+          : `${toolsToDelete.length} tools removed.`,
+      );
+    }
+    return true;
+  };
+
+  const requestToolRemoval = (toolIds: string[]) => {
+    const selectedIds = new Set(toolIds);
+    const toolsToRemove = toolList.filter((tool) => selectedIds.has(tool.id));
+    if (toolsToRemove.length === 0) return;
+
+    setPendingPresetToolRemovals(toolsToRemove);
+    setPendingPresetToolAdditions([]);
+    setPendingToolRemovalMode("delete");
+  };
+
+  const confirmPendingToolRemoval = async () => {
+    if (!pendingPresetToolRemovals || !pendingToolRemovalMode) return;
+
+    if (pendingToolRemovalMode === "preset") {
+      await savePresetToolSelection(pendingPresetToolRemovals);
+      return;
+    }
+
+    setIsSavingTool(true);
+    try {
+      const toolIds = pendingPresetToolRemovals.map((tool) => tool.id);
+      const wasRemoved = await deleteToolIds(toolIds);
+      if (!wasRemoved) return;
+
+      if (editingTool && toolIds.includes(editingTool.id)) {
+        setEditingTool(null);
+        setShowAddToolModal(false);
+      }
+      setPendingPresetToolRemovals(null);
+      setPendingPresetToolAdditions([]);
+      setPendingToolRemovalMode(null);
+    } finally {
+      setIsSavingTool(false);
+    }
+  };
+
+  const unwatchToolIds = async (toolIds: string[]) => {
+    if (toolIds.length === 0) return false;
+
+    const selectedIds = new Set(toolIds);
     const previousTools = toolList;
-    createDeletedToolsArchive(toolsToDelete);
-    setToolList((currentTools) => currentTools.filter((tool) => !selectedIds.has(tool.id)));
+    setToolDataError("");
+    setToolList((currentTools) =>
+      currentTools.map((tool) =>
+        selectedIds.has(tool.id) && tool.status === "Considering"
+          ? { ...tool, status: "Active" }
+          : tool,
+      ),
+    );
     setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
+
+    if (!shouldUseSupabase) return true;
+
+    try {
+      await Promise.all(
+        previousTools
+          .filter((tool) => selectedIds.has(tool.id) && tool.status === "Considering")
+          .map((tool) => patchToolRecord(tool.id, { status: "Active" })),
+      );
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not update watchlist.";
+      setToolDataError(message);
+      setToolList(previousTools);
+      setSelectedToolIds((currentIds) => Array.from(new Set([...currentIds, ...toolIds])));
+      return false;
+    }
+  };
+
+  const unwatchSelectedToolIds = async (toolIds: string[]) => {
+    const uniqueToolIds = [...new Set(toolIds)];
+    if (uniqueToolIds.length === 0) return;
+
+    const didUnwatch = await unwatchToolIds(uniqueToolIds);
+    if (!didUnwatch) return;
+
+    showUnwatchUndo(`${uniqueToolIds.length} tools removed from Watchlist`, { toolIds: uniqueToolIds });
+  };
+
+  const undoBulkUnwatch = async () => {
+    if (!unwatchUndo) return;
+    const undo = unwatchUndo;
+    const selectedIds = new Set(undo.toolIds);
+    const previousTools = toolList;
+
+    if (unwatchUndoTimeoutRef.current) {
+      clearTimeout(unwatchUndoTimeoutRef.current);
+      unwatchUndoTimeoutRef.current = null;
+    }
+    setUnwatchUndo(null);
+    setUnwatchUndoMessage("");
+    setToolDataError("");
+    setToolList((currentTools) =>
+      currentTools.map((tool) =>
+        selectedIds.has(tool.id) ? { ...tool, status: "Considering" } : tool,
+      ),
+    );
 
     if (!shouldUseSupabase) return;
 
     try {
-      await deleteToolRecords(toolIds);
+      await Promise.all(undo.toolIds.map((toolId) => patchToolRecord(toolId, { status: "Considering" })));
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not delete AI tool.";
+      const message = error instanceof Error ? error.message : "Could not restore Watchlist.";
       setToolDataError(message);
       setToolList(previousTools);
     }
-  };
-
-  const permanentlyDeleteToolIds = async (toolIds: string[]) => {
-    if (toolIds.length === 0) return;
-
-    const selectedIds = new Set(toolIds);
-    const previousTools = toolList;
-    setToolList((currentTools) => currentTools.filter((tool) => !selectedIds.has(tool.id)));
-    setSelectedToolIds((currentIds) => currentIds.filter((currentId) => !selectedIds.has(currentId)));
-    if (shouldUseSupabase) {
-      try {
-        await deleteToolRecords(toolIds);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not delete AI tool.";
-        setToolDataError(message);
-        setToolList(previousTools);
-        return;
-      }
-    }
-    showToast("Gone for good.");
   };
 
   const archiveEditingTool = async () => {
@@ -3872,12 +4238,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setShowAddToolModal(false);
   };
 
-  const deleteEditingTool = async () => {
+  const deleteEditingTool = () => {
     if (!editingTool) return;
-
-    await deleteToolIds([editingTool.id]);
-    setEditingTool(null);
-    setShowAddToolModal(false);
+    requestToolRemoval([editingTool.id]);
   };
 
   const startEditingToolName = (tool: ToolItem) => {
@@ -3925,13 +4288,13 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
   const startEditingWatchlistNote = (tool: ToolItem) => {
     setEditingWatchlistNoteId(tool.id);
-    setWatchlistNoteDraft(tool.notes);
+    setWatchlistNoteDraft(tool.notes.slice(0, 50));
   };
 
   const saveWatchlistNote = async (tool: ToolItem) => {
     if (editingWatchlistNoteId !== tool.id) return;
 
-    const nextNotes = watchlistNoteDraft.trim();
+    const nextNotes = watchlistNoteDraft.trim().slice(0, 50);
     const previousTools = toolList;
     setEditingWatchlistNoteId(null);
     setWatchlistNoteDraft("");
@@ -4242,6 +4605,19 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     () => toolsWithValidAccountLinks.filter((tool) => tool.status === "Considering" && !tool.archived).length,
     [toolsWithValidAccountLinks],
   );
+  const showWatchlistCategoryTabs = totalWatchlistToolCount >= 10;
+  useEffect(() => {
+    if (activeSection !== "watchlist") return;
+
+    if (!showWatchlistCategoryTabs) {
+      if (selectedToolSort !== "All") setSelectedToolSort("All");
+      return;
+    }
+
+    if (selectedToolSort !== "Category" && selectedToolSort !== "All") {
+      setSelectedToolSort("Category");
+    }
+  }, [activeSection, selectedToolSort, showWatchlistCategoryTabs]);
   const totalFavouriteToolCount = useMemo(
     () => toolsWithValidAccountLinks.filter((tool) => tool.favorite && !tool.archived).length,
     [toolsWithValidAccountLinks],
@@ -4315,6 +4691,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           value: account.label,
         })),
       ),
+    [groupedAccounts],
+  );
+  const accountsInLoginTableOrder = useMemo(
+    () => groupedAccounts.flatMap((group) => group.accounts),
     [groupedAccounts],
   );
   const groupedToolCategories = useMemo(
@@ -4632,7 +5012,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         : navItems.find((item) => item.id === activeSection)?.label ?? "Dashboard";
   const sectionSubtitles: Partial<Record<Section, string>> = {
     dashboard: "Everything at a glance. Your tools, spend, and trials all in one place.",
-    account: "All the accounts you sign up with. Add them once, use them everywhere.",
+    account: "Add your logins with nicknames once, use them everywhere.",
     tools: "Every tool you use, paid or free. Nothing forgotten.",
     linked: "See which account belongs to which tool. No more guessing.",
     accounts: "Every account you use, and the tools behind it.",
@@ -4733,7 +5113,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (status === "Trial") return "Trial";
     return "Free";
   };
-  const accountOverviewItems = accountList.map((account) => {
+  const accountOverviewItems = accountsInLoginTableOrder.map((account) => {
     const linkedTools = toolsWithValidAccountLinks.filter(
       (tool) => !tool.archived && tool.accounts.includes(account.label),
     );
@@ -4750,6 +5130,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     }).length;
 
     return {
+      id: account.id,
       label: account.label,
       login: account.login,
       paidCount,
@@ -5057,7 +5438,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         isExpanded={isExpanded}
         isSelected={selectedToolIds.includes(tool.id)}
         key={tool.id}
-        onDelete={() => permanentlyDeleteToolIds([tool.id])}
+        onDelete={() => requestToolRemoval([tool.id])}
         onEdit={() => openEditToolModal(tool)}
         onEditAccount={(accountLabel) => openManageAccountModal(tool, accountLabel)}
         onOpenLinkedAccounts={() => {
@@ -5073,7 +5454,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             return;
           }
           if (activeSection === "tools" && tool.status === "Considering") {
-            showToast("Can't link while on Watchlist. Remove it first.", "blocked");
+            showToast("Can't link while on Watchlist. Remove it first.");
             return;
           }
           activeSection === "watchlist"
@@ -5143,36 +5524,48 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             url={tool.url}
           />
         )}
-        renderWatchlistNote={() => (
-          editingWatchlistNoteId === tool.id ? (
-            <input
-              aria-label={`Edit note for ${tool.name}`}
-              autoFocus
-              className="watchlist-note-input is-editing"
-              onBlur={() => void saveWatchlistNote(tool)}
-              onChange={(event) => setWatchlistNoteDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") event.currentTarget.blur();
-                if (event.key === "Escape") {
-                  setEditingWatchlistNoteId(null);
-                  setWatchlistNoteDraft("");
-                }
-              }}
-              placeholder="Add a note..."
-              type="text"
-              value={watchlistNoteDraft}
-            />
-          ) : (
-            <button
-              className="watchlist-note-display"
-              onClick={() => startEditingWatchlistNote(tool)}
-              title={tool.notes || "Add a note..."}
-              type="button"
-            >
-              {tool.notes || "Add a note..."}
-            </button>
-          )
-        )}
+        renderWatchlistNote={() => {
+          const isEditing = editingWatchlistNoteId === tool.id;
+
+          return (
+            <div className="watchlist-note-control">
+              {isEditing ? (
+                <input
+                  aria-label={`Edit note for ${tool.name}`}
+                  autoFocus
+                  className="watchlist-note-input is-editing"
+                  maxLength={50}
+                  onBlur={() => void saveWatchlistNote(tool)}
+                  onChange={(event) => setWatchlistNoteDraft(event.target.value.slice(0, 50))}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                    if (event.key === "Escape") {
+                      setEditingWatchlistNoteId(null);
+                      setWatchlistNoteDraft("");
+                    }
+                  }}
+                  placeholder="Add a note..."
+                  type="text"
+                  value={watchlistNoteDraft}
+                />
+              ) : (
+                <button
+                  className="watchlist-note-display"
+                  onClick={() => startEditingWatchlistNote(tool)}
+                  title={tool.notes || "Add a note..."}
+                  type="button"
+                >
+                  {tool.notes || "Add a note..."}
+                </button>
+              )}
+              {isEditing ? (
+                <span className={`watchlist-note-counter${watchlistNoteDraft.length === 50 ? " is-at-limit" : ""}`}>
+                  {watchlistNoteDraft.length}/50
+                </span>
+              ) : null}
+            </div>
+          );
+        }}
         section={activeSection}
         tool={tool}
       />
@@ -5247,9 +5640,16 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const isDuplicateManagedAccount =
     Boolean(managingLink && managedTool && managedAccountLabel !== managingLink.accountLabel && managedTool.accounts.includes(managedAccountLabel));
   const activeToolOptions = toolList.filter((tool) => !tool.archived);
-  const linkToolSearchOptions = isLinkToolLocked
+  const linkToolSearchCandidates = isLinkToolLocked
     ? activeToolOptions
     : activeToolOptions.filter((tool) => tool.accounts.length === 0 && tool.status !== "Considering");
+  const linkToolSearchOptions = Array.from(
+    linkToolSearchCandidates.reduce((uniqueTools, tool) => {
+      const normalizedName = tool.name.trim().toLocaleLowerCase();
+      if (!uniqueTools.has(normalizedName)) uniqueTools.set(normalizedName, tool);
+      return uniqueTools;
+    }, new Map<string, ToolItem>()).values(),
+  );
   const filteredLinkToolOptions = linkToolSearchOptions.filter((tool) =>
     tool.name.toLowerCase().includes(linkToolSearchQuery.trim().toLowerCase()),
   );
@@ -5764,7 +6164,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               ] as Section[]
             ).includes(activeSection)
               ? `main-content list-page-content${
-                  activeSection === "tools" && selectedVisibleToolIds.length > 0
+                  (activeSection === "tools" || activeSection === "watchlist") && selectedVisibleToolIds.length > 0
                     ? " has-floating-bulk-actions"
                     : ""
                 }`
@@ -5784,7 +6184,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             onResetTools={openResetToolsFlow}
             onTogglePendingActions={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
             pendingActionCount={pendingBillingActions.length}
-            subtitle={subtitle}
+            subtitle={activeSection === "account" ? (
+              <>
+                Add your logins with nicknames once, use them everywhere. See all accounts and tools in{" "}
+                <a className="inline-text-link" href={isDemoMode ? "/accounts?demo=1" : "/accounts"}>
+                  By Accounts
+                </a>
+                .
+              </>
+            ) : subtitle}
             title={title}
           />
 
@@ -5900,7 +6308,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 {activeSection === "tools" || activeSection === "linked" || activeSection === "accounts" || activeSection === "watchlist" || activeSection === "billing" || activeSection === "favorites" || activeSection === "archive" ? (
                   <ListPageToolbar
                     accountFilter={accountsFilter}
-                    accountLabels={accountList.map((account) => account.label)}
+                    accountLabels={accountsInLoginTableOrder.map((account) => account.label)}
                     activeCategory={Boolean(activeCategory)}
                     activeSection={activeSection}
                     billingView={selectedBillingView}
@@ -5927,6 +6335,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                     onToolSortChange={setSelectedToolSort}
                     searchQuery={activeToolSearchQuery}
                     selectedToolSort={selectedToolSort}
+                    showWatchlistCategoryTabs={showWatchlistCategoryTabs}
                     toolSortOptions={availableToolSortOptions}
                   />
                 ) : null}
@@ -5939,17 +6348,24 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
                 {(activeSection === "tools" || activeSection === "watchlist" || activeSection === "archive") && selectedVisibleToolIds.length > 0 ? (
                   <BulkToolActions
-                    isFloating={activeSection === "tools"}
-                    isArchiveSection={activeSection === "archive"}
-                    onArchive={() => archiveToolIds(selectedVisibleToolIds)}
+                    actionSet={
+                      activeSection === "watchlist"
+                        ? "watchlist"
+                        : activeSection === "archive"
+                          ? "archive"
+                          : "toolbox"
+                    }
+                    isFloating={activeSection === "tools" || activeSection === "watchlist"}
+                    onArchive={() => void archiveSelectedToolIds(selectedVisibleToolIds)}
                     onClear={clearToolSelection}
                     onDelete={() => {
-                      if (activeSection === "archive") {
-                        permanentlyDeleteToolIds(selectedVisibleToolIds);
+                      if (activeSection === "tools") {
+                        requestToolRemoval(selectedVisibleToolIds);
                         return;
                       }
-                      deleteToolIds(selectedVisibleToolIds);
+                      void deleteToolIds(selectedVisibleToolIds);
                     }}
+                    onUnwatch={() => void unwatchSelectedToolIds(selectedVisibleToolIds)}
                     selectedCount={selectedVisibleToolIds.length}
                   />
                 ) : null}
@@ -6175,9 +6591,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         }}
         onConfirmToolStateChange={confirmPendingToolStateChange}
         onConfirmWatchlistMove={confirmMoveWatchlistToolToLinked}
-        onDismissCreateAccount={dismissCreateAccountModal}
+        onCloseCreateAccount={closeCreateAccountModal}
+        onDismissCreateAccount={() => void dismissCreateAccountModal()}
         onDontShowOnboardingAgainChange={setDontShowOnboardingAgain}
-        onOpenAccountSetup={openAccountSetup}
+        onOpenAccountSetup={() => void openAccountSetup()}
       />
 
       {showAddAccountModal ? (
@@ -6240,13 +6657,51 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         </div>
       ) : null}
 
+      {archiveUndo ? (
+        <div className="app-toast app-toast-success trial-resolution-undo-toast" role="status">
+          <svg aria-hidden="true" className="toast-success-check" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path d="m5 12 4 4L19 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+          </svg>
+          <span className="trial-resolution-undo-message">{archiveUndoMessage}</span>
+          <span aria-hidden="true" className="trial-resolution-undo-divider" />
+          <button onClick={() => void undoBulkArchive()} type="button">
+            <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+              <path d="M8 7H4v-4" />
+              <path d="M4.5 7.5A8 8 0 1 1 5 17" />
+            </svg>
+            Undo
+          </button>
+        </div>
+      ) : null}
+
+      {unwatchUndo ? (
+        <div className="app-toast app-toast-success trial-resolution-undo-toast" role="status">
+          <svg aria-hidden="true" className="toast-success-check" fill="none" height="16" viewBox="0 0 24 24" width="16">
+            <path d="m5 12 4 4L19 6" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+          </svg>
+          <span className="trial-resolution-undo-message">{unwatchUndoMessage}</span>
+          <span aria-hidden="true" className="trial-resolution-undo-divider" />
+          <button onClick={() => void undoBulkUnwatch()} type="button">
+            <svg aria-hidden="true" fill="none" viewBox="0 0 24 24">
+              <path d="M8 7H4v-4" />
+              <path d="M4.5 7.5A8 8 0 1 1 5 17" />
+            </svg>
+            Undo
+          </button>
+        </div>
+      ) : null}
+
       {showPresetToolPicker ? (
         <PresetToolPickerModal
           expandedCategoryIds={expandedPresetCategories}
+          isObscured={Boolean(pendingPresetToolRemovals)}
           isSaving={isSavingTool}
           normalizeCategory={normaliseToolCategory}
           onClose={() => {
             setShowPresetSelectionWarning(false);
+            setPendingPresetToolRemovals(null);
+            setPendingPresetToolAdditions([]);
+            setPendingToolRemovalMode(null);
             setShowPresetToolPicker(false);
           }}
           onDone={() => void savePresetToolSelection()}
@@ -6255,12 +6710,38 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           }
           onToggleShowAllCategories={() => setShowAllPresetCategories((showAll) => !showAll)}
           onToggleTool={togglePresetTool}
+          ownedToolNames={ownedPresetToolNames}
           selectedCategoryLabels={workspaceCategories}
           selectedRole={selectedRole}
           selectedRoleCategoryLabels={selectedRoleCategories}
           selectedToolNames={selectedPresetToolNames}
           showAllCategories={showAllPresetCategories}
           tools={toolList}
+        />
+      ) : null}
+
+      {pendingPresetToolRemovals ? (
+        <PresetToolRemovalModal
+          isSaving={isSavingTool}
+          onCancel={() => {
+            setPendingPresetToolRemovals(null);
+            setPendingPresetToolAdditions([]);
+            setPendingToolRemovalMode(null);
+          }}
+          onConfirm={() => void confirmPendingToolRemoval()}
+          addingToolNames={pendingPresetToolAdditions}
+          tools={pendingPresetToolRemovals.map((tool) => ({
+            accounts: tool.accounts,
+            hasBillingHistory:
+              Object.values(toolAccountDetails[tool.id] ?? {}).some(
+                (detail) => detail.billingHistoryEntries.length > 0,
+              ) ||
+              Object.entries(manualBillingHistory).some(
+                ([recordKey, entries]) => recordKey.startsWith(`${tool.id}::`) && entries.length > 0,
+              ),
+            id: tool.id,
+            name: tool.name,
+          }))}
         />
       ) : null}
 
@@ -6336,6 +6817,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           hasSubmitted={hasSubmittedLinkToolForm}
           isLocked={isLinkToolLocked}
           isPickerOpen={isLinkToolPickerOpen}
+          isSaving={isSavingLinkTool}
           isPlanAllowedForTool={(plan) => isPlanAllowedForTool(selectedLinkTool, plan)}
           linkBillingTypeOptions={linkBillingTypeOptions}
           linkToolId={linkToolId}
@@ -6540,4 +7022,16 @@ export default function DashboardPage() {
       <DashboardContent />
     </Suspense>
   );
+}
+
+function deletedToolRecordsToArchives(records: ToolRecord[]): ToolResetArchive[] {
+  return records.map((record) => {
+    const tool = toolFromRecord(record);
+    return {
+      createdAt: record.deletedAt ?? new Date().toISOString(),
+      data: createResetBlob([tool]),
+      id: `deleted-${record.id}`,
+      userId: localUserId,
+    };
+  });
 }
