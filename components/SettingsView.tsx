@@ -16,6 +16,7 @@ type SettingsViewProps = {
   onConfirmPasswordChange: (value: string) => void;
   onFullNameChange: (value: string) => void;
   onNewPasswordChange: (value: string) => void;
+  onRenewalAlertsEnabledChange: (value: boolean) => void;
   onRemindersEnabledChange: (value: boolean) => void;
   onReseedDemo: () => void;
   onSavePassword: (event: FormEvent<HTMLFormElement>) => void;
@@ -23,6 +24,8 @@ type SettingsViewProps = {
   onSettingsTabChange: (tab: SettingsTab) => void;
   passwordMessage: string;
   profileError: string;
+  renewalAlertDaysDropdown: ReactNode;
+  renewalAlertsEnabled: boolean;
   reminderDaysDropdown: ReactNode;
   remindersEnabled: boolean;
   settingsTab: SettingsTab;
@@ -42,6 +45,7 @@ export default function SettingsView({
   onConfirmPasswordChange,
   onFullNameChange,
   onNewPasswordChange,
+  onRenewalAlertsEnabledChange,
   onRemindersEnabledChange,
   onReseedDemo,
   onSavePassword,
@@ -49,6 +53,8 @@ export default function SettingsView({
   onSettingsTabChange,
   passwordMessage,
   profileError,
+  renewalAlertDaysDropdown,
+  renewalAlertsEnabled,
   reminderDaysDropdown,
   remindersEnabled,
   settingsTab,
@@ -103,9 +109,17 @@ export default function SettingsView({
             ) : null}
 
             <section className="settings-section settings-content-card">
-              <header><h2>Dashboard alerts</h2><p>Choose how far ahead to look for ending trials.</p></header>
-              <div className="settings-toggle-row"><span>Show trial alerts</span><button aria-pressed={remindersEnabled} className={remindersEnabled ? "settings-toggle is-on" : "settings-toggle"} onClick={() => onRemindersEnabledChange(!remindersEnabled)} type="button"><span />{remindersEnabled ? "On" : "Off"}</button></div>
-              <label className="form-field settings-compact-field"><span>Show trials ending within</span>{reminderDaysDropdown}</label>
+              <header><h2>Dashboard alerts</h2><p>Choose which upcoming items appear on your Dashboard.</p></header>
+              <div className="settings-alert-block">
+                <h3>Trial alerts</h3>
+                <div className="settings-toggle-row"><span>Show trial alerts</span><button aria-pressed={remindersEnabled} className={remindersEnabled ? "settings-toggle is-on" : "settings-toggle"} onClick={() => onRemindersEnabledChange(!remindersEnabled)} type="button"><span />{remindersEnabled ? "On" : "Off"}</button></div>
+                <label className="form-field settings-compact-field"><span>Show trials ending within</span>{reminderDaysDropdown}</label>
+              </div>
+              <div className="settings-alert-block">
+                <h3>Renewal alerts</h3>
+                <div className="settings-toggle-row"><span>Show renewal alerts</span><button aria-pressed={renewalAlertsEnabled} className={renewalAlertsEnabled ? "settings-toggle is-on" : "settings-toggle"} onClick={() => onRenewalAlertsEnabledChange(!renewalAlertsEnabled)} type="button"><span />{renewalAlertsEnabled ? "On" : "Off"}</button></div>
+                <label className="form-field settings-compact-field"><span>Show renewals within</span>{renewalAlertDaysDropdown}</label>
+              </div>
             </section>
 
             {showDeveloperTools ? (

@@ -6674,6 +6674,25 @@ p {
   max-width: 230px;
 }
 
+.settings-alert-block {
+  display: grid;
+  gap: 14px;
+  max-width: 620px;
+  padding-top: 18px;
+}
+
+.settings-alert-block + .settings-alert-block {
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+  padding-top: 20px;
+}
+
+.settings-alert-block h3 {
+  color: var(--text-1);
+  font-size: 14px;
+  margin: 0;
+}
+
 .settings-toggle-row {
   align-items: center;
   display: flex;

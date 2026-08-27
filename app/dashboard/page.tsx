@@ -1002,6 +1002,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [reminderDays, setReminderDays] = useState("7");
+  const [renewalAlertsEnabled, setRenewalAlertsEnabled] = useState(true);
+  const [renewalAlertDays, setRenewalAlertDays] = useState("7");
   const [settingsTab, setSettingsTab] = useState<"billing" | "profile">("billing");
   const [profileError, setProfileError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -1248,10 +1250,14 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       const storedDefaultCurrency = window.localStorage.getItem("ai-subprise-default-currency");
       const storedRemindersEnabled = window.localStorage.getItem("ai-subprise-reminders-enabled");
       const storedReminderDays = window.localStorage.getItem("ai-subprise-reminder-days");
+      const storedRenewalAlertsEnabled = window.localStorage.getItem("ai-subprise-renewal-alerts-enabled");
+      const storedRenewalAlertDays = window.localStorage.getItem("ai-subprise-renewal-alert-days");
 
       if (storedDefaultCurrency) setDefaultCurrency(normaliseCurrency(storedDefaultCurrency));
       if (storedRemindersEnabled !== null) setRemindersEnabled(storedRemindersEnabled === "true");
       if (["3", "7", "14"].includes(storedReminderDays ?? "")) setReminderDays(storedReminderDays ?? "7");
+      if (storedRenewalAlertsEnabled !== null) setRenewalAlertsEnabled(storedRenewalAlertsEnabled === "true");
+      if (["3", "7", "14"].includes(storedRenewalAlertDays ?? "")) setRenewalAlertDays(storedRenewalAlertDays ?? "7");
 
       setHasCustomToolOrder(storedToolOrderPreference === "custom");
       if (storedToolAccountStatuses) {
@@ -6198,6 +6204,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 setNewPassword(value);
                 setNewPasswordError("");
               }}
+              onRenewalAlertsEnabledChange={(nextValue) => {
+                setRenewalAlertsEnabled(nextValue);
+                window.localStorage.setItem("ai-subprise-renewal-alerts-enabled", String(nextValue));
+              }}
               onRemindersEnabledChange={(nextValue) => {
                 setRemindersEnabled(nextValue);
                 window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
@@ -6208,6 +6218,16 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               onSettingsTabChange={setSettingsTab}
               passwordMessage={passwordMessage}
               profileError={profileError}
+              renewalAlertDaysDropdown={renderDropdown({
+                id: "settings-renewal-alert-days",
+                onChange: (days) => {
+                  setRenewalAlertDays(days);
+                  window.localStorage.setItem("ai-subprise-renewal-alert-days", days);
+                },
+                options: [3, 7, 14].map((days) => ({ label: `${days} days`, value: String(days) })),
+                value: renewalAlertDays,
+              })}
+              renewalAlertsEnabled={renewalAlertsEnabled}
               reminderDaysDropdown={renderDropdown({
                 id: "settings-reminder-days",
                 onChange: (days) => {
