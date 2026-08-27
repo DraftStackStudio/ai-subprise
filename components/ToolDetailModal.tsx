@@ -2,7 +2,6 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type {
-  BillingAmount,
   ToolDetailAccountDraft,
   ToolStatus,
 } from "@/types/toolDetail";
@@ -20,8 +19,6 @@ type ToolDetailModalProps = {
   onUnlink: (draft: ToolDetailAccountDraft) => void;
   onUpdateDraft: (draftId: string, updates: Partial<ToolDetailAccountDraft>) => void;
   renderAccountSelector: (draft: ToolDetailAccountDraft) => ReactNode;
-  renderBillingTypeSelector: (draft: ToolDetailAccountDraft) => ReactNode;
-  renderCurrencySelector: (draft: ToolDetailAccountDraft, amount: BillingAmount) => ReactNode;
   renderDateField: (
     ariaLabel: string,
     value: string,
@@ -136,8 +133,6 @@ export default function ToolDetailModal({
   onUnlink,
   onUpdateDraft,
   renderAccountSelector,
-  renderBillingTypeSelector,
-  renderCurrencySelector,
   renderDateField,
   renderPlanSelector,
   renderStatusSelector,
@@ -153,7 +148,7 @@ export default function ToolDetailModal({
   const [showDiscardConfirmation, setShowDiscardConfirmation] = useState(false);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const draftLayoutSignature = drafts
-    .map((draft) => `${draft.draftId ?? draft.accountLabel}:${draft.accountLabel}:${draft.plan}:${draft.billingType}:${draft.billingAmounts.length}`)
+    .map((draft) => `${draft.draftId ?? draft.accountLabel}:${draft.accountLabel}:${draft.plan}`)
     .join("|");
 
   useLayoutEffect(() => {
@@ -230,17 +225,6 @@ export default function ToolDetailModal({
 
   const renderAccountCard = (draft: ToolDetailAccountDraft) => {
     const draftId = draft.draftId ?? draft.accountLabel;
-    const selectedBillingTypes = draft.billingType
-      .split(", ")
-      .filter(Boolean);
-    const hasTopUp = selectedBillingTypes.includes("Top-up");
-    const hasRecurringBillingType = selectedBillingTypes.some(
-      (billingType) => billingType === "Monthly" || billingType === "Yearly",
-    );
-    const hasPurchaseBillingType = selectedBillingTypes.some(
-      (billingType) => billingType === "Lifetime" || billingType === "One-time",
-    );
-    const hasDatedBillingType = hasRecurringBillingType || hasPurchaseBillingType;
     const outcomeState = trialOutcomeState(draft);
 
     return (
@@ -303,67 +287,6 @@ export default function ToolDetailModal({
                 <span>Status</span>
                 {renderStatusSelector(draft)}
               </label>
-            </div>
-            <label className="form-field">
-              <span>Billing Type</span>
-              {renderBillingTypeSelector(draft)}
-            </label>
-            <div className={`tool-detail-amount-row${draft.billingAmounts.length === 1 ? " is-single" : ""}`}>
-              {draft.billingAmounts.map((billingAmount, index) => (
-                <label className="form-field" key={billingAmount.id}>
-                  <span>Amount - {selectedBillingTypes[index] ?? billingAmount.billingType}</span>
-                  <span className="billing-amount-field modal-amount-field managed-amount-field field-input">
-                    {renderCurrencySelector(draft, billingAmount)}
-                    <input
-                      className="field-input-control"
-                      inputMode="decimal"
-                      onChange={(event) => onUpdateDraft(draftId, {
-                        billingAmounts: draft.billingAmounts.map((entry) => (
-                          entry.billingType === billingAmount.billingType
-                            ? { ...entry, amount: event.target.value }
-                            : entry
-                        )),
-                      })}
-                      placeholder="0.00"
-                      step="0.01"
-                      type="number"
-                      value={billingAmount.amount}
-                    />
-                  </span>
-                </label>
-              ))}
-            </div>
-            <div className={`tool-detail-amount-row${hasDatedBillingType && hasTopUp ? "" : " is-single"}`}>
-              {hasRecurringBillingType ? (
-                <label className="form-field">
-                  <span>Next Charge</span>
-                  {renderDateField(
-                    "Next charge date",
-                    draft.nextChargeDate,
-                    (nextChargeDate) => onUpdateDraft(draftId, { nextChargeDate }),
-                  )}
-                </label>
-              ) : null}
-              {hasPurchaseBillingType ? (
-                <label className="form-field">
-                  <span>Purchased on</span>
-                  {renderDateField(
-                    "Purchased on date",
-                    draft.purchaseDate,
-                    (purchaseDate) => onUpdateDraft(draftId, { purchaseDate }),
-                  )}
-                </label>
-              ) : null}
-              {hasTopUp ? (
-                <label className="form-field">
-                  <span>Last topped up</span>
-                  {renderDateField(
-                    "Last topped up date",
-                    draft.lastTopUpDate,
-                    (lastTopUpDate) => onUpdateDraft(draftId, { lastTopUpDate }),
-                  )}
-                </label>
-              ) : null}
             </div>
           </>
         ) : null}

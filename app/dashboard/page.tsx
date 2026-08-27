@@ -939,6 +939,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [showRecoveryPanel, setShowRecoveryPanel] = useState(false);
   const [accountToast, setAccountToast] = useState("");
   const [accountToastVariant, setAccountToastVariant] = useState<"success" | "warning" | "blocked">("success");
+  const [billingSetupTarget, setBillingSetupTarget] = useState<{ accountLabel: string; planName: string; toolName: string } | null>(null);
   const [trialResolutionUndo, setTrialResolutionUndo] = useState<TrialResolutionUndo | null>(null);
   const [trialResolutionUndoMessage, setTrialResolutionUndoMessage] = useState("");
   const [archiveUndo, setArchiveUndo] = useState<ArchiveUndo | null>(null);
@@ -1681,8 +1682,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
     setAccountToastVariant(variant);
     setAccountToast(message);
+    setBillingSetupTarget(null);
     accountToastTimeoutRef.current = setTimeout(() => {
       setAccountToast("");
+      setBillingSetupTarget(null);
       accountToastTimeoutRef.current = null;
     }, 4000);
   };
@@ -3363,46 +3366,19 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (!draft.accountLabel || !draft.plan) return null;
     const currentDetail = toolAccountDetails[tool.id]?.[draft.accountLabel];
     const selectedPlan: ToolStatus = draft.plan;
-    const validatedBillingType = normaliseBillingType(draft.billingType);
-    const validatedBillingTypes = validatedBillingType.split(", ");
-    const hasTopUpCredit = validatedBillingTypes.includes("Top-up");
-    const hasRecurringBillingType = validatedBillingTypes.some(
-      (billingType) => billingType === "Monthly" || billingType === "Yearly",
-    );
-    const hasPurchaseBillingType = validatedBillingTypes.some(
-      (billingType) => billingType === "Lifetime" || billingType === "One-time",
-    );
     const nextDetail: ToolAccountDetail = {
-      amount: draft.plan === "Active" ? draft.billingAmounts[0]?.amount.trim() ?? "" : "",
-      billingAmounts: draft.plan === "Active"
-        ? draft.billingAmounts
-            .filter((entry) => validatedBillingTypes.includes(entry.billingType))
-            .map((entry) => ({
-              ...entry,
-              lastTopUpDate: entry.billingType === "Top-up" ? draft.lastTopUpDate : "",
-              nextRenewalDate:
-                entry.billingType === "Monthly" || entry.billingType === "Yearly"
-                  ? draft.nextChargeDate
-                  : "",
-              purchaseDate:
-                entry.billingType === "Lifetime" || entry.billingType === "One-time"
-                  ? draft.purchaseDate
-                  : "",
-            }))
-        : [],
+      amount: currentDetail?.amount ?? "",
+      billingAmounts: currentDetail?.billingAmounts?.map((entry) => ({ ...entry })) ?? [],
       billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
-      billingType: validatedBillingType,
+      billingType: currentDetail?.billingType ?? "",
       convertedDate: currentDetail?.convertedDate ?? "",
-      currency: normaliseOptionalCurrency(draft.billingAmounts[0]?.currency),
-      lastTopUpDate: draft.plan === "Active" && hasTopUpCredit ? draft.lastTopUpDate : "",
-      nextChargeDate: draft.plan === "Active" && hasRecurringBillingType ? draft.nextChargeDate : "",
-      purchaseDate: draft.plan === "Active" && hasPurchaseBillingType ? draft.purchaseDate : "",
+      currency: currentDetail?.currency,
+      lastTopUpDate: currentDetail?.lastTopUpDate ?? "",
+      nextChargeDate: currentDetail?.nextChargeDate ?? "",
+      purchaseDate: currentDetail?.purchaseDate ?? "",
       relationshipId: relationshipId ?? currentDetail?.relationshipId,
       planName: draft.plan === "Active" ? draft.planName.trim() : "",
-      startDate:
-        draft.plan === "Active" && hasRecurringBillingType
-          ? immutableStartDate(currentDetail, draft.nextChargeDate)
-          : currentDetail?.startDate ?? "",
+      startDate: currentDetail?.startDate ?? "",
       status: draft.status,
       trialExpiryDate: draft.plan === "Trial" ? draft.trialExpiryDate : "",
       trialResolution: currentDetail?.trialResolution ?? "",
@@ -3420,14 +3396,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       if (transitionEntry) {
         nextDetail.billingHistoryEntries = [...nextDetail.billingHistoryEntries, transitionEntry];
         hasTransitionHistoryEntry = true;
-      }
-      if (currentDetail.status === "On a Break" && draft.status === "Active") {
-        const recurringType = recurringBillingType(nextDetail.billingType);
-        nextDetail.nextChargeDate = recurringType
-          ? nextDetail.startDate
-            ? recurringChargeDateAfter(nextDetail.startDate, recurringType, todayInputValue())
-            : advanceRecurringChargeDate(todayInputValue(), recurringType)
-          : "";
       }
     }
 
@@ -3447,16 +3415,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (shouldUseSupabase) {
       try {
         await updateToolLinkDetails(tool.id, draft.accountLabel, accountList, {
-          amount: nextDetail.amount,
-          billingAmounts: nextDetail.billingAmounts,
           billingHistoryEntries: hasTransitionHistoryEntry ? nextDetail.billingHistoryEntries : undefined,
-          billingType: nextDetail.billingType,
           convertedDate: nextDetail.convertedDate,
-          currency: nextDetail.currency,
-          lastTopUpDate: nextDetail.lastTopUpDate,
-          nextChargeDate: nextDetail.nextChargeDate,
-          purchaseDate: nextDetail.purchaseDate,
-          startDate: nextDetail.startDate,
           plan: draft.plan,
           planName: nextDetail.planName,
           status: nextDetail.status,
@@ -3552,7 +3512,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       setToolAccountDetails(removeOmittedAccounts);
     }
 
+    let billingSetupPrompt: { accountLabel: string; planName: string; toolName: string } | null = null;
     for (const draft of drafts) {
+      const wasPaid = tool.accounts.includes(draft.accountLabel)
+        && relationPlanStatusValue(tool, draft.accountLabel) === "Active";
       const savedDetail = await saveToolDetailAccount(
         tool,
         draft,
@@ -3560,6 +3523,13 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         syncedRelationshipIds[draft.accountLabel],
       );
       if (!savedDetail) return;
+      if (!billingSetupPrompt && draft.plan === "Active" && !wasPaid && (savedDetail.billingAmounts?.length ?? 0) === 0) {
+        billingSetupPrompt = {
+          accountLabel: draft.accountLabel,
+          planName: savedDetail.planName,
+          toolName: displayToolName(tool.name),
+        };
+      }
       if (draft.pendingTrialOutcome) {
         const isCorrection =
           toolAccountDetails[tool.id]?.[draft.accountLabel]?.trialResolved === true;
@@ -3573,7 +3543,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         if (!resolved) return;
       }
     }
-    if (!hasInitialTrialOutcome) showToast(`${tool.name} accounts saved.`);
+    if (!hasInitialTrialOutcome) {
+      showToast(billingSetupPrompt
+        ? `${billingSetupPrompt.toolName} updated · Paid${billingSetupPrompt.planName ? ` · ${billingSetupPrompt.planName}` : ""}`
+        : `${tool.name} accounts saved.`);
+      if (billingSetupPrompt) setBillingSetupTarget(billingSetupPrompt);
+    }
     closeManageAccountModal();
   };
 
@@ -6600,6 +6575,26 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             </svg>
           )}
           <span>{accountToast}</span>
+          {billingSetupTarget ? (
+            <>
+              <span aria-hidden="true" className="billing-setup-toast-divider" />
+              <button
+                className="billing-setup-toast-action"
+                onClick={() => {
+                  setActiveSection("billing");
+                  setSelectedBillingView("All");
+                  setBillingSearch(billingSetupTarget.toolName);
+                  setActiveCategory("");
+                  setShowRecoveryPanel(false);
+                  setAccountToast("");
+                  setBillingSetupTarget(null);
+                }}
+                type="button"
+              >
+                Set up billing
+              </button>
+            </>
+          ) : null}
         </div>
       ) : null}
 
@@ -6843,43 +6838,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               value: draft.accountLabel,
             });
           }}
-          renderBillingTypeSelector={(draft) => renderMultiSelectDropdown({
-            className: "modal-dropdown field-dropdown",
-            id: `detail-billing-${managedTool.id}-${draft.draftId ?? draft.accountLabel}`,
-            onChange: (nextBillingTypes) => updateToolDetailDraft(draft.draftId ?? draft.accountLabel, {
-              billingType: nextBillingTypes.join(", "),
-              billingAmounts: nextBillingTypes.map((billingType) =>
-                draft.billingAmounts.find((entry) => entry.billingType === billingType) ?? {
-                  amount: "",
-                  billingType,
-                  currency: "",
-                  id: billingAmountId(),
-                }),
-            }),
-            options: billingTypeOptions.map((option) => ({
-              ...option,
-              label: option.value === "One-time"
-                ? "One-time payment"
-                : option.value === "Top-up"
-                  ? "Top-up credit"
-                  : option.label,
-            })),
-            placeholder: "Select billing type",
-            toggleSelection: toggleBillingTypeSelection,
-            values: draft.billingType ? draft.billingType.split(", ") : [],
-          })}
-          renderCurrencySelector={(draft, billingAmount) => renderDropdown({
-            ariaLabel: `${draft.accountLabel} ${billingAmount.billingType} currency`,
-            className: "billing-currency-dropdown field-dropdown",
-            id: `detail-currency-${managedTool.id}-${draft.draftId ?? draft.accountLabel}-${billingAmount.billingType}`,
-            onChange: (currency) => updateToolDetailDraft(draft.draftId ?? draft.accountLabel, {
-              billingAmounts: draft.billingAmounts.map((entry) => (
-                entry.billingType === billingAmount.billingType ? { ...entry, currency } : entry
-              )),
-            }),
-            options: currencyOptions,
-            value: billingAmount.currency,
-          })}
           renderDateField={(ariaLabel, value, onChange) => (
             <DateFieldControl className="field-input" ariaLabel={ariaLabel} onChange={onChange} value={value} />
           )}
