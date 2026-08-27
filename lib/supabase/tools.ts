@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/client";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
-import type { TrialResolutionHistoryEntry } from "@/types/toolDetail";
+import type { BillingAmount, TrialResolutionHistoryEntry } from "@/types/toolDetail";
 
 export type SupabaseToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 
@@ -169,10 +169,20 @@ export async function getDeletedToolRecords() {
 
 export async function getToolLinkDetailRecords() {
   const supabase = createClient();
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("tool_email_links")
-    .select("*,logins(label)")
+    .select("*,logins(label),tool_link_billing_components(*)")
     .is("unlinked_at", null);
+
+  // Keep the current app usable while migration 0022 is being deployed.
+  if (error) {
+    const legacyResult = await supabase
+      .from("tool_email_links")
+      .select("*,logins(label)")
+      .is("unlinked_at", null);
+    data = legacyResult.data;
+    error = legacyResult.error;
+  }
 
   if (error) throw error;
 
@@ -180,6 +190,27 @@ export async function getToolLinkDetailRecords() {
     const rawLink = link as Record<string, unknown>;
     const joinedAccount = (link as { logins?: { label?: string } | { label?: string }[] }).logins;
     const account = Array.isArray(joinedAccount) ? joinedAccount[0] : joinedAccount;
+    const rawComponents = Array.isArray(rawLink.tool_link_billing_components)
+      ? rawLink.tool_link_billing_components
+      : [];
+    const billingAmounts = rawComponents
+      .filter((component): component is Record<string, unknown> => Boolean(component) && typeof component === "object")
+      .map((component): BillingAmount => ({
+        amount: typeof component.amount === "string" ? component.amount : "",
+        billingType: typeof component.billing_type === "string" ? component.billing_type : "",
+        currency: typeof component.currency === "string" ? component.currency : "",
+        id: String(component.id ?? crypto.randomUUID()),
+        lastTopUpDate: typeof component.last_top_up_date === "string" ? component.last_top_up_date : "",
+        nextRenewalDate: typeof component.next_renewal_date === "string" ? component.next_renewal_date : "",
+        purchaseDate: typeof component.purchase_date === "string" ? component.purchase_date : "",
+      }))
+      .filter((component) => component.billingType);
+    const componentBillingType = billingAmounts.map((component) => component.billingType).join(", ");
+    const recurringComponent = billingAmounts.find((component) =>
+      component.billingType === "Monthly" || component.billingType === "Yearly");
+    const purchaseComponent = billingAmounts.find((component) =>
+      component.billingType === "Lifetime" || component.billingType === "One-time");
+    const topUpComponent = billingAmounts.find((component) => component.billingType === "Top-up");
     const billingHistoryEntries = Array.isArray(rawLink.billing_history_entries)
       ? rawLink.billing_history_entries
           .filter((entry): entry is BillingHistoryEntry => Boolean(entry) && typeof entry === "object")
@@ -203,16 +234,18 @@ export async function getToolLinkDetailRecords() {
     return {
       accountLabel: account?.label ?? "",
       amount: typeof rawLink.amount === "string" ? rawLink.amount : "",
+      billingAmounts,
       billingHistoryEntries,
-      billingType: typeof rawLink.billing_type === "string" && rawLink.billing_type ? rawLink.billing_type : "Monthly",
+      billingType: componentBillingType || (typeof rawLink.billing_type === "string" ? rawLink.billing_type : ""),
       convertedDate: typeof rawLink.converted_date === "string" ? rawLink.converted_date : "",
       currency: typeof rawLink.currency === "string" && rawLink.currency ? rawLink.currency : "USD",
-      lastTopUpDate: typeof rawLink.last_top_up_date === "string" ? rawLink.last_top_up_date : "",
-      nextChargeDate: typeof rawLink.next_charge_date === "string" ? rawLink.next_charge_date : "",
-      purchaseDate: typeof rawLink.purchase_date === "string" ? rawLink.purchase_date : "",
+      lastTopUpDate: topUpComponent?.lastTopUpDate || (typeof rawLink.last_top_up_date === "string" ? rawLink.last_top_up_date : ""),
+      nextChargeDate: recurringComponent?.nextRenewalDate || (typeof rawLink.next_charge_date === "string" ? rawLink.next_charge_date : ""),
+      purchaseDate: purchaseComponent?.purchaseDate || (typeof rawLink.purchase_date === "string" ? rawLink.purchase_date : ""),
       startDate: typeof rawLink.start_date === "string" ? rawLink.start_date : "",
       plan: typeof rawLink.plan === "string" && rawLink.plan ? rawLink.plan : "Free Tier",
       planName: typeof rawLink.plan_name === "string" ? rawLink.plan_name : "",
+      relationshipId: String(rawLink.id ?? ""),
       status: typeof rawLink.status === "string" && rawLink.status ? rawLink.status : "Active",
       toolId: String(rawLink.tool_id ?? ""),
       trialExpiryDate: typeof rawLink.trial_expiry_date === "string" ? rawLink.trial_expiry_date : "",
@@ -239,7 +272,7 @@ export async function createToolRecord(input: ToolInput, accounts: AccountRef[])
   if (error) throw error;
 
   const savedTool = asToolRecord(data as Record<string, unknown>, []);
-  await replaceToolLinks(savedTool.id, input.accounts, accounts);
+  await syncToolLinks(savedTool.id, input.accounts, accounts);
   return { ...savedTool, accounts: input.accounts };
 }
 
@@ -255,7 +288,7 @@ export async function updateToolRecord(id: string, input: ToolInput, accounts: A
   if (error) throw error;
 
   const savedTool = asToolRecord(data as Record<string, unknown>, []);
-  await replaceToolLinks(id, input.accounts, accounts);
+  await syncToolLinks(id, input.accounts, accounts);
   return { ...savedTool, accounts: input.accounts };
 }
 
@@ -302,28 +335,80 @@ export async function permanentlyDeleteToolRecords(ids: string[]) {
   if (error) throw error;
 }
 
-export async function replaceToolLinks(toolId: string, labels: string[], accounts: AccountRef[]) {
+export async function syncToolLinks(toolId: string, labels: string[], accounts: AccountRef[]) {
   const supabase = createClient();
-  const { error: deleteError } = await supabase
-    .from("tool_email_links")
-    .delete()
-    .eq("tool_id", toolId);
-  if (deleteError) throw deleteError;
-
   const selectedAccounts = accountIdsForLabels(accounts, labels);
-  if (selectedAccounts.length === 0) return;
-  const userId = await currentUserId();
+  const desiredAccountIds = new Set(selectedAccounts.map((account) => account.id));
+  const { data: existingLinks, error: selectError } = await supabase
+    .from("tool_email_links")
+    .select("id,email_account_id,slot_order,unlinked_at,created_at")
+    .eq("tool_id", toolId)
+    .order("created_at", { ascending: false });
+  if (selectError) throw selectError;
 
-  const { error: insertError } = await supabase.from("tool_email_links").insert(
-    selectedAccounts.map((account, index) => ({
-      email_account_id: account.id,
-      slot_order: index + 1,
-      tool_id: toolId,
-      user_id: userId,
-    })),
-  );
+  const links = (existingLinks ?? []).map((link) => ({
+    emailAccountId: String((link as Record<string, unknown>).email_account_id ?? ""),
+    id: String((link as Record<string, unknown>).id ?? ""),
+    slotOrder: Number((link as Record<string, unknown>).slot_order ?? 0),
+    unlinkedAt: typeof (link as Record<string, unknown>).unlinked_at === "string"
+      ? String((link as Record<string, unknown>).unlinked_at)
+      : null,
+  }));
+  const activeLinks = links.filter((link) => !link.unlinkedAt);
+  const unlinkedAt = new Date().toISOString();
+  const relationshipIdsByLabel: Record<string, string> = {};
 
-  if (insertError) throw insertError;
+  const linksToUnlink = activeLinks.filter((link) => !desiredAccountIds.has(link.emailAccountId));
+  if (linksToUnlink.length > 0) {
+    const { error } = await supabase
+      .from("tool_email_links")
+      .update({ unlinked_at: unlinkedAt })
+      .in("id", linksToUnlink.map((link) => link.id));
+    if (error) throw error;
+  }
+
+  const userId = selectedAccounts.length > 0 ? await currentUserId() : "";
+  for (const [index, account] of selectedAccounts.entries()) {
+    const slotOrder = index + 1;
+    const activeLink = activeLinks.find((link) => link.emailAccountId === account.id);
+    if (activeLink) {
+      if (activeLink.slotOrder !== slotOrder) {
+        const { error } = await supabase
+          .from("tool_email_links")
+          .update({ slot_order: slotOrder })
+          .eq("id", activeLink.id);
+        if (error) throw error;
+      }
+      relationshipIdsByLabel[account.label] = activeLink.id;
+      continue;
+    }
+
+    const historicalLink = links.find((link) => link.emailAccountId === account.id && link.unlinkedAt);
+    if (historicalLink) {
+      const { error } = await supabase
+        .from("tool_email_links")
+        .update({ slot_order: slotOrder, unlinked_at: null })
+        .eq("id", historicalLink.id);
+      if (error) throw error;
+      relationshipIdsByLabel[account.label] = historicalLink.id;
+      continue;
+    }
+
+    const { data: insertedLink, error } = await supabase
+      .from("tool_email_links")
+      .insert({
+        email_account_id: account.id,
+        slot_order: slotOrder,
+        tool_id: toolId,
+        user_id: userId,
+      })
+      .select("id")
+      .single();
+    if (error) throw error;
+    relationshipIdsByLabel[account.label] = String(insertedLink.id);
+  }
+
+  return relationshipIdsByLabel;
 }
 
 export async function updateToolLinkDetails(
@@ -332,6 +417,7 @@ export async function updateToolLinkDetails(
   accounts: AccountRef[],
   details: {
     amount?: string;
+    billingAmounts?: BillingAmount[];
     billingHistoryEntries?: BillingHistoryEntry[];
     billingType?: string;
     convertedDate?: string;
@@ -359,7 +445,7 @@ export async function updateToolLinkDetails(
   if (details.billingHistoryEntries !== undefined) payload.billing_history_entries = details.billingHistoryEntries;
   if (details.billingType !== undefined) payload.billing_type = details.billingType || null;
   if (details.convertedDate !== undefined) payload.converted_date = details.convertedDate || null;
-  if (details.currency !== undefined) payload.currency = details.currency || "USD";
+  if (details.currency) payload.currency = details.currency;
   if (details.lastTopUpDate !== undefined) payload.last_top_up_date = details.lastTopUpDate || null;
   if (details.nextChargeDate !== undefined) payload.next_charge_date = details.nextChargeDate || null;
   if (details.purchaseDate !== undefined) payload.purchase_date = details.purchaseDate || null;
@@ -372,13 +458,71 @@ export async function updateToolLinkDetails(
   if (details.trialResolutionHistory !== undefined) payload.trial_resolution_history = details.trialResolutionHistory;
   if (details.trialResolved !== undefined) payload.trial_resolved = details.trialResolved;
 
-  if (Object.keys(payload).length === 0) return;
-
-  const { error } = await supabase
+  const { data: activeLink, error: linkError } = await supabase
     .from("tool_email_links")
-    .update(payload)
+    .select("id")
     .eq("tool_id", toolId)
-    .eq("email_account_id", account.id);
+    .eq("email_account_id", account.id)
+    .is("unlinked_at", null)
+    .maybeSingle();
 
-  if (error) throw error;
+  if (linkError) throw linkError;
+  if (!activeLink) return;
+
+  if (Object.keys(payload).length > 0) {
+    const { error } = await supabase
+      .from("tool_email_links")
+      .update(payload)
+      .eq("id", activeLink.id);
+
+    if (error) throw error;
+  }
+
+  if (details.billingAmounts !== undefined) {
+    const components = details.billingAmounts
+      .filter((component) => component.billingType)
+      .map((component) => {
+        const billingType = component.billingType;
+        const isRecurring = billingType === "Monthly" || billingType === "Yearly";
+        const isPurchase = billingType === "Lifetime" || billingType === "One-time";
+        const isTopUp = billingType === "Top-up";
+        return {
+          amount: component.amount.trim() || null,
+          billing_type: billingType,
+          currency: component.currency.trim().toUpperCase() || null,
+          last_top_up_date: isTopUp
+            ? component.lastTopUpDate || details.lastTopUpDate || null
+            : null,
+          next_renewal_date: isRecurring
+            ? component.nextRenewalDate || details.nextChargeDate || null
+            : null,
+          purchase_date: isPurchase
+            ? component.purchaseDate || details.purchaseDate || null
+            : null,
+          tool_email_link_id: String(activeLink.id),
+        };
+      });
+    const selectedTypes = components.map((component) => component.billing_type);
+
+    if (components.length > 0) {
+      const { error } = await supabase
+        .from("tool_link_billing_components")
+        .upsert(components, { onConflict: "tool_email_link_id,billing_type" });
+      if (error) throw error;
+    }
+
+    let deleteQuery = supabase
+      .from("tool_link_billing_components")
+      .delete()
+      .eq("tool_email_link_id", activeLink.id);
+    if (selectedTypes.length > 0) {
+      deleteQuery = deleteQuery.not(
+        "billing_type",
+        "in",
+        `(${selectedTypes.map((billingType) => JSON.stringify(billingType)).join(",")})`,
+      );
+    }
+    const { error } = await deleteQuery;
+    if (error) throw error;
+  }
 }

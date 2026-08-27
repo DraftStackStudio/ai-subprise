@@ -80,7 +80,9 @@ export default function BillingRow({
       ].filter(Boolean).join(" ")}
     >
       <div data-label="Tool Name">
-        {isToolContinuation ? null : (
+        {isToolContinuation ? (
+          null
+        ) : (
           <BillingToolNameCell
             accountLabel={row.accountLabel}
             displayName={displayToolName}

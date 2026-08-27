@@ -36,5 +36,6 @@ export type BillingHistorySection = {
 
 export type BillingHistoryTarget = {
   accountLabel: string;
+  relationshipId: string;
   toolId: string;
 };

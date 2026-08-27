@@ -7,7 +7,7 @@ import toolPlanTiersData from "@/config/tool-plan-tiers.json";
 import toolboxPresetsData from "@/config/toolboxPresets";
 import { getToolAliasText } from "@/config/toolAliases";
 import { toolUrlForName } from "@/config/toolUrls";
-import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import BillingHistoryPanel, { type BillingHistoryAccount } from "@/components/BillingHistoryPanel";
 import AccountsOverview from "@/components/AccountsOverview";
 import BillingRow, { type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
@@ -76,7 +76,6 @@ import {
 import type {
   BillingHistoryEntry,
   BillingHistoryEvent,
-  BillingHistorySection,
   BillingHistoryTarget,
 } from "@/types/billingHistory";
 import type {
@@ -94,7 +93,7 @@ import {
   getToolRecords,
   patchToolRecord,
   permanentlyDeleteToolRecords,
-  replaceToolLinks,
+  syncToolLinks,
   restoreToolRecord,
   softDeleteToolRecords,
   updateToolLinkDetails,
@@ -207,6 +206,7 @@ type ToolAccountDetail = {
   lastTopUpDate: string;
   nextChargeDate: string;
   purchaseDate: string;
+  relationshipId?: string;
   planName: string;
   startDate?: string;
   status: ManageStatus;
@@ -497,17 +497,16 @@ function normaliseManageStatus(status: string): ManageStatus {
 function normaliseBillingType(value: string): BillingType {
   const normaliseEntry = (entry: string) => {
     const trimmedEntry = entry.trim();
+    if (trimmedEntry === "Monthly") return "Monthly";
     if (trimmedEntry === "Annual" || trimmedEntry === "Yearly") return "Yearly";
     if (trimmedEntry === "Top-up Credit" || trimmedEntry === "Top-up credit" || trimmedEntry === "Top-up") return "Top-up";
     if (trimmedEntry === "One-time credit" || trimmedEntry === "One-time") return "One-time";
     if (trimmedEntry === "Lifetime") return "Lifetime";
-    return "Monthly";
+    return "";
   };
 
-  const entries = value
-    ? value.split(",").map(normaliseEntry)
-    : ["Monthly"];
-  return validateBillingTypeSelection(entries).join(", ") || "Monthly";
+  const entries = value ? value.split(",").map(normaliseEntry).filter(Boolean) : [];
+  return validateBillingTypeSelection(entries).join(", ");
 }
 
 const currencyOptions: DropdownOption[] = ["USD", "SGD", "EUR", "GBP", "AUD"].map((currency) => ({
@@ -527,6 +526,11 @@ const accountNicknameMaxLength = 15;
 function normaliseCurrency(value?: string) {
   const nextValue = value?.trim().toUpperCase();
   return nextValue && currencySymbols[nextValue] ? nextValue : "USD";
+}
+
+function normaliseOptionalCurrency(value?: string) {
+  const nextValue = value?.trim().toUpperCase();
+  return nextValue && currencySymbols[nextValue] ? nextValue : "";
 }
 
 function capitaliseFirstLetter(value: string) {
@@ -957,10 +961,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [managedAccountLabel, setManagedAccountLabel] = useState("");
   const [managedPlan, setManagedPlan] = useState<ToolStatus>("Free Tier");
   const [managedPlanName, setManagedPlanName] = useState("");
-  const [managedBillingType, setManagedBillingType] = useState<BillingType>("Monthly");
-  const [managedBillingAmounts, setManagedBillingAmounts] = useState<BillingAmount[]>([
-    { amount: "", billingType: "Monthly", currency: "USD", id: billingAmountId() },
-  ]);
+  const [managedBillingType, setManagedBillingType] = useState<BillingType>("");
+  const [managedBillingAmounts, setManagedBillingAmounts] = useState<BillingAmount[]>([]);
   const [managedNextChargeDate, setManagedNextChargeDate] = useState("");
   const [managedTrialExpiryDate, setManagedTrialExpiryDate] = useState("");
   const [managedStatus, setManagedStatus] = useState<ManageStatus>("Active");
@@ -1015,7 +1017,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [toolUrl, setToolUrl] = useState("");
   const [linkToolId, setLinkToolId] = useState("");
   const [linkToolAccountBlocks, setLinkToolAccountBlocks] = useState<LinkToolAccountBlock[]>([
-    { accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: "Free Tier", planName: "", trialExpiryDate: "" },
+    { accountLabel: "", billingType: "", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: "Free Tier", planName: "", trialExpiryDate: "" },
   ]);
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
@@ -1271,10 +1273,13 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                     ? detail.billingAmounts.map((entry) => ({
                         amount: entry.amount ?? "",
                         billingType: normaliseBillingType(entry.billingType),
-                        currency: normaliseCurrency(entry.currency),
+                        currency: normaliseOptionalCurrency(entry.currency),
                         id: billingAmountId(entry.id),
+                        lastTopUpDate: entry.lastTopUpDate ?? "",
+                        nextRenewalDate: entry.nextRenewalDate ?? "",
+                        purchaseDate: entry.purchaseDate ?? "",
                       }))
-                    : normaliseBillingType(detail.billingType ?? "Monthly")
+                    : normaliseBillingType(detail.billingType ?? "")
                         .split(", ")
                         .filter(Boolean)
                         .map((billingType, index) => ({
@@ -1283,7 +1288,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                           currency: normaliseCurrency(detail.currency),
                           id: billingAmountId(),
                         })),
-                  billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
+                  billingType: normaliseBillingType(detail.billingType ?? ""),
                   billingHistoryEntries: detail.billingHistoryEntries ?? [],
                   convertedDate: detail.convertedDate ?? "",
                   currency: normaliseCurrency(detail.currency),
@@ -1511,12 +1516,17 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             ...(nextDetails[detail.toolId] ?? {}),
             [detail.accountLabel]: {
               amount: detail.amount,
-              billingAmounts: normaliseBillingType(detail.billingType).split(", ").filter(Boolean).map((billingType, index) => ({
-                amount: index === 0 ? detail.amount : "",
-                billingType,
-                currency: normaliseCurrency(detail.currency),
-                id: billingAmountId(),
-              })),
+              billingAmounts: detail.billingAmounts.length
+                ? detail.billingAmounts.map((component) => ({ ...component, id: billingAmountId(component.id) }))
+                : normaliseBillingType(detail.billingType).split(", ").filter(Boolean).map((billingType, index) => ({
+                    amount: index === 0 ? detail.amount : "",
+                    billingType,
+                    currency: detail.currency || "",
+                    id: billingAmountId(),
+                    lastTopUpDate: billingType === "Top-up" ? detail.lastTopUpDate : "",
+                    nextRenewalDate: billingType === "Monthly" || billingType === "Yearly" ? detail.nextChargeDate : "",
+                    purchaseDate: billingType === "Lifetime" || billingType === "One-time" ? detail.purchaseDate : "",
+                  })),
               billingHistoryEntries: detail.billingHistoryEntries,
               billingType: normaliseBillingType(detail.billingType),
               convertedDate: detail.convertedDate,
@@ -1524,6 +1534,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               lastTopUpDate: detail.lastTopUpDate,
               nextChargeDate: detail.nextChargeDate,
               purchaseDate: detail.purchaseDate,
+              relationshipId: detail.relationshipId,
               planName: detail.planName,
               startDate: detail.startDate ?? "",
               status: normaliseManageStatus(detail.status),
@@ -1743,6 +1754,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       try {
         await updateToolLinkDetails(undo.toolId, undo.accountLabel, accountList, {
           amount: undo.previousDetail.amount,
+          billingAmounts: undo.previousDetail.billingAmounts,
           billingHistoryEntries: undo.previousDetail.billingHistoryEntries,
           billingType: undo.previousDetail.billingType,
           convertedDate: undo.previousDetail.convertedDate,
@@ -3262,7 +3274,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   };
 
   const resetLinkToolBlocks = (tool?: ToolItem) => {
-    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "Monthly", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
+    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
     setHasSubmittedLinkToolForm(false);
   };
 
@@ -3292,7 +3304,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setManagingLink({ accountLabel, toolId: tool.id });
     const initialDrafts = tool.accounts.reduce<Record<string, ToolDetailAccountDraft>>((drafts, linkedAccountLabel) => {
         const details = toolAccountDetails[tool.id]?.[linkedAccountLabel];
-        const billingType = normaliseBillingType(details?.billingType ?? "Monthly");
+        const billingType = normaliseBillingType(details?.billingType ?? "");
         const selectedBillingTypes = billingType.split(", ").filter(Boolean);
         drafts[linkedAccountLabel] = {
           draftId: linkedAccountLabel,
@@ -3302,7 +3314,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             : selectedBillingTypes.map((selectedBillingType, index) => ({
                 amount: index === 0 ? details?.amount ?? "" : "",
                 billingType: selectedBillingType,
-                currency: normaliseCurrency(details?.currency ?? defaultCurrency),
+                currency: normaliseOptionalCurrency(details?.currency),
                 id: billingAmountId(),
               })),
           billingType,
@@ -3328,8 +3340,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setManagedAccountLabel("");
     setManagedPlan("Free Tier");
     setManagedPlanName("");
-    setManagedBillingType("Monthly");
-    setManagedBillingAmounts([{ amount: "", billingType: "Monthly", currency: defaultCurrency, id: billingAmountId() }]);
+    setManagedBillingType("");
+    setManagedBillingAmounts([]);
     setManagedNextChargeDate("");
     setManagedTrialExpiryDate("");
     setManagedStatus("Active");
@@ -3346,6 +3358,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     tool: ToolItem,
     draft: ToolDetailAccountDraft,
     showConfirmation = true,
+    relationshipId?: string,
   ) => {
     if (!draft.accountLabel || !draft.plan) return null;
     const currentDetail = toolAccountDetails[tool.id]?.[draft.accountLabel];
@@ -3362,15 +3375,29 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const nextDetail: ToolAccountDetail = {
       amount: draft.plan === "Active" ? draft.billingAmounts[0]?.amount.trim() ?? "" : "",
       billingAmounts: draft.plan === "Active"
-        ? draft.billingAmounts.filter((entry) => validatedBillingTypes.includes(entry.billingType))
+        ? draft.billingAmounts
+            .filter((entry) => validatedBillingTypes.includes(entry.billingType))
+            .map((entry) => ({
+              ...entry,
+              lastTopUpDate: entry.billingType === "Top-up" ? draft.lastTopUpDate : "",
+              nextRenewalDate:
+                entry.billingType === "Monthly" || entry.billingType === "Yearly"
+                  ? draft.nextChargeDate
+                  : "",
+              purchaseDate:
+                entry.billingType === "Lifetime" || entry.billingType === "One-time"
+                  ? draft.purchaseDate
+                  : "",
+            }))
         : [],
       billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
       billingType: validatedBillingType,
       convertedDate: currentDetail?.convertedDate ?? "",
-      currency: normaliseCurrency(draft.billingAmounts[0]?.currency),
+      currency: normaliseOptionalCurrency(draft.billingAmounts[0]?.currency),
       lastTopUpDate: draft.plan === "Active" && hasTopUpCredit ? draft.lastTopUpDate : "",
       nextChargeDate: draft.plan === "Active" && hasRecurringBillingType ? draft.nextChargeDate : "",
       purchaseDate: draft.plan === "Active" && hasPurchaseBillingType ? draft.purchaseDate : "",
+      relationshipId: relationshipId ?? currentDetail?.relationshipId,
       planName: draft.plan === "Active" ? draft.planName.trim() : "",
       startDate:
         draft.plan === "Active" && hasRecurringBillingType
@@ -3382,6 +3409,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       trialResolutionHistory: currentDetail?.trialResolutionHistory ?? [],
       trialResolved: currentDetail?.trialResolved ?? false,
     };
+    let hasTransitionHistoryEntry = false;
     if (currentDetail && draft.plan === "Active" && currentDetail.status !== draft.status) {
       const transitionEntry = statusLedgerEntry(
         currentDetail.status,
@@ -3391,6 +3419,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       );
       if (transitionEntry) {
         nextDetail.billingHistoryEntries = [...nextDetail.billingHistoryEntries, transitionEntry];
+        hasTransitionHistoryEntry = true;
       }
       if (currentDetail.status === "On a Break" && draft.status === "Active") {
         const recurringType = recurringBillingType(nextDetail.billingType);
@@ -3419,7 +3448,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       try {
         await updateToolLinkDetails(tool.id, draft.accountLabel, accountList, {
           amount: nextDetail.amount,
-          billingHistoryEntries: nextDetail.billingHistoryEntries,
+          billingAmounts: nextDetail.billingAmounts,
+          billingHistoryEntries: hasTransitionHistoryEntry ? nextDetail.billingHistoryEntries : undefined,
           billingType: nextDetail.billingType,
           convertedDate: nextDetail.convertedDate,
           currency: nextDetail.currency,
@@ -3431,9 +3461,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           planName: nextDetail.planName,
           status: nextDetail.status,
           trialExpiryDate: nextDetail.trialExpiryDate,
-          trialResolution: nextDetail.trialResolution,
-          trialResolutionHistory: nextDetail.trialResolutionHistory,
-          trialResolved: nextDetail.trialResolved,
+          trialResolution: undefined,
+          trialResolutionHistory: undefined,
+          trialResolved: undefined,
         });
       } catch (error) {
         setToolDataError(error instanceof Error ? error.message : "Could not update linked account.");
@@ -3451,13 +3481,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       [draftId]: {
         draftId,
         accountLabel: "",
-        billingAmounts: [{
-          amount: "",
-          billingType: "Monthly",
-          currency: defaultCurrency,
-          id: billingAmountId(),
-        }],
-        billingType: "Monthly",
+        billingAmounts: [],
+        billingType: "",
         lastTopUpDate: "",
         nextChargeDate: "",
         pendingTrialOutcome: "",
@@ -3491,13 +3516,22 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     }
 
     const previousTools = toolList;
+    let syncedRelationshipIds: Record<string, string> = {};
     setToolList((currentTools) => currentTools.map((currentTool) => (
       currentTool.id === tool.id ? { ...currentTool, accounts: accountLabels } : currentTool
     )));
 
     if (shouldUseSupabase) {
       try {
-        await replaceToolLinks(tool.id, accountLabels, accountList);
+        const relationshipIds = await syncToolLinks(tool.id, accountLabels, accountList);
+        syncedRelationshipIds = relationshipIds;
+        setToolAccountDetails((currentDetails) => ({
+          ...currentDetails,
+          [tool.id]: Object.fromEntries(Object.entries(currentDetails[tool.id] ?? {}).map(([accountLabel, detail]) => [
+            accountLabel,
+            relationshipIds[accountLabel] ? { ...detail, relationshipId: relationshipIds[accountLabel] } : detail,
+          ])),
+        }));
       } catch (error) {
         setToolList(previousTools);
         setToolDataError(error instanceof Error ? error.message : "Could not update linked accounts.");
@@ -3519,7 +3553,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     }
 
     for (const draft of drafts) {
-      const savedDetail = await saveToolDetailAccount(tool, draft, false);
+      const savedDetail = await saveToolDetailAccount(
+        tool,
+        draft,
+        false,
+        syncedRelationshipIds[draft.accountLabel],
+      );
       if (!savedDetail) return;
       if (draft.pendingTrialOutcome) {
         const isCorrection =
@@ -3560,6 +3599,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const currentManagedDetail =
       toolAccountDetails[toolId]?.[previousAccountLabel] ??
       toolAccountDetails[toolId]?.[managedAccountLabel];
+    const isSameRelationship = managedAccountLabel === previousAccountLabel;
     const nextAccounts = selectedTool.accounts.map((account) =>
       account === previousAccountLabel ? managedAccountLabel : account,
     );
@@ -3610,7 +3650,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         billingHistoryEntries: currentManagedDetail?.billingHistoryEntries ?? [],
         billingType: normaliseBillingType(managedBillingType),
         convertedDate: currentManagedDetail?.convertedDate ?? "",
-        currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
+        currency: normaliseOptionalCurrency(managedBillingAmounts[0]?.currency),
         lastTopUpDate: currentManagedDetail?.lastTopUpDate ?? "",
         nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
         purchaseDate: currentManagedDetail?.purchaseDate ?? "",
@@ -3631,13 +3671,32 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
     if (shouldUseSupabase) {
       try {
-        await replaceToolLinks(toolId, nextAccounts, accountList);
+        const relationshipIds = await syncToolLinks(toolId, nextAccounts, accountList);
+        setToolAccountDetails((currentDetails) => ({
+          ...currentDetails,
+          [toolId]: {
+            ...(currentDetails[toolId] ?? {}),
+            [managedAccountLabel]: {
+              ...(currentDetails[toolId]?.[managedAccountLabel] ?? currentManagedDetail),
+              relationshipId: relationshipIds[managedAccountLabel],
+            },
+          },
+        }));
         await updateToolLinkDetails(toolId, managedAccountLabel, accountList, {
           amount: managedPlan === "Active" ? managedBillingAmounts[0]?.amount.trim() ?? "" : "",
-          billingHistoryEntries: currentManagedDetail?.billingHistoryEntries ?? [],
+          billingAmounts: managedPlan === "Active"
+            ? managedBillingAmounts.map((entry) => ({
+                ...entry,
+                nextRenewalDate:
+                  entry.billingType === "Monthly" || entry.billingType === "Yearly"
+                    ? managedNextChargeDate
+                    : "",
+              }))
+            : [],
+          billingHistoryEntries: undefined,
           billingType: normaliseBillingType(managedBillingType),
           convertedDate: currentManagedDetail?.convertedDate ?? "",
-          currency: normaliseCurrency(managedBillingAmounts[0]?.currency),
+          currency: normaliseOptionalCurrency(managedBillingAmounts[0]?.currency),
           lastTopUpDate: currentManagedDetail?.lastTopUpDate ?? "",
           nextChargeDate: managedPlan === "Active" ? managedNextChargeDate : "",
           purchaseDate: currentManagedDetail?.purchaseDate ?? "",
@@ -3649,9 +3708,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           planName: managedPlan === "Active" ? managedPlanName.trim() : "",
           status: managedStatus,
           trialExpiryDate: managedPlan === "Trial" ? managedTrialExpiryDate : "",
-          trialResolution: currentManagedDetail?.trialResolution ?? "",
-          trialResolutionHistory: currentManagedDetail?.trialResolutionHistory ?? [],
-          trialResolved: currentManagedDetail?.trialResolved ?? false,
+          trialResolution: undefined,
+          trialResolutionHistory: undefined,
+          trialResolved: undefined,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not update linked account.";
@@ -3670,16 +3729,27 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     patch: Partial<Pick<ToolAccountDetail, "amount" | "billingType" | "currency" | "lastTopUpDate" | "nextChargeDate" | "planName" | "purchaseDate">>,
   ) => {
     const currentDetail = toolAccountDetails[toolId]?.[accountLabel];
+    const nextChargeDate = patch.nextChargeDate ?? currentDetail?.nextChargeDate ?? "";
+    const purchaseDate = patch.purchaseDate ?? currentDetail?.purchaseDate ?? "";
+    const lastTopUpDate = patch.lastTopUpDate ?? currentDetail?.lastTopUpDate ?? "";
+    const billingAmounts = (currentDetail?.billingAmounts ?? []).map((entry) => ({
+      ...entry,
+      lastTopUpDate: entry.billingType === "Top-up" ? lastTopUpDate : "",
+      nextRenewalDate:
+        entry.billingType === "Monthly" || entry.billingType === "Yearly" ? nextChargeDate : "",
+      purchaseDate:
+        entry.billingType === "Lifetime" || entry.billingType === "One-time" ? purchaseDate : "",
+    }));
     const nextDetail: ToolAccountDetail = {
       amount: patch.amount ?? currentDetail?.amount ?? "",
-      billingAmounts: currentDetail?.billingAmounts,
+      billingAmounts,
       billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
-      billingType: normaliseBillingType(patch.billingType ?? currentDetail?.billingType ?? "Monthly"),
+      billingType: normaliseBillingType(patch.billingType ?? currentDetail?.billingType ?? ""),
       convertedDate: currentDetail?.convertedDate ?? "",
       currency: normaliseCurrency(patch.currency ?? currentDetail?.currency),
-      lastTopUpDate: patch.lastTopUpDate ?? currentDetail?.lastTopUpDate ?? "",
-      nextChargeDate: patch.nextChargeDate ?? currentDetail?.nextChargeDate ?? "",
-      purchaseDate: patch.purchaseDate ?? currentDetail?.purchaseDate ?? "",
+      lastTopUpDate,
+      nextChargeDate,
+      purchaseDate,
       planName: patch.planName ?? currentDetail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "",
       startDate: immutableStartDate(currentDetail, patch.nextChargeDate ?? ""),
       status: currentDetail?.status ?? "Active",
@@ -3713,7 +3783,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       try {
         await updateToolLinkDetails(toolId, accountLabel, accountList, {
           amount: nextDetail.amount,
-          billingHistoryEntries: nextDetail.billingHistoryEntries,
+          billingAmounts: nextDetail.billingAmounts,
+          billingHistoryEntries: undefined,
           billingType: nextDetail.billingType,
           convertedDate: nextDetail.convertedDate,
           currency: nextDetail.currency,
@@ -3725,9 +3796,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           planName: nextDetail.planName,
           status: nextDetail.status,
           trialExpiryDate: "",
-          trialResolution: nextDetail.trialResolution,
-          trialResolutionHistory: nextDetail.trialResolutionHistory,
-          trialResolved: nextDetail.trialResolved,
+          trialResolution: undefined,
+          trialResolutionHistory: undefined,
+          trialResolved: undefined,
         });
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not update billing details.";
@@ -3744,7 +3815,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       amount: currentDetail?.amount ?? "",
       billingAmounts: currentDetail?.billingAmounts,
       billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
-      billingType: normaliseBillingType(currentDetail?.billingType ?? "Monthly"),
+      billingType: normaliseBillingType(currentDetail?.billingType ?? ""),
       convertedDate: currentDetail?.convertedDate ?? "",
       currency: normaliseCurrency(currentDetail?.currency),
       lastTopUpDate: currentDetail?.lastTopUpDate ?? "",
@@ -3778,6 +3849,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             ? recurringChargeDateAfter(nextDetail.startDate, recurringType, todayInputValue())
             : advanceRecurringChargeDate(todayInputValue(), recurringType)
           : "";
+        nextDetail.billingAmounts = nextDetail.billingAmounts?.map((entry) => (
+          entry.billingType === recurringType
+            ? { ...entry, nextRenewalDate: nextDetail.nextChargeDate }
+            : entry
+        ));
       }
     }
 
@@ -3793,6 +3869,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       try {
         await updateToolLinkDetails(tool.id, accountLabel, accountList, {
           amount: nextDetail.amount,
+          billingAmounts: nextDetail.billingAmounts,
           billingHistoryEntries: nextDetail.billingHistoryEntries,
           billingType: nextDetail.billingType,
           convertedDate: nextDetail.convertedDate,
@@ -3871,14 +3948,14 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               ? normaliseBillingType(block.billingType).split(", ").filter(Boolean).map((billingType) => ({
                   amount: "",
                   billingType,
-                  currency: "USD",
+                  currency: "",
                   id: billingAmountId(),
                 }))
               : [],
             billingHistoryEntries: [],
             billingType: normaliseBillingType(block.billingType),
             convertedDate: "",
-            currency: "USD",
+            currency: "",
             lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
               ? block.lastTopUpDate
               : "",
@@ -3902,30 +3979,48 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     }));
     if (shouldUseSupabase) {
       try {
-        await replaceToolLinks(selectedTool.id, nextAccounts, accountList);
+        const relationshipIds = await syncToolLinks(selectedTool.id, nextAccounts, accountList);
+        setToolAccountDetails((currentDetails) => ({
+          ...currentDetails,
+          [selectedTool.id]: filledBlocks.reduce((nextDetails, block) => ({
+            ...nextDetails,
+            [block.accountLabel]: {
+              ...nextDetails[block.accountLabel],
+              relationshipId: relationshipIds[block.accountLabel],
+            },
+          }), { ...(currentDetails[selectedTool.id] ?? {}) }),
+        }));
         await Promise.all(
           filledBlocks.map((block) =>
             updateToolLinkDetails(selectedTool.id, block.accountLabel, accountList, {
-              billingType: normaliseBillingType(block.billingType),
-              billingHistoryEntries: [],
-              currency: "USD",
+              billingAmounts: block.plan === "Active" && normaliseBillingType(block.billingType)
+                ? normaliseBillingType(block.billingType).split(", ").filter(Boolean).map((billingType) => ({
+                    amount: "",
+                    billingType,
+                    currency: "",
+                    id: billingAmountId(),
+                    lastTopUpDate: billingType === "Top-up" ? block.lastTopUpDate : "",
+                    nextRenewalDate:
+                      billingType === "Monthly" || billingType === "Yearly" ? block.nextChargeDate : "",
+                    purchaseDate:
+                      billingType === "Lifetime" || billingType === "One-time" ? block.purchaseDate : "",
+                  }))
+                : undefined,
+              billingType: normaliseBillingType(block.billingType) || undefined,
               lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
                 ? block.lastTopUpDate
-                : "",
+                : undefined,
               nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Monthly" || billingType === "Yearly")
                 ? block.nextChargeDate
-                : "",
+                : undefined,
               purchaseDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Lifetime" || billingType === "One-time")
                 ? block.purchaseDate
-                : "",
-              startDate: block.plan === "Active" && recurringBillingType(block.billingType) ? block.nextChargeDate : "",
+                : undefined,
+              startDate: block.plan === "Active" && recurringBillingType(block.billingType) ? block.nextChargeDate : undefined,
               plan: block.plan,
-              planName: block.plan === "Active" ? block.planName.trim() : "",
-              status: "Active",
+              planName: block.plan === "Active" ? block.planName.trim() || undefined : "",
+              status: undefined,
               trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
-              trialResolution: "",
-              trialResolutionHistory: [],
-              trialResolved: false,
             }),
           ),
         );
@@ -3977,7 +4072,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     });
     if (shouldUseSupabase && targetTool) {
       try {
-        await replaceToolLinks(toolId, nextAccounts, accountList);
+        await syncToolLinks(toolId, nextAccounts, accountList);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Could not unlink account.";
         setToolDataError(message);
@@ -5227,14 +5322,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           const billingType = normaliseBillingType(billingAmount.billingType);
           const isTopUp = billingType === "Top-up";
           const isPurchase = billingType === "Lifetime" || billingType === "One-time";
+          const billingDate = isTopUp
+            ? billingAmount.lastTopUpDate || detail?.lastTopUpDate || ""
+            : isPurchase
+              ? billingAmount.purchaseDate || detail?.purchaseDate || ""
+              : billingAmount.nextRenewalDate || detail?.nextChargeDate || "";
           return {
             accountLabel,
             amount: billingAmount.amount,
-            billingDate: isTopUp
-              ? detail?.lastTopUpDate ?? ""
-              : isPurchase
-                ? detail?.purchaseDate ?? ""
-                : detail?.nextChargeDate ?? "",
+            billingDate,
             billingDateField: isTopUp
               ? "lastTopUpDate" as const
               : isPurchase
@@ -5243,7 +5339,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             billingGroupDate,
             billingDateLabel: isTopUp ? "Last topped up" : isPurchase ? "Purchased on" : "Next Charge",
             billingType,
-            currency: normaliseCurrency(billingAmount.currency),
+            currency: normaliseOptionalCurrency(billingAmount.currency),
             id: billingAmount.id,
             planName: capitaliseFirstLetter(
               detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
@@ -5327,34 +5423,60 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     row: (typeof billingRows)[number],
     patch: Partial<Pick<BillingAmount, "amount" | "currency">>,
   ) => {
-    setToolAccountDetails((currentDetails) => {
-      const detail = currentDetails[row.tool.id]?.[row.accountLabel];
-      if (!detail) return currentDetails;
+    const detail = toolAccountDetails[row.tool.id]?.[row.accountLabel];
+    if (!detail) return;
+    const billingAmounts = (detail.billingAmounts ?? []).map((entry) =>
+      entry.billingType === row.billingType ? { ...entry, ...patch } : entry);
+    const nextDetail = { ...detail, billingAmounts };
 
-      const billingAmounts = detail.billingAmounts?.length
-        ? detail.billingAmounts
-        : normaliseBillingType(detail.billingType ?? "Monthly")
-            .split(", ")
-            .filter(Boolean)
-            .map((billingType, index) => ({
-              amount: index === 0 ? detail.amount : "",
-              billingType,
-              currency: normaliseCurrency(detail.currency),
-              id: billingAmountId(),
-            }));
+    setToolAccountDetails((currentDetails) => ({
+      ...currentDetails,
+      [row.tool.id]: {
+        ...(currentDetails[row.tool.id] ?? {}),
+        [row.accountLabel]: nextDetail,
+      },
+    }));
 
-      return {
-        ...currentDetails,
-        [row.tool.id]: {
-          ...(currentDetails[row.tool.id] ?? {}),
-          [row.accountLabel]: {
-            ...detail,
-            billingAmounts: billingAmounts.map((entry) =>
-              entry.billingType === row.billingType ? { ...entry, ...patch } : entry),
-          },
-        },
-      };
-    });
+    if (shouldUseSupabase) {
+      void updateToolLinkDetails(row.tool.id, row.accountLabel, accountList, {
+        amount: billingAmounts[0]?.amount ?? "",
+        billingAmounts,
+        currency: billingAmounts[0]?.currency,
+      }).catch((error: unknown) => {
+        setToolDataError(error instanceof Error ? error.message : "Could not update billing amount.");
+      });
+    }
+  };
+
+  const updateBillingComponentDate = (
+    row: (typeof billingRows)[number],
+    value: string,
+  ) => {
+    const detail = toolAccountDetails[row.tool.id]?.[row.accountLabel];
+    if (!detail) return;
+    const componentDateField = row.billingDateField === "nextChargeDate"
+      ? "nextRenewalDate"
+      : row.billingDateField;
+    const billingAmounts = (detail.billingAmounts ?? []).map((entry) =>
+      entry.billingType === row.billingType ? { ...entry, [componentDateField]: value } : entry);
+    const nextDetail = { ...detail, billingAmounts, [row.billingDateField]: value };
+
+    setToolAccountDetails((currentDetails) => ({
+      ...currentDetails,
+      [row.tool.id]: {
+        ...(currentDetails[row.tool.id] ?? {}),
+        [row.accountLabel]: nextDetail,
+      },
+    }));
+
+    if (shouldUseSupabase) {
+      void updateToolLinkDetails(row.tool.id, row.accountLabel, accountList, {
+        billingAmounts,
+        [row.billingDateField]: value,
+      }).catch((error: unknown) => {
+        setToolDataError(error instanceof Error ? error.message : "Could not update billing date.");
+      });
+    }
   };
 
   const renderBillingRow = (
@@ -5366,11 +5488,16 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       formatDate={formatBillingDate}
       logoText={toolInitials(row.tool.name)}
       onAmountChange={(amount) => updateBillingAmountEntry(row, { amount })}
-      onBillingDateChange={(field, value) => updateBillingField(row.tool.id, row.accountLabel, {
-        [field]: value,
-      })}
+      onBillingDateChange={(_field, value) => updateBillingComponentDate(row, value)}
       onEdit={() => openManageAccountModal(row.tool, row.accountLabel)}
-      onOpenHistory={() => setBillingHistoryTarget({ accountLabel: row.accountLabel, toolId: row.tool.id })}
+      onOpenHistory={() => {
+        const relationshipId = toolAccountDetails[row.tool.id]?.[row.accountLabel]?.relationshipId;
+        if (!relationshipId) {
+          setToolDataError("Could not open billing history because this relationship has no durable ID.");
+          return;
+        }
+        setBillingHistoryTarget({ accountLabel: row.accountLabel, relationshipId, toolId: row.tool.id });
+      }}
       onPlanNameChange={(planName) => updateBillingField(row.tool.id, row.accountLabel, {
         planName: capitaliseFirstLetter(planName),
       })}
@@ -5384,6 +5511,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           currency: normaliseCurrency(nextCurrency),
         }),
         options: currencyOptions,
+        placeholder: "Currency",
         value: row.currency,
       })}
       row={row}
@@ -5691,63 +5819,24 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const billingHistoryTool = billingHistoryTarget
     ? toolList.find((tool) => tool.id === billingHistoryTarget.toolId)
     : undefined;
-  const billingHistorySections: BillingHistorySection[] = billingHistoryTool
+  const billingHistoryAccounts: BillingHistoryAccount[] = billingHistoryTool
     ? orderedLinkedAccountLabels(billingHistoryTool)
         .filter((accountLabel) => relationPlan(billingHistoryTool, accountLabel) === "Paid")
-        .map((accountLabel) => {
+        .flatMap((accountLabel) => {
           const detail = toolAccountDetails[billingHistoryTool.id]?.[accountLabel];
-          const recordKey = `${billingHistoryTool.id}::${accountLabel}`;
-          const currentPlanName = capitaliseFirstLetter(detail?.planName ?? "");
-          const currentBillingAmounts = detail?.billingAmounts?.length
-            ? detail.billingAmounts
-            : normaliseBillingType(detail?.billingType ?? "Monthly")
-                .split(", ")
-                .filter(Boolean)
-                .map((billingType, index) => ({
-                  amount: index === 0 ? detail?.amount ?? "" : "",
-                  billingType,
-                  currency: normaliseCurrency(detail?.currency),
-                  id: `billing-history-fallback-${index}`,
-                }));
-          const trialConversionNotes = (detail?.trialResolutionHistory ?? [])
-            .filter((entry) => entry.outcome === "converted")
-            .map((entry) => {
-              const noteBillingTypes = normaliseBillingType(entry.billingType || detail?.billingType || "Monthly")
-                .split(", ");
-              const conversionNote = `${entry.isCorrection ? "Corrected: converted" : "Converted"} to ${
-                entry.planName || "Paid"
-              } on ${formatBillingDate(entry.convertedDate)}`;
-              return noteBillingTypes.some((billingType) => billingType === "Lifetime" || billingType === "One-time")
-                ? `${conversionNote} · no further charges`
-                : `${conversionNote} · next charge ${
-                entry.nextChargeDate ? formatBillingDate(entry.nextChargeDate) : "not set"
-              }`;
-            });
-          return {
+          if (!detail?.relationshipId) return [];
+          return [{
+            accountActivity: [
+              ...(detail.billingHistoryEntries ?? []),
+              ...(manualBillingHistory[`${billingHistoryTool.id}::${accountLabel}`] ?? []),
+            ].filter((entry) => entry.event !== "Charged" && entry.event !== "Refunded"),
+            accountEmail: accountList.find((account) => account.label === accountLabel)?.login ?? "",
             accountLabel,
-            conversionNotes: trialConversionNotes,
-            entries: [
-              ...(detail?.billingHistoryEntries ?? []),
-              ...(manualBillingHistory[recordKey] ?? []),
-            ]
-              .map((entry) => {
-                const billingAmount = currentBillingAmounts.find(
-                  (amount) => normaliseBillingType(amount.billingType) === normaliseBillingType(entry.billingType ?? ""),
-                );
-                return {
-                  ...entry,
-                  amount: entry.amount || (entry.event === "Charged" ? billingAmount?.amount || undefined : undefined),
-                  currency: entry.currency || (entry.event === "Charged" ? billingAmount?.currency : undefined),
-                  planName: capitaliseFirstLetter(entry.planName || currentPlanName),
-                };
-              })
-              .sort((firstEntry, secondEntry) => (
-                firstEntry.date.localeCompare(secondEntry.date) ||
-                firstEntry.id.localeCompare(secondEntry.id)
-              )),
-            planName: currentPlanName,
-            startDate: detail?.startDate || undefined,
-          };
+            accountTag: accountTag(accountLabel, accountList),
+            billingAmounts: detail.billingAmounts ?? [],
+            planName: capitaliseFirstLetter(detail.planName ?? ""),
+            relationshipId: detail.relationshipId,
+          }];
         })
     : [];
 
@@ -5770,132 +5859,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const day = String(today.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
   };
-
-  useEffect(() => {
-    if (!hasLoadedStoredTools) return;
-
-    const today = todayInputValue();
-    const updates: Array<{
-      accountLabel: string;
-      detail: ToolAccountDetail;
-      toolId: string;
-    }> = [];
-
-    toolList.forEach((tool) => {
-      tool.accounts.forEach((accountLabel) => {
-        const plan = toolAccountStatuses[tool.id]?.[accountLabel] ?? tool.status;
-        const detail = toolAccountDetails[tool.id]?.[accountLabel];
-        if (
-          !detail ||
-          detail.status !== "Active" ||
-          (plan !== "Active" && plan !== "Paid")
-        ) {
-          return;
-        }
-
-        const selectedBillingTypes = normaliseBillingType(detail.billingType).split(", ");
-        const recurringType = selectedBillingTypes.find(
-          (billingType) => billingType === "Monthly" || billingType === "Yearly",
-        ) ?? "";
-        const purchaseType = selectedBillingTypes.find(
-          (billingType) => billingType === "Lifetime" || billingType === "One-time",
-        ) ?? "";
-        const nextHistory = [...detail.billingHistoryEntries];
-        let chargeDate = detail.nextChargeDate;
-        let hasLedgerUpdate = false;
-
-        while (recurringType && chargeDate && chargeDate <= today) {
-          const amountEntry = detail.billingAmounts?.find(
-            (entry) => entry.billingType === recurringType,
-          );
-          const entryId = `auto-charge-${recurringType.toLowerCase()}-${chargeDate}`;
-          if (!nextHistory.some((entry) => entry.id === entryId)) {
-            nextHistory.push({
-              amount: amountEntry?.amount || detail.amount || undefined,
-              billingType: recurringType,
-              currency: amountEntry?.currency || detail.currency,
-              date: chargeDate,
-              event: "Charged",
-              id: entryId,
-              note: "",
-              planName: detail.planName,
-              saved: true,
-              source: "manual",
-            });
-          }
-          chargeDate = detail.startDate
-            ? recurringChargeDateAfter(detail.startDate, recurringType, chargeDate)
-            : advanceRecurringChargeDate(chargeDate, recurringType);
-          hasLedgerUpdate = true;
-        }
-
-        if (purchaseType && detail.purchaseDate && detail.purchaseDate <= today) {
-          const entryId = `auto-charge-${purchaseType.toLowerCase()}-${detail.purchaseDate}`;
-          if (!nextHistory.some((entry) => entry.id === entryId)) {
-            const amountEntry = detail.billingAmounts?.find(
-              (entry) => entry.billingType === purchaseType,
-            );
-            nextHistory.push({
-              amount: amountEntry?.amount || detail.amount || undefined,
-              billingType: purchaseType,
-              currency: amountEntry?.currency || detail.currency,
-              date: detail.purchaseDate,
-              event: "Charged",
-              id: entryId,
-              note: "",
-              planName: detail.planName,
-              saved: true,
-              source: "manual",
-            });
-            hasLedgerUpdate = true;
-          }
-        }
-
-        if (!hasLedgerUpdate) return;
-        updates.push({
-          accountLabel,
-          detail: {
-            ...detail,
-            billingHistoryEntries: nextHistory,
-            nextChargeDate: chargeDate,
-          },
-          toolId: tool.id,
-        });
-      });
-    });
-
-    if (updates.length === 0) return;
-
-    setToolAccountDetails((current) => {
-      const next = { ...current };
-      updates.forEach((update) => {
-        next[update.toolId] = {
-          ...(next[update.toolId] ?? {}),
-          [update.accountLabel]: update.detail,
-        };
-      });
-      return next;
-    });
-
-    if (shouldUseSupabase) {
-      void Promise.all(updates.map((update) => (
-        updateToolLinkDetails(update.toolId, update.accountLabel, accountList, {
-          billingHistoryEntries: update.detail.billingHistoryEntries,
-          nextChargeDate: update.detail.nextChargeDate,
-          startDate: update.detail.startDate,
-        })
-      ))).catch((error: unknown) => {
-        setToolDataError(error instanceof Error ? error.message : "Could not update billing history.");
-      });
-    }
-  }, [
-    accountList,
-    hasLoadedStoredTools,
-    shouldUseSupabase,
-    toolAccountDetails,
-    toolAccountStatuses,
-    toolList,
-  ]);
 
   const startResolvingPendingAction = (entryId: string) => {
     setResolvingPendingActionId(entryId);
@@ -5938,7 +5901,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const convertedDate = outcome === "converted" ? todayInputValue() : "";
     const nextPlan: ToolStatus = outcome === "converted" ? "Active" : "Trial";
     const resolutionHistoryEntry: TrialResolutionHistoryEntry = {
-      billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
+      billingType: normaliseBillingType(detail.billingType ?? ""),
       convertedDate,
       id: `trial-resolution-${tool.id}-${accountLabel}-${Date.now()}`,
       isCorrection,
@@ -5949,7 +5912,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     };
     const trialOutcomeEntry: BillingHistoryEntry | null = outcome === "converted" ? {
       amount: detail.amount,
-      billingType: normaliseBillingType(detail.billingType ?? "Monthly"),
+      billingType: normaliseBillingType(detail.billingType ?? ""),
       currency: normaliseCurrency(detail.currency),
       date: todayInputValue(),
       event: "Trial Converted to Paid",
@@ -5970,7 +5933,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       billingHistoryEntries: trialOutcomeEntry
         ? [...detail.billingHistoryEntries, trialOutcomeEntry]
         : detail.billingHistoryEntries,
-      billingType: normaliseBillingType(detail?.billingType ?? "Monthly"),
+      billingType: normaliseBillingType(detail?.billingType ?? ""),
       convertedDate,
       currency: normaliseCurrency(detail?.currency),
       lastTopUpDate: detail?.lastTopUpDate ?? "",
@@ -6004,6 +5967,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       try {
         await updateToolLinkDetails(tool.id, accountLabel, accountList, {
           amount: nextDetail.amount,
+          billingAmounts: nextDetail.billingAmounts,
           billingHistoryEntries: nextDetail.billingHistoryEntries,
           billingType: nextDetail.billingType,
           convertedDate: nextDetail.convertedDate,
@@ -6474,11 +6438,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
       {billingHistoryTarget ? (
         <BillingHistoryPanel
-          historyEntries={billingHistorySections}
+          accounts={billingHistoryAccounts}
+          initialRelationshipId={billingHistoryTarget.relationshipId}
           onClose={() => setBillingHistoryTarget(null)}
-          restoredLabel={billingHistoryTool?.restoredAt
-            ? `Restored ${formatBillingDate(billingHistoryTool.restoredAt)}`
-            : undefined}
+          restoredDate={billingHistoryTool?.restoredAt}
           toolName={billingHistoryToolName}
         />
       ) : null}
@@ -6889,7 +6852,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 draft.billingAmounts.find((entry) => entry.billingType === billingType) ?? {
                   amount: "",
                   billingType,
-                  currency: defaultCurrency,
+                  currency: "",
                   id: billingAmountId(),
                 }),
             }),

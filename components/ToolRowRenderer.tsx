@@ -227,7 +227,7 @@ export function BillingToolNameCell({
       <div className="tool-logo" style={{ background: logoBackground }}>{logoText}</div>
       <div className="tool-name-copy">
         <span className="tool-name">{displayName}</span>
-        <button className="billing-history-link" onClick={onOpenHistory} type="button">
+        <button aria-label={`Open ${displayName} ${accountLabel} billing history`} className="billing-history-link" onClick={onOpenHistory} type="button">
           More
         </button>
       </div>

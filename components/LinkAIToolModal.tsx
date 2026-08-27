@@ -351,7 +351,7 @@ export default function LinkAIToolModal({
                 ...current,
                 {
                   accountLabel: "",
-                  billingType: "Monthly",
+                  billingType: "",
                   id: `link-account-${Date.now().toString(36)}-${current.length + 1}`,
                   lastTopUpDate: "",
                   nextChargeDate: "",

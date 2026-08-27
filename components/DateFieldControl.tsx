@@ -44,9 +44,7 @@ export default function DateFieldControl({
     <span
       aria-label={ariaLabel}
       className={`modal-date-display-control${className ? ` ${className}` : ""}`}
-      onClick={(event) => {
-        if (event.target !== inputRef.current) openDatePicker();
-      }}
+      onClick={openDatePicker}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -63,7 +61,7 @@ export default function DateFieldControl({
       </svg>
       <input
         aria-hidden="true"
-        onChange={(event) => onChange(event.target.value)}
+        onInput={(event) => onChange(event.currentTarget.value)}
         ref={inputRef}
         tabIndex={-1}
         type="date"

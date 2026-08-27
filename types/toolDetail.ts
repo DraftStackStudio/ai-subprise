@@ -26,6 +26,9 @@ export type BillingAmount = {
   billingType: string;
   currency: string;
   id: string;
+  lastTopUpDate?: string;
+  nextRenewalDate?: string;
+  purchaseDate?: string;
 };
 
 export type ToolDetailAccountDraft = {
