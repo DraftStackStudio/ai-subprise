@@ -8,6 +8,9 @@ import toolboxPresetsData from "@/config/toolboxPresets";
 import { getToolAliasText } from "@/config/toolAliases";
 import { toolUrlForName } from "@/config/toolUrls";
 import BillingHistoryPanel, { type BillingHistoryAccount } from "@/components/BillingHistoryPanel";
+import BillingPastEntryModal, { type BillingPastEntryRelationship } from "@/components/BillingPastEntryModal";
+import BillingDetailsView, { type BillingDetailsAccount } from "@/components/BillingDetailsView";
+import BillingDirectory, { type BillingDirectoryGroup } from "@/components/BillingDirectory";
 import AccountsOverview from "@/components/AccountsOverview";
 import BillingRow, { type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
@@ -86,6 +89,8 @@ import type {
   ToolStatus,
 } from "@/types/toolDetail";
 import type { LinkToolAccountBlock } from "@/types/linkTool";
+import { getBillingTransactions } from "@/lib/supabase/billingTransactions";
+import type { BillingTransaction } from "@/types/billingTransaction";
 import {
   createToolRecord,
   getDeletedToolRecords,
@@ -970,6 +975,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [toolAccountStatuses, setToolAccountStatuses] = useState<Record<string, Record<string, ToolStatus>>>({});
   const [toolAccountPlanNames, setToolAccountPlanNames] = useState<Record<string, Record<string, string>>>({});
   const [toolAccountDetails, setToolAccountDetails] = useState<Record<string, Record<string, ToolAccountDetail>>>({});
+  const [billingRelationshipDetails, setBillingRelationshipDetails] = useState<Awaited<ReturnType<typeof getToolLinkDetailRecords>>>([]);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [deletingProvider, setDeletingProvider] = useState<string | null>(null);
@@ -1057,8 +1063,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [selectedToolSort, setSelectedToolSort] = useState<ToolSortRange>("Category");
   const [linkedPlanFilter, setLinkedPlanFilter] = useState<LinkedPlanFilter>("All");
-  const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Month">("All");
+  const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Upcoming" | "Month">("All");
+  const [billingDetailsTarget, setBillingDetailsTarget] = useState<{ relationshipId: string | null; toolId: string } | null>(null);
+  const [billingTransactions, setBillingTransactions] = useState<BillingTransaction[]>([]);
   const [billingHistoryTarget, setBillingHistoryTarget] = useState<BillingHistoryTarget | null>(null);
+  const [billingPastEntryOpen, setBillingPastEntryOpen] = useState(false);
+  const [billingPastInitialMode, setBillingPastInitialMode] = useState<"single" | "period" | "">("");
   const [manualBillingHistory, setManualBillingHistory] = useState<Record<string, BillingHistoryEntry[]>>({});
   const [isPendingActionsExpanded, setIsPendingActionsExpanded] = useState(false);
   const [resolvingPendingActionId, setResolvingPendingActionId] = useState("");
@@ -1459,6 +1469,23 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
   useEffect(() => {
     if (!shouldUseSupabase) return;
+    let isCancelled = false;
+
+    getBillingTransactions()
+      .then((records) => {
+        if (!isCancelled) setBillingTransactions(records);
+      })
+      .catch((error: unknown) => {
+        if (!isCancelled) setToolDataError(error instanceof Error ? error.message : "Could not load billing transactions.");
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [shouldUseSupabase]);
+
+  useEffect(() => {
+    if (!shouldUseSupabase) return;
 
     let isCancelled = false;
     const supabase = createSupabaseClient();
@@ -1503,8 +1530,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         const deletedArchives = deletedToolRecordsToArchives(deletedRecords);
         setToolResetArchives(deletedArchives);
         setExpandedRecoveryIds(deletedArchives.map((archive) => archive.id));
-        const linkDetails = await getToolLinkDetailRecords();
+        const [linkDetails, allLinkDetails] = await Promise.all([
+          getToolLinkDetailRecords(),
+          getToolLinkDetailRecords({ includeUnlinked: true }),
+        ]);
         if (isCancelled) return;
+        setBillingRelationshipDetails(allLinkDetails);
 
         const nextStatuses: Record<string, Record<string, ToolStatus>> = {};
         const nextPlanNames: Record<string, Record<string, string>> = {};
@@ -5355,6 +5386,107 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       firstRow.billingType.localeCompare(secondRow.billingType),
     );
 
+  const billingDirectoryGroups: BillingDirectoryGroup[] = toolsWithValidAccountLinks
+    .filter((tool) => !tool.archived)
+    .map((tool) => {
+      const currentAccounts = orderedLinkedAccountLabels(tool).flatMap((accountLabel) => {
+        const detail = toolAccountDetails[tool.id]?.[accountLabel];
+        const relationshipId = detail?.relationshipId ?? "";
+        const relationshipTransactions = relationshipId
+          ? billingTransactions.filter((transaction) => transaction.relationshipId === relationshipId)
+          : [];
+        const legacyPaymentHistory = [
+          ...(detail?.billingHistoryEntries ?? []),
+          ...(manualBillingHistory[`${tool.id}::${accountLabel}`] ?? []),
+        ].some((entry) => entry.event === "Charged" || entry.event === "Refunded" || entry.event === "Double Charged");
+        const isRelevant = relationPlan(tool, accountLabel) === "Paid" || relationshipTransactions.length > 0 || legacyPaymentHistory;
+        if (!isRelevant || !relationshipId) return [];
+        const account = accountList.find((candidate) => candidate.label === accountLabel);
+        return [{
+          accountEmail: account?.login ?? "",
+          accountLabel,
+          accountTag: accountTag(accountLabel, accountList),
+          planName: capitaliseFirstLetter(linkedPlanName(tool, accountLabel)),
+          relationshipId,
+          status: detail?.status ?? "Active",
+        }];
+      });
+      const currentRelationshipIds = new Set(currentAccounts.map((account) => account.relationshipId));
+      const historicalAccounts = billingRelationshipDetails
+        .filter((relationship) => relationship.toolId === tool.id && !currentRelationshipIds.has(relationship.relationshipId))
+        .filter((relationship) =>
+          billingTransactions.some((transaction) => transaction.relationshipId === relationship.relationshipId) ||
+          relationship.billingHistoryEntries.some((entry) => entry.event === "Charged" || entry.event === "Refunded" || entry.event === "Double Charged"),
+        )
+        .map((relationship) => ({
+          accountEmail: accountList.find((account) => account.label === relationship.accountLabel)?.login ?? "",
+          accountLabel: relationship.accountLabel,
+          accountTag: accountTag(relationship.accountLabel, accountList),
+          planName: capitaliseFirstLetter(relationship.planName),
+          relationshipId: relationship.relationshipId,
+          status: relationship.status,
+        }));
+      const accounts = [...currentAccounts, ...historicalAccounts];
+      return {
+        accounts,
+        logo: tool.logo,
+        logoBackground: tool.logoBg,
+        toolId: tool.id,
+        toolName: displayToolName(tool.name),
+      };
+    })
+    .filter((group) => group.accounts.length > 0)
+    .filter((group) => {
+      const query = billingSearchTerm.toLowerCase();
+      if (!query) return true;
+      return group.toolName.toLowerCase().includes(query) || group.accounts.some((account) =>
+        [account.accountLabel, account.accountEmail, account.planName].some((value) => value.toLowerCase().includes(query)),
+      );
+    })
+    .sort((first, second) => first.toolName.localeCompare(second.toolName));
+
+  const billingPastEntryRelationships: BillingPastEntryRelationship[] = billingDirectoryGroups.flatMap((group) => {
+    const tool = toolList.find((candidate) => candidate.id === group.toolId);
+    if (!tool) return [];
+    return group.accounts
+      .filter((account) => relationPlan(tool, account.accountLabel) === "Paid")
+      .filter((account) => toolAccountDetails[group.toolId]?.[account.accountLabel]?.relationshipId === account.relationshipId)
+      .map((account) => ({
+        ...account,
+        logo: group.logo,
+        logoBackground: group.logoBackground,
+        toolId: group.toolId,
+        toolName: group.toolName,
+      }));
+  });
+
+  const billingDetailsTool = billingDetailsTarget
+    ? toolsWithValidAccountLinks.find((tool) => tool.id === billingDetailsTarget.toolId)
+    : undefined;
+  const billingDetailsAccounts: BillingDetailsAccount[] = billingDetailsTool
+    ? billingDirectoryGroups.find((group) => group.toolId === billingDetailsTool.id)?.accounts.map((directoryAccount) => {
+        const activeCandidate = toolAccountDetails[billingDetailsTool.id]?.[directoryAccount.accountLabel];
+        const activeDetail = activeCandidate?.relationshipId === directoryAccount.relationshipId ? activeCandidate : undefined;
+        const storedRelationship = billingRelationshipDetails.find((relationship) => relationship.relationshipId === directoryAccount.relationshipId);
+        const billingAmounts = activeDetail?.billingAmounts ?? storedRelationship?.billingAmounts ?? [];
+        const persistedActivity = activeDetail?.billingHistoryEntries ?? storedRelationship?.billingHistoryEntries ?? [];
+        return {
+          accountActivity: [
+            ...persistedActivity,
+            ...(activeDetail ? manualBillingHistory[`${billingDetailsTool.id}::${directoryAccount.accountLabel}`] ?? [] : []),
+          ].filter((entry) => entry.event !== "Charged" && entry.event !== "Refunded" && entry.event !== "Double Charged"),
+          accountEmail: directoryAccount.accountEmail,
+          accountLabel: directoryAccount.accountLabel,
+          accountTag: directoryAccount.accountTag,
+          billingAmounts,
+          planName: directoryAccount.planName,
+          relationshipId: directoryAccount.relationshipId,
+          status: directoryAccount.status,
+          transactions: billingTransactions.filter((transaction) => transaction.relationshipId === directoryAccount.relationshipId),
+        };
+      }) ?? []
+    : [];
+
   const renderLinkedAccountCell = (accountLabel: string, compact = false) => {
     const accountDetails = accountList.find((account) => account.label === accountLabel);
     const tagClass = accountTag(accountLabel, accountList);
@@ -5374,11 +5506,13 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     return <BillingAccountCell accountLabel={accountLabel} tagClass={tagClass} />;
   };
 
-  const linkedPlanName = (tool: ToolItem, accountLabel: string) => (
+  function linkedPlanName(tool: ToolItem, accountLabel: string) {
+    return (
       toolAccountDetails[tool.id]?.[accountLabel]?.planName ??
       toolAccountPlanNames[tool.id]?.[accountLabel] ??
       ""
     ).trim();
+  }
 
   const linkedTrialDaysRemaining = (tool: ToolItem, accountLabel: string) => {
     const trialExpiryDate = toolAccountDetails[tool.id]?.[accountLabel]?.trialExpiryDate ?? "";
@@ -5800,9 +5934,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const billingHistoryTool = billingHistoryTarget
     ? toolList.find((tool) => tool.id === billingHistoryTarget.toolId)
     : undefined;
-  const billingHistoryAccounts: BillingHistoryAccount[] = billingHistoryTool
+  const currentBillingHistoryAccounts: BillingHistoryAccount[] = billingHistoryTool
     ? orderedLinkedAccountLabels(billingHistoryTool)
-        .filter((accountLabel) => relationPlan(billingHistoryTool, accountLabel) === "Paid")
+        .filter((accountLabel) =>
+          relationPlan(billingHistoryTool, accountLabel) === "Paid" ||
+          billingDirectoryGroups.find((group) => group.toolId === billingHistoryTool.id)?.accounts.some((account) => account.accountLabel === accountLabel),
+        )
         .flatMap((accountLabel) => {
           const detail = toolAccountDetails[billingHistoryTool.id]?.[accountLabel];
           if (!detail?.relationshipId) return [];
@@ -5820,6 +5957,24 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           }];
         })
     : [];
+  const currentBillingHistoryRelationshipIds = new Set(currentBillingHistoryAccounts.map((account) => account.relationshipId));
+  const historicalBillingHistoryAccounts: BillingHistoryAccount[] = billingHistoryTool
+    ? (billingDirectoryGroups.find((group) => group.toolId === billingHistoryTool.id)?.accounts ?? [])
+        .filter((account) => !currentBillingHistoryRelationshipIds.has(account.relationshipId))
+        .map((account) => {
+          const relationship = billingRelationshipDetails.find((detail) => detail.relationshipId === account.relationshipId);
+          return {
+            accountActivity: (relationship?.billingHistoryEntries ?? []).filter((entry) => entry.event !== "Charged" && entry.event !== "Refunded" && entry.event !== "Double Charged"),
+            accountEmail: account.accountEmail,
+            accountLabel: account.accountLabel,
+            accountTag: account.accountTag,
+            billingAmounts: relationship?.billingAmounts ?? [],
+            planName: account.planName,
+            relationshipId: account.relationshipId,
+          };
+        })
+    : [];
+  const billingHistoryAccounts = [...currentBillingHistoryAccounts, ...historicalBillingHistoryAccounts];
 
   const pendingBillingActions = Object.entries(manualBillingHistory).flatMap(([recordKey, entries]) => {
     const separatorIndex = recordKey.indexOf("::");
@@ -6040,6 +6195,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             setIsSidebarOpen(false);
           }}
           onSelectSection={(section) => {
+            if (section === "billing") setBillingDetailsTarget(null);
             setActiveSection(section);
             setActiveCategory("");
             setShowRecoveryPanel(false);
@@ -6121,8 +6277,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             hasConfirmedCategories={hasConfirmedCategories}
             isPendingActionsExpanded={isPendingActionsExpanded}
             onAddAccount={openAddAccountModal}
+            onAddPastBilling={activeSection === "billing" ? () => setBillingPastEntryOpen(true) : undefined}
             onAddTool={handleAddToolClick}
             onBackToLogins={() => setActiveSection("account")}
+            onBackToBilling={activeSection === "billing" && billingDetailsTarget ? () => setBillingDetailsTarget(null) : undefined}
             onEditCategories={openEditCategoryModal}
             onEditProviders={() => setActiveSection("providers")}
             onOpenPresets={openPresetToolPicker}
@@ -6264,7 +6422,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             <>
               {activeSection !== "billing" || !isPendingActionsExpanded || pendingBillingActions.length === 0 ? (
               <section className="table-section">
-                {activeSection === "tools" || activeSection === "linked" || activeSection === "accounts" || activeSection === "watchlist" || activeSection === "billing" || activeSection === "favorites" || activeSection === "archive" ? (
+                {(activeSection === "tools" || activeSection === "linked" || activeSection === "accounts" || activeSection === "watchlist" || activeSection === "billing" || activeSection === "favorites" || activeSection === "archive") && !(activeSection === "billing" && billingDetailsTarget) ? (
                   <ListPageToolbar
                     accountFilter={accountsFilter}
                     accountLabels={accountsInLoginTableOrder.map((account) => account.label)}
@@ -6335,19 +6493,44 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                     onSelectAccount={setAccountsFilter}
                   />
                 ) : activeSection === "billing" ? (
-                  <div className="account-table tool-database tool-database-billing tool-database-flat">
-                    <BillingView
-                      billingMonthLabel={billingMonthLabel}
-                      billingRows={billingRows}
-                      billingSearchTerm={billingSearchTerm}
-                      hasBillingRecords={allBillingRows.length > 0}
-                      isLoadingTools={isLoadingTools}
-                      onClearSearch={() => setBillingSearch("")}
-                      onLinkAccount={() => openLinkToolModal()}
-                      renderBillingRow={renderBillingRow}
-                      selectedBillingView={selectedBillingView}
+                  billingDetailsTarget && billingDetailsTool ? (
+                    <BillingDetailsView
+                      accounts={billingDetailsAccounts}
+                      onOpenBillingHistory={(relationshipId) => {
+                        const accountLabel = billingDetailsAccounts.find((account) => account.relationshipId === relationshipId)?.accountLabel;
+                        if (!accountLabel) return;
+                        setBillingHistoryTarget({ accountLabel, relationshipId, toolId: billingDetailsTool.id });
+                      }}
+                      onSelectRelationship={(relationshipId) => setBillingDetailsTarget({ relationshipId, toolId: billingDetailsTool.id })}
+                      selectedRelationshipId={billingDetailsTarget.relationshipId}
+                      toolName={displayToolName(billingDetailsTool.name)}
                     />
-                  </div>
+                  ) : selectedBillingView === "All" ? (
+                    <BillingDirectory
+                      groups={billingDirectoryGroups}
+                      isLoading={isLoadingTools}
+                      onClearSearch={() => setBillingSearch("")}
+                      onOpenAccount={(toolId, relationshipId) => setBillingDetailsTarget({ relationshipId, toolId })}
+                      onOpenTool={(toolId) => setBillingDetailsTarget({ relationshipId: null, toolId })}
+                      searchTerm={billingSearchTerm}
+                    />
+                  ) : selectedBillingView === "Upcoming" ? (
+                    <div className="billing-upcoming-placeholder"><strong>Upcoming billing is not configured yet</strong><span>The scheduling engine will be introduced in a later billing phase.</span></div>
+                  ) : (
+                    <div className="account-table tool-database tool-database-billing tool-database-flat">
+                      <BillingView
+                        billingMonthLabel={billingMonthLabel}
+                        billingRows={billingRows}
+                        billingSearchTerm={billingSearchTerm}
+                        hasBillingRecords={allBillingRows.length > 0}
+                        isLoadingTools={isLoadingTools}
+                        onClearSearch={() => setBillingSearch("")}
+                        onLinkAccount={() => openLinkToolModal()}
+                        renderBillingRow={renderBillingRow}
+                        selectedBillingView={selectedBillingView}
+                      />
+                    </div>
+                  )
                 ) : (
                   <AIToolboxView
                       activeCategory={activeCategory}
@@ -6431,12 +6614,38 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         </section>
       </div>
 
+      {billingPastEntryOpen ? <BillingPastEntryModal
+        onCancel={() => setBillingPastEntryOpen(false)}
+        onContinue={(relationship, mode) => {
+          setBillingPastEntryOpen(false);
+          setBillingPastInitialMode(mode);
+          setBillingHistoryTarget({ accountLabel: relationship.accountLabel, relationshipId: relationship.relationshipId, toolId: relationship.toolId });
+        }}
+        relationships={billingPastEntryRelationships}
+      /> : null}
+
       {billingHistoryTarget ? (
         <BillingHistoryPanel
           accounts={billingHistoryAccounts}
+          initialEntryMode={billingPastInitialMode || undefined}
           initialRelationshipId={billingHistoryTarget.relationshipId}
-          onClose={() => setBillingHistoryTarget(null)}
+          onChangeRelationship={() => {
+            setBillingHistoryTarget(null);
+            setBillingPastInitialMode("");
+            setBillingPastEntryOpen(true);
+          }}
+          onClose={() => {
+            setBillingHistoryTarget(null);
+            setBillingPastInitialMode("");
+            if (shouldUseSupabase) {
+              void getBillingTransactions().then(setBillingTransactions).catch((error: unknown) => {
+                setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions.");
+              });
+            }
+          }}
           restoredDate={billingHistoryTool?.restoredAt}
+          toolLogo={billingHistoryTool?.logo}
+          toolLogoBackground={billingHistoryTool?.logoBg}
           toolName={billingHistoryToolName}
         />
       ) : null}

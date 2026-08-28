@@ -167,19 +167,23 @@ export async function getDeletedToolRecords() {
   });
 }
 
-export async function getToolLinkDetailRecords() {
+export async function getToolLinkDetailRecords(options: { includeUnlinked?: boolean } = {}) {
   const supabase = createClient();
-  let { data, error } = await supabase
+  const currentQuery = supabase
     .from("tool_email_links")
-    .select("*,logins(label),tool_link_billing_components(*)")
-    .is("unlinked_at", null);
+    .select("*,logins(label),tool_link_billing_components(*)");
+  let { data, error } = options.includeUnlinked
+    ? await currentQuery
+    : await currentQuery.is("unlinked_at", null);
 
   // Keep the current app usable while migration 0022 is being deployed.
   if (error) {
-    const legacyResult = await supabase
+    const legacyQuery = supabase
       .from("tool_email_links")
-      .select("*,logins(label)")
-      .is("unlinked_at", null);
+      .select("*,logins(label)");
+    const legacyResult = options.includeUnlinked
+      ? await legacyQuery
+      : await legacyQuery.is("unlinked_at", null);
     data = legacyResult.data;
     error = legacyResult.error;
   }
@@ -256,6 +260,7 @@ export async function getToolLinkDetailRecords() {
       ) as "" | "converted" | "ended",
       trialResolutionHistory,
       trialResolved: rawLink.trial_resolved === true,
+      unlinkedAt: typeof rawLink.unlinked_at === "string" ? rawLink.unlinked_at : "",
     };
   }).filter((link) => link.toolId && link.accountLabel);
 }

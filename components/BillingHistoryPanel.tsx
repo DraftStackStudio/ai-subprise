@@ -5,6 +5,7 @@ import { createBillingTransaction, deleteManualBillingTransaction, getBillingTra
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { DropdownControl, type DropdownOption } from "@/components/DropdownControls";
 import DateFieldControl from "@/components/DateFieldControl";
+import { LinkedAccountCell } from "@/components/ToolRowRenderer";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { BillingAmount } from "@/types/toolDetail";
 import type { BillingTransaction, BillingTransactionStatus, BillingTransactionType } from "@/types/billingTransaction";
@@ -29,17 +30,32 @@ type PeriodDraftRow = TransactionDraft & {
   origin: "generated" | "one-off";
   sourceKey: string;
 };
+type SinglePaymentBillingDraft = {
+  amount: string;
+  billingType: BillingTransactionType;
+  currency: string;
+  paymentDate: string;
+};
 type PanelProps = {
   accounts: BillingHistoryAccount[];
+  initialEntryMode?: Exclude<EntryMode, "">;
   initialRelationshipId: string;
+  onChangeRelationship?: () => void;
   onClose: () => void;
   restoredDate?: string;
+  toolLogo?: string;
+  toolLogoBackground?: string;
   toolName: string;
 };
 type AccountSectionProps = BillingHistoryAccount & {
+  initialEntryMode?: Exclude<EntryMode, "">;
   isExpanded: boolean;
+  onChangeRelationship?: () => void;
   onToggle: () => void;
   restoredDate?: string;
+  toolLogo?: string;
+  toolLogoBackground?: string;
+  toolName: string;
 };
 
 function SummaryIcon({ name }: { name: "amount" | "billing" | "date" }) {
@@ -51,6 +67,7 @@ function SummaryIcon({ name }: { name: "amount" | "billing" | "date" }) {
 }
 
 const initialDraft = (): TransactionDraft => ({ amount: "", billingType: "", currency: "", endDate: "", note: "", paymentDate: "", planName: "", startDate: "", status: "Paid" });
+const singlePaymentBillingDraft = (billingType: BillingTransactionType): SinglePaymentBillingDraft => ({ amount: "", billingType, currency: "", paymentDate: "" });
 const localDraftId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
 function addMonthsSafely(date: string, months: number) {
@@ -59,6 +76,18 @@ function addMonthsSafely(date: string, months: number) {
   const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
   target.setUTCDate(Math.min(day, lastDay));
   return target.toISOString().slice(0, 10);
+}
+
+function singlePaymentDateLabel(billingType: BillingTransactionType) {
+  if (billingType === "Monthly" || billingType === "Yearly") return "Next renewal";
+  if (billingType === "Lifetime" || billingType === "One-time") return "Purchased on";
+  return "Last top-up";
+}
+
+function singlePaymentTransactionDate(component: SinglePaymentBillingDraft) {
+  if (component.billingType === "Monthly") return addMonthsSafely(component.paymentDate, -1);
+  if (component.billingType === "Yearly") return addMonthsSafely(component.paymentDate, -12);
+  return component.paymentDate;
 }
 
 function periodDates(start: string, end: string, type: BillingTransactionType | "") {
@@ -102,15 +131,40 @@ function compactSummary(billingAmounts: BillingAmount[]) {
   }).join("  +  ");
 }
 
-function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, isExpanded, onToggle, planName, relationshipId, restoredDate }: AccountSectionProps) {
+function InvoiceUploadField({ fileName, onChange }: { fileName: string; onChange: (fileName: string) => void }) {
+  return <>
+    <label className="form-field billing-past-invoice-field">
+      <span>Invoice (optional)</span>
+      <span className="billing-past-invoice-control">
+        <input accept="application/pdf,image/jpeg,image/png" onChange={(event) => onChange(event.target.files?.[0]?.name ?? "")} type="file"/>
+        <svg aria-hidden="true" fill="none" height="20" viewBox="0 0 24 24" width="20"><path d="M8 17H6a4 4 0 0 1-.6-7.96A6.5 6.5 0 0 1 18 10.5h.5a3.5 3.5 0 0 1 .5 6.96M12 12v8m0-8-3 3m3-3 3 3" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5"/></svg>
+        <strong>{fileName || "Upload invoice"}</strong>
+        <small>PNG, JPG, PDF up to 10MB</small>
+      </span>
+    </label>
+    <div className="billing-past-or-pill" aria-hidden="true">or</div>
+  </>;
+}
+
+function PastBillingAccountSummary({ accountEmail, accountLabel, accountTag, onChangeRelationship, planName, toolLogo, toolLogoBackground, toolName }: Pick<AccountSectionProps, "accountEmail" | "accountLabel" | "accountTag" | "onChangeRelationship" | "planName" | "toolLogo" | "toolLogoBackground" | "toolName">) {
+  return <div className="billing-past-account-summary">
+    <div className="billing-past-account-summary-copy">
+      <span className="billing-past-account-tool"><span className="tool-logo" style={{ background: toolLogoBackground }}>{toolLogo}</span><strong>{toolName}</strong>{planName ? <span className="tool-status-chip status-paid">{planName}</span> : <span className="muted-cell">Not set</span>}</span>
+      <LinkedAccountCell accountLabel={accountLabel} login={accountEmail} tagClass={accountTag}/>
+    </div>
+    {onChangeRelationship ? <button className="btn-sm btn-sm-ghost" onClick={onChangeRelationship} type="button">Change</button> : null}
+  </div>;
+}
+
+function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, initialEntryMode, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
   const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
   const [showAllPayments, setShowAllPayments] = useState(false);
   const [detailTransactionId, setDetailTransactionId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
-  const [entryMode, setEntryMode] = useState<EntryMode>("");
-  const [showPastBillingModal, setShowPastBillingModal] = useState(false);
-  const [draft, setDraft] = useState<TransactionDraft>(initialDraft);
+  const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode ?? "");
+  const [showPastBillingModal, setShowPastBillingModal] = useState(Boolean(initialEntryMode));
+  const [draft, setDraft] = useState<TransactionDraft>(() => ({ ...initialDraft(), planName }));
   const [editingId, setEditingId] = useState("");
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [periodDraftRows, setPeriodDraftRows] = useState<PeriodDraftRow[]>([]);
@@ -120,6 +174,10 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const [periodDraftDeleteId, setPeriodDraftDeleteId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [invoiceFileName, setInvoiceFileName] = useState("");
+  const [showPeriodPreview, setShowPeriodPreview] = useState(false);
+  const [singlePaymentBillingDrafts, setSinglePaymentBillingDrafts] = useState<SinglePaymentBillingDraft[]>([]);
+  const [singlePaymentKey, setSinglePaymentKey] = useState(localDraftId);
 
   const reload = async () => setTransactions(await getBillingTransactionsByRelationship(relationshipId));
   useEffect(() => {
@@ -163,14 +221,16 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
     return totals;
   }, {}), [periodDraftRows]);
   const previewTotal = Object.entries(previewTotals).map(([currency, total]) => `${currency === "Amount" ? "" : `${currency} `}${total.toFixed(2).replace(/\.00$/, "")}`).join(" + ");
+  const reviewPeriodDraftRows = useMemo(() => [...periodDraftRows].sort((left, right) => right.paymentDate.localeCompare(left.paymentDate)), [periodDraftRows]);
   const activity = restoredDate
     ? [{ date: restoredDate, event: "Restored", id: `restored-${relationshipId}`, note: "Restored by you" }, ...accountActivity]
     : accountActivity;
   const visibleTransactions = showAllPayments ? transactions : transactions.slice(0, 5);
   const hiddenPaymentCount = Math.max(0, transactions.length - visibleTransactions.length);
 
-  const closeForm = () => { setShowPastBillingModal(false); setShowDeleteConfirmation(false); setEntryMode(""); setEditingId(""); setDraft(initialDraft()); setPeriodDraftRows([]); setPeriodGenerationKey(""); setPeriodEditId(""); setPeriodEditDraft(initialDraft()); setPeriodDraftDeleteId(""); setError(""); setOpenDropdownId(null); };
-  const openForm = () => { closeForm(); setShowPastBillingModal(true); };
+  const closeForm = () => { setShowPastBillingModal(false); setShowDeleteConfirmation(false); setEntryMode(""); setEditingId(""); setDraft(initialDraft()); setPeriodDraftRows([]); setPeriodGenerationKey(""); setPeriodEditId(""); setPeriodEditDraft(initialDraft()); setPeriodDraftDeleteId(""); setError(""); setOpenDropdownId(null); setInvoiceFileName(""); setShowPeriodPreview(false); setSinglePaymentBillingDrafts([]); setSinglePaymentKey(localDraftId()); };
+  const returnToEntrySelector = () => { closeForm(); onChangeRelationship?.(); };
+  const openForm = () => { onChangeRelationship?.(); };
   const field = (key: keyof TransactionDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
   const periodField = (key: keyof TransactionDraft, value: string) => {
     field(key, value);
@@ -179,20 +239,64 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
     }
   };
   const updatePeriodDraft = (id: string, patch: Partial<TransactionDraft>) => setPeriodDraftRows((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
+  const updatePeriodDraftCurrency = (row: PeriodDraftRow, currency: string) => setPeriodDraftRows((current) => current.map((candidate) => row.origin === "generated" && candidate.origin === "generated" ? { ...candidate, currency } : candidate.id === row.id ? { ...candidate, currency } : candidate));
   const renderPastDropdown = (id: string, value: string, placeholder: string, options: DropdownOption[], onChange: (value: string) => void) => <DropdownControl ariaLabel={placeholder} className="billing-past-dropdown" id={`${id}-${relationshipId}`} isOpen={openDropdownId === `${id}-${relationshipId}`} onChange={onChange} onOpenChange={setOpenDropdownId} options={options} placeholder={placeholder} value={value}/>;
   const currencyOptions = ["AUD", "EUR", "GBP", "SGD", "USD"].map((value) => ({ label: value, value }));
   const statusOptions = ["Paid", "Pending", "Failed", "Refunded"].map((value) => ({ label: value, value }));
   const singleBillingTypeOptions = [{ label: "Not recorded", value: "" }, ...["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"].map((value) => ({ label: value === "One-time" ? "One-time payment" : value === "Top-up" ? "Top-up credit" : value, value }))];
   const draftBillingTypeOptions = singleBillingTypeOptions.slice(1);
   const recurringBillingTypeOptions = ["Monthly", "Yearly"].map((value) => ({ label: value, value }));
+  const billingTypeLabel = (value: BillingTransactionType) => value === "One-time" ? "One-time payment" : value === "Top-up" ? "Top-up credit" : value;
+  const canAddSingleBillingType = (selectedTypes: BillingTransactionType[], candidate: BillingTransactionType) => {
+    if (selectedTypes.includes(candidate)) return true;
+    if (selectedTypes.length === 0) return true;
+    if (selectedTypes.length >= 2) return false;
+    const selected = selectedTypes[0];
+    return (candidate === "Top-up" && (selected === "Monthly" || selected === "Yearly" || selected === "Lifetime"))
+      || (selected === "Top-up" && (candidate === "Monthly" || candidate === "Yearly" || candidate === "Lifetime"));
+  };
+  const toggleSingleBillingType = (billingType: BillingTransactionType) => setSinglePaymentBillingDrafts((current) => {
+    const isSelected = current.some((component) => component.billingType === billingType);
+    if (isSelected) return current.filter((component) => component.billingType !== billingType);
+    return canAddSingleBillingType(current.map((component) => component.billingType), billingType)
+      ? [...current, { ...singlePaymentBillingDraft(billingType), currency: current[0]?.currency ?? "" }]
+      : current;
+  });
+  const updateSingleBillingDraft = (billingType: BillingTransactionType, patch: Partial<SinglePaymentBillingDraft>) => setSinglePaymentBillingDrafts((current) => current.map((component) => component.billingType === billingType ? { ...component, ...patch } : component));
+  const updateSingleBillingCurrency = (currency: string) => setSinglePaymentBillingDrafts((current) => current.map((component) => ({ ...component, currency })));
+  const singleBillingTypeDropdownId = `past-billing-types-${relationshipId}`;
+  const renderSingleBillingTypeDropdown = () => {
+    const selectedTypes = singlePaymentBillingDrafts.map((component) => component.billingType);
+    const isOpen = openDropdownId === singleBillingTypeDropdownId;
+    return <div className={`custom-select multi-select billing-past-dropdown billing-past-type-dropdown${isOpen ? " is-open" : ""}`} id={singleBillingTypeDropdownId} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpenDropdownId(null); }}>
+      <div aria-expanded={isOpen} aria-label="Billing Type" className={`custom-select-trigger billing-past-type-trigger${selectedTypes.length ? "" : " is-placeholder"}`} onClick={() => setOpenDropdownId(isOpen ? null : singleBillingTypeDropdownId)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpenDropdownId(isOpen ? null : singleBillingTypeDropdownId); } }} role="button" tabIndex={0}>
+        <span className="billing-past-selected-types">{selectedTypes.length ? selectedTypes.map((billingType) => <button aria-label={`Remove ${billingTypeLabel(billingType)}`} className="preset-tool-pill is-added billing-past-selected-type-chip" key={billingType} onClick={(event) => { event.stopPropagation(); toggleSingleBillingType(billingType); }} type="button">{billingTypeLabel(billingType)}<span aria-hidden="true">×</span></button>) : <span>Select billing type</span>}</span>
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>
+      </div>
+      {isOpen ? <div className="custom-select-options">{draftBillingTypeOptions.map((option) => {
+        const billingType = option.value as BillingTransactionType;
+        const isSelected = selectedTypes.includes(billingType);
+        const isDisabled = !canAddSingleBillingType(selectedTypes, billingType);
+        return <button className={isSelected ? "custom-select-option multi-select-option is-selected" : "custom-select-option multi-select-option"} disabled={isDisabled} key={billingType} onClick={(event) => { event.stopPropagation(); if (!isDisabled) toggleSingleBillingType(billingType); }} onMouseDown={(event) => event.preventDefault()} type="button"><input checked={isSelected} readOnly type="checkbox"/><span>{billingTypeLabel(billingType)}</span></button>;
+      })}</div> : null}
+    </div>;
+  };
 
   const saveSingle = async () => {
-    if (!draft.paymentDate) return setError("Payment date is required.");
+    if (!singlePaymentBillingDrafts.length) return setError("Select at least one billing type.");
+    if (singlePaymentBillingDrafts.some((component) => !component.paymentDate)) return setError("A billing date is required for each billing type.");
+    const transactionDates = singlePaymentBillingDrafts.map(singlePaymentTransactionDate);
+    const today = new Date().toISOString().slice(0, 10);
+    if (transactionDates.some((paymentDate, index) => (singlePaymentBillingDrafts[index].billingType === "Monthly" || singlePaymentBillingDrafts[index].billingType === "Yearly") && paymentDate > today)) return setError("The inferred current-cycle payment is still in the future. Review the Next renewal date.");
     setIsSaving(true); setError("");
     try {
-      const input = { amount: draft.amount, billingTypeSnapshot: draft.billingType, currency: draft.currency, note: draft.note, paymentDate: draft.paymentDate, planNameSnapshot: draft.planName, status: draft.status };
-      if (editingId) await updateBillingTransaction(editingId, input);
-      else await createBillingTransaction({ ...input, relationshipId });
+      const inputs = singlePaymentBillingDrafts.map((component, index) => ({ amount: component.amount, billingTypeSnapshot: component.billingType, currency: component.currency, note: draft.note, paymentDate: transactionDates[index], planNameSnapshot: draft.planName, status: draft.status }));
+      if (editingId) {
+        await updateBillingTransaction(editingId, inputs[0]);
+        await Promise.all(inputs.slice(1).map((input) => createBillingTransaction({ ...input, relationshipId, sourceKey: `single-payment-edit:${editingId}:${input.billingTypeSnapshot}` })));
+      } else {
+        await Promise.all(inputs.map((input) => createBillingTransaction({ ...input, relationshipId, sourceKey: `single-payment:${relationshipId}:${singlePaymentKey}:${input.billingTypeSnapshot}` })));
+      }
       await reload(); closeForm();
     } catch (caught: unknown) { setError(caught instanceof Error ? caught.message : "Could not save billing transaction."); }
     finally { setIsSaving(false); }
@@ -208,9 +312,21 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
     finally { setIsSaving(false); }
   };
 
+  const reviewPeriod = () => {
+    setError("");
+    if (draft.billingType !== "Monthly" && draft.billingType !== "Yearly") return setError("Select Monthly or Yearly billing type.");
+    if (!draft.startDate || !draft.endDate) return setError("Start Date and End Date are required.");
+    if (!periodDraftRows.length) return setError("Choose a valid billing period to generate payments.");
+    setOpenDropdownId(null);
+    setShowPeriodPreview(true);
+  };
+
   const beginEdit = (transaction: BillingTransaction) => {
     setEntryMode("single"); setEditingId(transaction.id); setShowPastBillingModal(true);
     setDraft({ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, endDate: "", note: transaction.note, paymentDate: transaction.paymentDate, planName: transaction.planNameSnapshot, startDate: "", status: transaction.status });
+    if (transaction.billingTypeSnapshot) setSinglePaymentBillingDrafts([{ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, paymentDate: transaction.billingTypeSnapshot === "Monthly" ? addMonthsSafely(transaction.paymentDate, 1) : transaction.billingTypeSnapshot === "Yearly" ? addMonthsSafely(transaction.paymentDate, 12) : transaction.paymentDate }]);
+    else setSinglePaymentBillingDrafts([]);
+    setSinglePaymentKey(`edit-${transaction.id}`);
   };
   const beginPeriodDraftEdit = (row: PeriodDraftRow) => {
     setPeriodEditId(row.id);
@@ -278,8 +394,8 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
       {activity.length ? <section className="billing-history-activity"><h3>Account Activity</h3><div className="billing-history-activity-list">{activity.map((entry) => <div className="billing-history-activity-row" key={entry.id}><div><strong>{entry.event}</strong><span>{billingHistoryDisplayDate(entry.date)}</span></div><p>{entry.note || ""}</p></div>)}</div></section> : null}
     </div> : null}
     {showPastBillingModal ? <div className="welcome-modal-overlay billing-past-modal-overlay" onClick={(event) => { if (event.target === event.currentTarget) closeForm(); }} role="presentation">
-      <section aria-labelledby={`billing-past-modal-title-${relationshipId}`} aria-modal="true" className={`welcome-modal billing-past-modal${entryMode === "period" && !periodEditId ? " is-period-builder" : ""}`} role="dialog">
-        <button className="billing-past-header-back-button" onClick={() => { if (periodEditId) closePeriodDraftEdit(); else if (entryMode && !editingId) { setEntryMode(""); setDraft(initialDraft()); setError(""); setOpenDropdownId(null); } else closeForm(); }} type="button">← <span>Back</span></button>
+      <section aria-labelledby={`billing-past-modal-title-${relationshipId}`} aria-modal="true" className={`welcome-modal billing-past-modal${entryMode === "period" && !periodEditId ? ` is-period-builder${showPeriodPreview ? " is-period-review" : ""}` : entryMode === "single" ? " is-single-payment" : ""}`} role="dialog">
+        <button className="billing-past-header-back-button" onClick={() => { if (periodEditId) closePeriodDraftEdit(); else if (entryMode === "period" && showPeriodPreview) { setShowPeriodPreview(false); setError(""); setOpenDropdownId(null); } else if (entryMode && !editingId) returnToEntrySelector(); else closeForm(); }} type="button">← <span>Back</span></button>
         {editingId || (periodEditId && periodEditId !== "new-one-off") ? <button aria-label="Delete billing record" className="billing-past-delete-button" onClick={() => editingId ? setShowDeleteConfirmation(true) : setPeriodDraftDeleteId(periodEditId)} type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" /></svg></button> : null}
         <div className="billing-past-modal-title-row">
           <h2 id={`billing-past-modal-title-${relationshipId}`}>{editingId || (periodEditId && periodEditId !== "new-one-off") ? "Edit Past Billing" : periodEditId === "new-one-off" ? "Add One-off Payment" : "Add Past Billing"}</h2>
@@ -295,37 +411,41 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
             <label className="form-field billing-past-note-field"><span>Note</span><textarea className="field-input" onChange={(event) => setPeriodEditDraft((current) => ({ ...current, note: event.target.value }))} value={periodEditDraft.note}/></label>
           </div>
           <div className="welcome-modal-actions billing-past-modal-actions"><button className="btn-sm btn-sm-ghost" onClick={closePeriodDraftEdit} type="button">Cancel</button><button className="btn-sm btn-sm-primary" onClick={savePeriodDraftEdit} type="button">Save draft</button></div>
-        </> : !entryMode ? <>
-          <p className="billing-past-modal-intro">Choose how you want to record past billing for {accountLabel}.</p>
-          <div className="billing-past-choice-grid">
-            <button onClick={() => setEntryMode("single")} type="button"><SummaryIcon name="amount"/><strong>Single Payment</strong><span>Record one previous payment, purchase or top-up.</span></button>
-            <button onClick={() => setEntryMode("period")} type="button"><SummaryIcon name="date"/><strong>Subscription Period</strong><span>Add recurring monthly or yearly payments across a past period.</span></button>
-          </div>
-          <div className="welcome-modal-actions billing-past-modal-actions"><button className="btn-sm btn-sm-ghost" onClick={closeForm} type="button">Cancel</button></div>
-        </> : <>
+        </> : entryMode ? <>
           {error ? <p className="billing-history-error" role="alert">{error}</p> : null}
-          <div className="billing-past-form account-card">
+          {!editingId ? <h3 className="billing-past-form-heading category-view-title">{entryMode === "period" ? "Subscription Period" : "Single Payment"}</h3> : null}
+          <PastBillingAccountSummary accountEmail={accountEmail} accountLabel={accountLabel} accountTag={accountTag} planName={planName} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>
+          <div className={`billing-past-form billing-past-payment-details${entryMode === "period" && showPeriodPreview ? " billing-period-review" : ""}`}>
             {entryMode === "single" ? <>
-              <label className="form-field"><span>Plan Name</span><input className="field-input" onChange={(event) => field("planName", event.target.value)} placeholder="Not recorded" value={draft.planName}/></label>
-              <label className="form-field"><span>Transaction Status</span>{renderPastDropdown("past-status", draft.status, "Transaction Status", statusOptions, (value) => field("status", value))}</label>
-              <label className="form-field"><span>Billing Type</span>{renderPastDropdown("past-billing-type", draft.billingType, "Not recorded", singleBillingTypeOptions, (value) => field("billingType", value))}</label>
-              <label className="form-field"><span>Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field">{renderPastDropdown("past-currency", draft.currency, "Currency", currencyOptions, (value) => field("currency", value))}<input className="field-input-control" inputMode="decimal" onChange={(event) => field("amount", event.target.value)} placeholder="0.00" value={draft.amount}/></span></label>
-              <label className="form-field"><span>Payment Date</span><DateFieldControl ariaLabel="Payment date" className="field-input" onChange={(value) => field("paymentDate", value)} value={draft.paymentDate}/></label>
-              <label className="form-field billing-past-note-field"><span>Note</span><textarea className="field-input" onChange={(event) => field("note", event.target.value)} value={draft.note}/></label>
-            </> : <>
-              <div className="tool-detail-field-row"><label className="form-field"><span>Start Payment Date</span><DateFieldControl ariaLabel="Start payment date" className="field-input" onChange={(value) => field("startDate", value)} value={draft.startDate}/></label><label className="form-field"><span>End Payment Date</span><DateFieldControl ariaLabel="End payment date" className="field-input" onChange={(value) => field("endDate", value)} value={draft.endDate}/></label></div>
-              <label className="form-field"><span>Plan Name</span><input className="field-input" onChange={(event) => periodField("planName", event.target.value)} placeholder="Not recorded" value={draft.planName}/></label>
-              <label className="form-field"><span>Billing Type</span>{renderPastDropdown("past-recurring-type", draft.billingType, "Select billing type", recurringBillingTypeOptions, (value) => field("billingType", value))}</label>
-              <label className="form-field"><span>Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field">{renderPastDropdown("past-period-currency", draft.currency, "Currency", currencyOptions, (value) => periodField("currency", value))}<input className="field-input-control" inputMode="decimal" onChange={(event) => periodField("amount", event.target.value)} placeholder="0.00" value={draft.amount}/></span></label>
-              <label className="form-field billing-past-note-field"><span>Note</span><textarea className="field-input" onChange={(event) => periodField("note", event.target.value)} value={draft.note}/></label>
-              <section className="billing-history-period-preview"><div className="billing-history-period-preview-header"><div><strong>Billing Records</strong><span>Edit any generated payment before confirming.</span></div><button onClick={beginOneOffDraft} type="button">+ Add One-off Payment</button></div>
-                {periodDraftRows.length ? <div className="billing-period-draft-table"><div className="billing-period-draft-head"><span>Date</span><span>Plan</span><span>Type</span><span>Amount</span><span>Status</span><span>Action</span></div>{periodDraftRows.map((row) => <div className="billing-period-draft-row" key={row.id}><span data-label="Date">{billingHistoryDisplayDate(row.paymentDate)}</span><span data-label="Plan">{row.planName || "Not recorded"}</span><span data-label="Type">{renderPastDropdown(`period-row-type-${row.id}`, row.billingType, "Select type", draftBillingTypeOptions, (value) => updatePeriodDraft(row.id, { billingType: value as BillingTransactionType }))}</span><span className="billing-period-inline-amount" data-label="Amount"><small>{row.currency || "—"}</small><input aria-label={`Amount for ${billingHistoryDisplayDate(row.paymentDate)}`} inputMode="decimal" onChange={(event) => updatePeriodDraft(row.id, { amount: event.target.value })} value={row.amount}/></span><span data-label="Status">{renderPastDropdown(`period-row-status-${row.id}`, row.status, "Status", statusOptions, (value) => updatePeriodDraft(row.id, { status: value as BillingTransactionStatus }))}</span><span data-label="Action"><button aria-label={`Edit ${billingHistoryDisplayDate(row.paymentDate)} draft`} className="billing-history-details-button" onClick={() => beginPeriodDraftEdit(row)} type="button">•••</button></span></div>)}</div> : <p className="billing-period-draft-empty">Choose a valid start date, end date and Monthly or Yearly billing type to generate records.</p>}
-                <strong className="billing-period-draft-summary">{periodDraftRows.length} billing records{previewTotal ? ` · ${previewTotal}` : ""}</strong>
-              </section>
-            </>}
+              <h4 className="billing-past-section-heading category-view-title">Payment Details</h4>
+              <InvoiceUploadField fileName={invoiceFileName} onChange={setInvoiceFileName}/>
+              <div className="tool-detail-field-row"><label className="form-field"><span>Plan Name</span><input className="field-input" onChange={(event) => field("planName", event.target.value)} placeholder="Not recorded" value={draft.planName}/></label><div className="form-field billing-past-type-field"><span className="billing-past-field-label">Billing Type <small>(Select up to 2)</small></span>{renderSingleBillingTypeDropdown()}</div></div>
+              <div className="billing-past-single-components">{singlePaymentBillingDrafts.map((component) => <section className="billing-past-single-component" key={component.billingType}>
+                <h5>{billingTypeLabel(component.billingType)}</h5>
+                <div className="tool-detail-field-row"><label className="form-field"><span>{singlePaymentDateLabel(component.billingType)}</span><DateFieldControl ariaLabel={`${billingTypeLabel(component.billingType)} ${singlePaymentDateLabel(component.billingType).toLowerCase()}`} className="field-input" onChange={(value) => updateSingleBillingDraft(component.billingType, { paymentDate: value })} value={component.paymentDate}/></label><label className="form-field"><span>Currency + Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field">{renderPastDropdown(`past-currency-${component.billingType}`, component.currency, "Currency", currencyOptions, updateSingleBillingCurrency)}<input aria-label={`${billingTypeLabel(component.billingType)} amount`} className="field-input-control" inputMode="decimal" onChange={(event) => updateSingleBillingDraft(component.billingType, { amount: event.target.value })} placeholder="0.00" value={component.amount}/></span></label></div>
+              </section>)}</div>
+              <label className="form-field"><span>Status</span>{renderPastDropdown("past-status", draft.status, "Status", statusOptions, (value) => field("status", value))}</label>
+              <label className="form-field billing-past-note-field"><span>Notes</span><textarea className="field-input" onChange={(event) => field("note", event.target.value)} placeholder="Add any notes about this billing..." value={draft.note}/></label>
+            </> : showPeriodPreview ? <>
+              <div className="billing-period-review-header"><h4>Preview Payments ({periodDraftRows.length} payments)</h4><button onClick={beginOneOffDraft} type="button">+ Add Extra Payment</button></div>
+              <p className="billing-period-review-helper">AI Subprise generated these payments from your billing details. Review and edit anything before saving to Billing History.</p>
+              {reviewPeriodDraftRows.length ? <div className="billing-period-draft-table"><div className="billing-period-draft-head"><span>Date</span><span>Type</span><span>Amount</span><span>Status</span><span>Action</span></div>{reviewPeriodDraftRows.map((row) => <div className="billing-period-draft-row" key={row.id}><span data-label="Date"><DateFieldControl ariaLabel={`Payment date for ${billingHistoryDisplayDate(row.paymentDate)}`} className="field-input billing-period-inline-date" onChange={(value) => updatePeriodDraft(row.id, { paymentDate: value })} value={row.paymentDate}/></span><span data-label="Type">{renderPastDropdown(`period-row-type-${row.id}`, row.billingType, "Select type", draftBillingTypeOptions, (value) => updatePeriodDraft(row.id, { billingType: value as BillingTransactionType }))}</span><span className="billing-period-inline-amount" data-label="Amount">{renderPastDropdown(`period-row-currency-${row.id}`, row.currency, "Currency", currencyOptions, (value) => updatePeriodDraftCurrency(row, value))}<input aria-label={`Amount for ${billingHistoryDisplayDate(row.paymentDate)}`} inputMode="decimal" onChange={(event) => updatePeriodDraft(row.id, { amount: event.target.value })} value={row.amount}/></span><span data-label="Status">{renderPastDropdown(`period-row-status-${row.id}`, row.status, "Status", statusOptions, (value) => updatePeriodDraft(row.id, { status: value as BillingTransactionStatus }))}</span><span data-label="Action"><button aria-label={`Edit ${billingHistoryDisplayDate(row.paymentDate)} draft`} className="billing-history-details-button" onClick={() => beginPeriodDraftEdit(row)} type="button">•••</button></span></div>)}</div> : <p className="billing-period-draft-empty">Choose a valid start date, end date and Monthly or Yearly billing type to generate records.</p>}
+              <p className="billing-period-review-order">Payments are generated from newest to oldest.</p>
+              </> : <>
+              <h4 className="billing-past-section-heading category-view-title">Payment Details</h4>
+              <InvoiceUploadField fileName={invoiceFileName} onChange={setInvoiceFileName}/>
+              <div className="tool-detail-field-row"><label className="form-field"><span>Plan Name</span><input className="field-input" onChange={(event) => periodField("planName", event.target.value)} placeholder="Not recorded" value={draft.planName}/></label><label className="form-field"><span>Billing Type</span>{renderPastDropdown("past-recurring-type", draft.billingType, "Select billing type", recurringBillingTypeOptions, (value) => field("billingType", value))}</label></div>
+              <div className="tool-detail-field-row"><label className="form-field"><span>Start Date</span><DateFieldControl ariaLabel="Start date" className="field-input" onChange={(value) => field("startDate", value)} value={draft.startDate}/></label><label className="form-field"><span>End Date / Last Payment</span><DateFieldControl ariaLabel="End date or last payment" className="field-input" onChange={(value) => field("endDate", value)} value={draft.endDate}/></label></div>
+              <label className="form-field"><span>Currency + Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field">{renderPastDropdown("past-period-currency", draft.currency, "Currency", currencyOptions, (value) => periodField("currency", value))}<input aria-label="Amount per payment" className="field-input-control" inputMode="decimal" onChange={(event) => periodField("amount", event.target.value)} placeholder="0.00" value={draft.amount}/></span></label>
+              <label className="form-field billing-past-note-field"><span>Notes</span><textarea className="field-input" onChange={(event) => periodField("note", event.target.value)} placeholder="Add any notes about this billing..." value={draft.note}/></label>
+              <div className="billing-period-preview-actions"><span>{periodDraftRows.length} total payments{previewTotal ? ` · ${previewTotal}` : ""}</span></div>
+              </>}
           </div>
-          <div className="welcome-modal-actions billing-past-modal-actions"><button className="btn-sm btn-sm-ghost" onClick={closeForm} type="button">Cancel</button><button className="btn-sm btn-sm-primary" disabled={isSaving} onClick={entryMode === "period" ? savePeriod : saveSingle} type="button">{isSaving ? "Saving..." : entryMode === "period" ? "Confirm records" : "Save"}</button></div>
-        </>}
+          <div className="billing-past-footer-row">
+            <div className="billing-past-payment-info"><span aria-hidden="true">i</span><p>{entryMode === "period" ? `${periodDraftRows.length} payment${periodDraftRows.length === 1 ? "" : "s"} will be added to billing history for` : `${singlePaymentBillingDrafts.length === 2 ? "2 payments" : "1 payment"} will be added to billing history for`}<br/><strong>{toolName} · {accountLabel}</strong>{accountEmail ? <small> ({accountEmail})</small> : null}</p></div>
+            <div className="welcome-modal-actions billing-past-modal-actions"><button className="btn-sm btn-sm-ghost" onClick={returnToEntrySelector} type="button">Cancel</button><button className="btn-sm btn-sm-primary" disabled={isSaving} onClick={entryMode === "period" ? showPeriodPreview ? savePeriod : reviewPeriod : saveSingle} type="button">{isSaving ? "Saving..." : entryMode === "period" ? showPeriodPreview ? "Save Period" : "Review Payments" : "Save Payment"}</button></div>
+          </div>
+        </> : null}
       </section>
       {showDeleteConfirmation ? <div className="welcome-modal-overlay billing-past-delete-overlay" role="presentation"><section aria-labelledby={`billing-delete-modal-title-${relationshipId}`} aria-modal="true" className="welcome-modal delete-account-modal billing-past-delete-modal" role="dialog"><h2 id={`billing-delete-modal-title-${relationshipId}`}>Delete billing record?</h2><p>This will permanently remove this payment from billing history.</p><div className="welcome-modal-actions"><button className="btn-sm btn-sm-ghost" disabled={isSaving} onClick={() => setShowDeleteConfirmation(false)} type="button">Cancel</button><button className="btn-sm btn-sm-danger" disabled={isSaving} onClick={removeEditedTransaction} type="button">{isSaving ? "Deleting..." : "Delete"}</button></div></section></div> : null}
       {periodDraftDeleteId ? <div className="welcome-modal-overlay billing-past-delete-overlay" role="presentation"><section aria-labelledby={`billing-draft-delete-modal-title-${relationshipId}`} aria-modal="true" className="welcome-modal delete-account-modal billing-past-delete-modal" role="dialog"><h2 id={`billing-draft-delete-modal-title-${relationshipId}`}>Delete draft record?</h2><p>This will remove this unsaved payment from the billing preview.</p><div className="welcome-modal-actions"><button className="btn-sm btn-sm-ghost" onClick={() => setPeriodDraftDeleteId("")} type="button">Cancel</button><button className="btn-sm btn-sm-danger" onClick={removePeriodDraft} type="button">Delete</button></div></section></div> : null}
@@ -333,7 +453,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   </section>;
 }
 
-export default function BillingHistoryPanel({ accounts, initialRelationshipId, onClose, restoredDate, toolName }: PanelProps) {
+export default function BillingHistoryPanel({ accounts, initialEntryMode, initialRelationshipId, onChangeRelationship, onClose, restoredDate, toolLogo, toolLogoBackground, toolName }: PanelProps) {
   const [expandedRelationshipIds, setExpandedRelationshipIds] = useState(() => new Set([initialRelationshipId]));
   const toggleRelationship = (relationshipId: string) => setExpandedRelationshipIds((current) => {
     const next = new Set(current);
@@ -345,6 +465,6 @@ export default function BillingHistoryPanel({ accounts, initialRelationshipId, o
     <div className="billing-history-panel-actions"><button aria-label="Close billing history" className="modal-close-button" onClick={onClose} type="button">x</button></div>
     <h2 className="billing-history-heading">Billing History</h2>
     <div className="billing-history-tool-row"><h3 className="billing-history-tool-heading">{toolName}</h3>{accounts.length > 1 ? <div className="billing-history-expand-controls"><button onClick={() => setExpandedRelationshipIds(new Set(accounts.map((account) => account.relationshipId)))} type="button">Expand all</button><button onClick={() => setExpandedRelationshipIds(new Set())} type="button">Collapse all</button></div> : null}</div>
-    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined}/>)}</div>
+    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} initialEntryMode={account.relationshipId === initialRelationshipId ? initialEntryMode : undefined} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onChangeRelationship={onChangeRelationship} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>)}</div>
   </aside></div>;
 }

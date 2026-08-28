@@ -239,11 +239,13 @@ export function LinkedAccountCell({
   accountLabel,
   compact = false,
   login,
+  nameSuffix,
   tagClass,
 }: {
   accountLabel: string;
   compact?: boolean;
   login?: string;
+  nameSuffix?: ReactNode;
   tagClass: string;
 }) {
   return (
@@ -253,7 +255,7 @@ export function LinkedAccountCell({
     >
       <span className="linked-account-line">
         <span className={`tag-dot ${tagClass}`} />
-        <strong>{accountLabel}</strong>
+        <strong>{accountLabel}{nameSuffix}</strong>
       </span>
       {login ? <span className="linked-account-address">{login}</span> : null}
     </span>

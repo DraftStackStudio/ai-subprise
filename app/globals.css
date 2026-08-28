@@ -10335,7 +10335,60 @@ select:focus-visible {
   z-index: 120;
 }
 
+.billing-past-entry-overlay { align-items: center; justify-content: center; z-index: 130; }
+.billing-past-entry-modal {
+  background: color-mix(in srgb, var(--surface) 88%, #000 12%);
+  display: grid;
+  gap: 12px;
+  grid-template-rows: auto auto minmax(150px, 1fr) auto auto auto;
+  height: min(82vh, 760px);
+  max-height: 760px;
+  max-width: 620px;
+  min-height: 610px;
+  overflow: hidden;
+  padding: 24px;
+  position: relative;
+  width: min(92vw, 620px);
+}
+.billing-past-entry-modal .billing-past-modal-title-row { margin-bottom: 2px; }
+.billing-past-entry-close { position: absolute; right: 20px; top: 20px; }
+.billing-past-entry-search { background: var(--surface); max-width: none; min-height: 38px; min-width: 0; padding: 8px 12px; width: 100%; }
+.billing-past-entry-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(240, 200, 70, .14); }
+.billing-past-entry-search input { background: transparent !important; min-width: 0; }
+.billing-past-entry-search input:focus,
+.billing-past-entry-search input:focus-visible { border: 0 !important; box-shadow: none !important; outline: 0 !important; }
+.billing-past-relationship-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.billing-past-relationship-list > button { align-items: center; background: transparent; border: 0; border-bottom: 1px solid var(--border); color: inherit; cursor: pointer; display: grid; font: inherit; grid-template-columns: 150px minmax(190px, 1fr) 112px 28px; min-height: 68px; padding: 0 12px; text-align: left; width: 100%; }
+.billing-past-relationship-list > button:last-child { border-bottom: 0; }
+.billing-past-relationship-list > button:hover { background: rgba(255, 255, 255, .025); }
+.billing-past-relationship-list > button.is-selected { background: rgba(255, 255, 255, .025); box-shadow: inset 3px 0 0 var(--accent); }
+.billing-past-entry-tool { align-items: center; display: flex; gap: 10px; min-width: 0; }
+.billing-past-entry-tool strong { color: var(--text-1); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.billing-past-relationship-list .linked-account-cell { padding-left: 22px !important; width: auto; }
+.billing-past-relationship-list .billing-directory-plan { justify-content: flex-start; padding: 0; }
+.billing-past-relationship-list .billing-directory-plan .tool-status-chip { margin: 0; }
+.billing-past-relationship-empty { color: var(--text-3); font-size: 11px; padding: 22px; text-align: center; }
+.billing-past-entry-check { align-items: center; border: 1px solid var(--border-strong); border-radius: 50%; color: transparent; display: inline-flex; font-size: 12px; height: 22px; justify-content: center; justify-self: end; width: 22px; }
+.billing-past-relationship-list > button.is-selected .billing-past-entry-check { border-color: var(--paid-text); color: var(--paid-text); }
+.billing-past-entry-question { color: var(--text-2); font-size: 12px; margin: 4px 0 0; }
+.billing-past-entry-choices { min-height: 142px; }
+.billing-past-entry-choices button { min-height: 142px; padding-top: 18px; position: relative; }
+.billing-past-entry-choices button.is-selected { background: rgba(240, 200, 70, .06); border-color: var(--accent); box-shadow: 0 0 0 1px rgba(240, 200, 70, .08); }
+.billing-past-entry-choices button:not(.is-selected):hover,
+.billing-past-entry-choices button:not(.is-selected):focus-visible { background: rgba(255, 255, 255, .025); border-color: var(--border); box-shadow: none; }
+.billing-past-option-icon { align-items: center; background: var(--surface-3); border-radius: var(--r-sm); color: var(--text-2); display: inline-flex; height: 34px; justify-content: center; width: 34px; }
+.billing-past-option-icon svg { height: 19px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; width: 19px; }
+.billing-past-entry-choices button.is-selected .billing-past-option-icon { background: rgba(240, 200, 70, .1); color: var(--accent); }
+.billing-past-entry-modal > .billing-past-modal-actions { margin-top: 0; }
+
+@media (max-height: 720px) {
+  .billing-past-entry-modal { height: 90vh; min-height: 0; }
+  .billing-past-entry-choices,
+  .billing-past-entry-choices button { min-height: 116px; }
+}
+
 .billing-past-modal {
+  background: color-mix(in srgb, var(--surface) 88%, #000 12%);
   max-height: min(86vh, 760px);
   max-width: 620px;
   overflow-y: auto;
@@ -10348,6 +10401,63 @@ select:focus-visible {
   max-width: 920px;
   width: min(96vw, 920px);
 }
+
+.billing-past-modal.is-single-payment {
+  max-height: min(94vh, 760px);
+  max-width: 430px;
+  padding: 18px;
+  width: min(92vw, 430px);
+}
+.billing-past-modal.is-single-payment,
+.billing-past-modal.is-period-builder {
+  max-width: 580px;
+  padding: 20px;
+  width: min(92vw, 580px);
+}
+.billing-past-modal.is-period-builder.is-period-review {
+  max-height: 90vh;
+  max-width: 920px;
+  width: min(96vw, 920px);
+}
+.billing-past-modal.is-single-payment .billing-past-header-back-button { height: 30px; right: 18px; top: 18px; }
+.billing-past-modal.is-single-payment .billing-past-modal-title-row { min-height: 30px; }
+.billing-past-modal.is-single-payment .billing-past-modal-title-row,
+.billing-past-modal.is-period-builder .billing-past-modal-title-row { margin-bottom: 12px; }
+.billing-past-modal.is-single-payment .billing-past-modal-title-row h2,
+.billing-past-modal.is-period-builder .billing-past-modal-title-row h2 { color: var(--text-3); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+.billing-past-form-heading { color: var(--text-1); font-size: 20px; font-weight: 700; margin: 0 0 14px; }
+.billing-past-section-heading { margin: 0; }
+.billing-past-modal.is-single-payment .billing-past-account-summary {
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-bottom: 8px;
+  min-height: 64px;
+  padding: 9px 10px;
+}
+.billing-past-modal.is-single-payment .billing-past-form {
+  gap: 10px;
+  padding: 12px;
+}
+.billing-past-modal.is-single-payment .tool-detail-field-row { gap: 10px; }
+.billing-past-modal.is-single-payment .field-input,
+.billing-past-modal.is-single-payment .billing-past-dropdown .custom-select-trigger { min-height: 38px; }
+.billing-past-modal.is-single-payment .billing-past-invoice-control { min-height: 76px; }
+.billing-past-modal.is-single-payment .billing-past-note-field textarea { min-height: 72px; }
+.billing-past-modal.is-single-payment .billing-past-modal-actions { margin-top: 10px; }
+.billing-past-payment-info {
+  align-items: center;
+  background: var(--modal-field-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  display: flex;
+  gap: 10px;
+  margin-top: 0;
+  padding: 10px 12px;
+}
+.billing-past-payment-info > span { align-items: center; border: 1px solid var(--accent); border-radius: 50%; color: var(--accent); display: inline-flex; flex: 0 0 auto; font-size: 9px; height: 17px; justify-content: center; width: 17px; }
+.billing-past-payment-info p { color: var(--text-1); font-size: 11px; line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
+.billing-past-payment-info strong { color: var(--text-1); font-weight: 600; }
+.billing-past-payment-info small { color: var(--text-3); font-size: inherit; }
 
 .billing-past-modal-title-row {
   align-items: center;
@@ -10437,6 +10547,21 @@ select:focus-visible {
   font-size: 13px;
   margin: 0 0 20px;
 }
+
+.billing-past-account-summary { align-items: center; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-md); display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) auto; margin-bottom: 14px; min-height: 74px; padding: 10px 12px; }
+.billing-past-account-summary-copy { display: grid; gap: 7px; min-width: 0; }
+.billing-past-account-tool { align-items: center; display: flex; gap: 10px; min-width: 0; }
+.billing-past-account-tool strong { color: var(--text-1); font-size: 13px; }
+.billing-past-account-summary-copy > .linked-account-cell { padding-left: 38px !important; width: auto; }
+.billing-past-account-summary > button { justify-self: end; }
+.billing-past-invoice-control { align-content: center; background: var(--modal-field-bg); border: 2px dashed var(--text-3); border-radius: var(--r-sm); cursor: pointer; display: grid; gap: 3px; justify-items: center; min-height: 76px; padding: 10px 12px; position: relative; text-align: center; }
+.billing-past-invoice-control input { cursor: pointer; inset: 0; opacity: 0; position: absolute; width: 100%; }
+.billing-past-invoice-control svg { color: var(--text-2); }
+.billing-past-invoice-control strong { color: var(--text-2); font-size: 12px; }
+.billing-past-invoice-control small { color: var(--text-3); font-size: 10px; }
+.billing-past-or-pill { align-items: center; align-self: center; background: transparent; border: 1px solid var(--border); border-radius: 999px; color: var(--text-2); display: inline-flex; font-size: 11px; justify-content: center; justify-self: center; margin: 4px 0; min-height: 30px; min-width: 48px; padding: 5px 14px; }
+.billing-period-preview-actions { align-items: center; display: flex; justify-content: space-between; }
+.billing-period-preview-actions > span { color: var(--text-2); font-size: 11px; }
 
 .billing-past-choice-grid {
   display: grid;
@@ -10566,6 +10691,227 @@ select:focus-visible {
   min-width: 86px;
 }
 
+/* Exact rendered Add Past Billing form hierarchy and surfaces. */
+.billing-past-modal.is-single-payment .billing-past-modal-title-row,
+.billing-past-modal.is-period-builder .billing-past-modal-title-row {
+  margin-bottom: 16px;
+}
+
+.billing-past-modal.is-single-payment .billing-past-modal-title-row > h2,
+.billing-past-modal.is-period-builder .billing-past-modal-title-row > h2 {
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.billing-past-modal.is-single-payment > .billing-past-form-heading,
+.billing-past-modal.is-period-builder > .billing-past-form-heading {
+  color: var(--text-1);
+  font-size: 21px;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.billing-past-modal.is-single-payment .billing-past-payment-details,
+.billing-past-modal.is-period-builder .billing-past-payment-details {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.billing-past-entry-choices .billing-past-option-icon,
+.billing-past-entry-choices button.is-selected .billing-past-option-icon {
+  background: transparent;
+  color: var(--accent);
+}
+
+.billing-past-modal.is-single-payment .billing-past-payment-details .billing-past-invoice-control,
+.billing-past-modal.is-period-builder .billing-past-payment-details .billing-past-invoice-control {
+  border: 2px dashed var(--text-3);
+}
+
+.billing-past-modal.is-single-payment .billing-past-payment-details .billing-past-or-pill,
+.billing-past-modal.is-period-builder .billing-past-payment-details .billing-past-or-pill {
+  font-size: 11px;
+  min-height: 30px;
+  min-width: 48px;
+  padding: 5px 14px;
+}
+
+.billing-past-footer-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.billing-past-footer-row .billing-past-payment-info {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.billing-past-footer-row .billing-past-modal-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.billing-past-type-field {
+  display: grid;
+  gap: 8px;
+}
+
+.billing-past-field-label small {
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.billing-past-type-field > small {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+.billing-past-type-selector .preset-tool-pill {
+  cursor: pointer;
+  font-size: 12px;
+  min-height: 32px;
+  padding: 5px 11px;
+}
+
+.billing-past-type-selector .preset-tool-pill:disabled:not(.is-added) {
+  border-color: var(--border);
+  color: var(--text-3);
+  cursor: not-allowed;
+  opacity: .42;
+}
+
+.billing-past-type-dropdown .billing-past-type-trigger {
+  padding: 6px 10px;
+}
+
+.billing-past-selected-types {
+  align-items: center;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.billing-past-selected-types > span {
+  color: var(--text-3);
+}
+
+.billing-past-selected-type-chip {
+  flex: 0 1 auto;
+  font-size: 11px;
+  gap: 5px;
+  min-height: 28px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.billing-past-type-dropdown .custom-select-options {
+  z-index: 180;
+}
+
+.billing-past-single-components {
+  display: grid;
+  gap: 12px;
+}
+
+.billing-past-single-component {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 9px;
+  padding-top: 12px;
+}
+
+.billing-past-single-component h5 {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+  margin: 0;
+}
+
+.billing-past-single-component:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.billing-past-modal.is-single-payment .billing-past-footer-row {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.billing-past-modal.is-period-review .billing-past-footer-row {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.billing-past-modal.is-period-review .billing-period-review {
+  background: transparent;
+  border: 0;
+  gap: 14px;
+  padding: 0;
+}
+
+.billing-period-review-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.billing-period-review-header h4 {
+  color: var(--text-1);
+  font-size: 16px;
+  margin: 0;
+}
+
+.billing-period-review-header button {
+  background: transparent;
+  border: 1px solid rgba(247, 197, 62, 0.46);
+  border-radius: var(--r-sm);
+  color: var(--accent);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 650;
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.billing-period-review-header button:hover {
+  background: rgba(247, 197, 62, 0.08);
+  border-color: var(--accent);
+}
+
+.billing-period-review-order {
+  color: var(--text-3);
+  font-size: 11px;
+  margin: 0;
+}
+
+.billing-period-review-helper {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: -4px 0 0;
+}
+
+.billing-past-modal.is-single-payment .billing-past-payment-info {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
 .billing-past-modal .billing-history-period-preview {
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -10625,7 +10971,7 @@ select:focus-visible {
   align-items: center;
   display: grid;
   gap: 8px;
-  grid-template-columns: 1.05fr 1fr 1.28fr 1.1fr 1.18fr 52px;
+  grid-template-columns: 1.3fr 1.15fr 1.55fr 1.15fr 52px;
   min-width: 0;
   padding: 8px 10px;
 }
@@ -10656,6 +11002,12 @@ select:focus-visible {
   padding: 0 8px;
 }
 
+.billing-period-inline-date {
+  font-size: 11px;
+  min-height: 34px;
+  padding: 0 8px;
+}
+
 .billing-period-draft-row .billing-past-dropdown.is-open {
   position: relative;
   z-index: 18;
@@ -10667,7 +11019,7 @@ select:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: minmax(76px, 0.8fr) minmax(0, 1fr);
   min-height: 34px;
 }
 
@@ -10676,10 +11028,11 @@ select:focus-visible {
   box-shadow: 0 0 0 2px rgba(247, 197, 62, 0.15);
 }
 
-.billing-period-inline-amount small {
+.billing-period-inline-amount .billing-past-dropdown .custom-select-trigger {
+  border: 0;
+  border-radius: 0;
   border-right: 1px solid var(--border);
-  color: var(--text-3);
-  padding: 0 7px;
+  min-height: 32px;
 }
 
 .billing-period-inline-amount input {
@@ -10744,6 +11097,132 @@ select:focus-visible {
 .billing-history-activity-row span,
 .billing-history-activity-row p { color: var(--text-3); font-size: 10px; }
 .billing-history-activity-row p { margin: 0; }
+
+/* Billing directory and Billing Details foundation */
+.billing-directory {
+  --billing-directory-columns: 44px 44px 236px 213px 150px minmax(112px, 1fr);
+  overflow: hidden;
+}
+
+.billing-directory-head {
+  grid-template-columns: var(--billing-directory-columns) !important;
+}
+
+.billing-directory-group {
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: var(--billing-directory-columns);
+  min-height: 54px;
+}
+
+.billing-directory-group:first-of-type { border-top: 0; }
+
+.billing-directory-tool,
+.billing-directory-account-row {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.billing-directory-tool {
+  align-items: center;
+  align-self: start;
+  display: flex;
+  gap: 12px;
+  grid-column: 3;
+  height: 54px;
+  padding: 0 12px;
+}
+
+.billing-directory-tool:hover strong,
+.billing-directory-account-row:hover .billing-directory-plan { color: var(--accent); }
+.billing-directory-tool strong { color: var(--text-1); font-size: 13px; }
+
+.billing-directory-accounts { grid-column: 4 / -1; min-width: 0; }
+.billing-directory-account-row {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 213px 150px minmax(112px, 1fr);
+  height: 54px;
+  padding: 0;
+  width: 100%;
+}
+.billing-directory-account-row:first-child { border-top: 0; }
+
+.billing-directory-account-identity { display: block; min-width: 0; padding: 0 12px; }
+.billing-directory-plan { align-items: center; color: var(--text-2); display: flex; font-size: 12px; min-width: 0; padding: 0 12px; }
+.billing-directory-status { min-width: 0; }
+
+.billing-details-view { display: grid; gap: 16px; }
+.billing-details-header { display: grid; gap: 3px; }
+.billing-details-header h2 { color: var(--text-1); font-size: 20px; margin: 0; }
+.billing-details-header p { color: var(--text-3); font-size: 11px; margin: 0; }
+.billing-details-account-selector { flex-wrap: wrap; }
+.billing-details-account-list { display: grid; gap: 16px; }
+.billing-details-account { background: #1d1d20; }
+.billing-details-account-header { align-items: center; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; min-height: 48px; padding: 0 14px; }
+.billing-details-account-header > .linked-account-cell { width: auto; }
+.billing-details-account-separator,
+.billing-details-account-plan { color: var(--text-1); }
+.billing-details-status { align-items: center; display: flex; font-size: 11px; gap: 7px; }
+.billing-details-account-body { display: grid; gap: 14px; padding: 13px 14px 16px; }
+.billing-details-section { display: grid; gap: 8px; padding: 0; }
+.billing-details-section h3 { color: var(--text-2); font-size: 12px; letter-spacing: .02em; margin: 0; text-transform: uppercase; }
+.billing-details-section-heading { align-items: center; display: flex; min-height: 36px; justify-content: space-between; }
+.billing-details-primary-action { background: var(--accent); border: 0; border-radius: 8px; color: #17130a; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; padding: 8px 12px; }
+.billing-details-payment-list { background: rgba(255, 255, 255, .012); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.billing-details-payment-head,
+.billing-details-payment-row { align-items: center; display: grid; gap: 12px; grid-template-columns: 1.1fr 1.2fr 1.2fr 1fr .8fr; padding: 0 12px; }
+.billing-details-payment-head { color: var(--text-3); font-size: 9px; height: 32px; letter-spacing: .08em; text-transform: uppercase; }
+.billing-details-payment-row { border-top: 1px solid var(--border); color: var(--text-2); font-size: 11px; min-height: 42px; }
+.billing-details-empty { background: rgba(255, 255, 255, .018); border-radius: 8px; display: grid; gap: 5px; padding: 15px 16px; text-align: left; }
+.billing-details-empty strong { color: var(--text-1); font-size: 12px; }
+.billing-details-empty span { color: var(--text-3); font-size: 11px; }
+.billing-details-setup-empty button { align-self: start; background: var(--surface-3); border: 1px solid var(--border); border-radius: 8px; color: var(--text-3); justify-self: start; margin-top: 7px; padding: 8px 12px; }
+.billing-details-components { margin-bottom: 0; }
+.billing-details-component { border: 0; }
+.billing-details-activity-list,
+.billing-details-upcoming-list { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.billing-details-activity-list > div,
+.billing-details-upcoming-list > div { align-items: center; border-top: 1px solid var(--border); display: flex; justify-content: space-between; min-height: 46px; padding: 0 13px; }
+.billing-details-activity-list > div:first-child,
+.billing-details-upcoming-list > div:first-child { border-top: 0; }
+.billing-details-activity-list span { display: grid; gap: 2px; }
+.billing-details-activity-list strong,
+.billing-details-upcoming-list strong { color: var(--text-1); font-size: 11px; }
+.billing-details-activity-list small,
+.billing-details-upcoming-list small,
+.billing-details-upcoming-list span { color: var(--text-3); font-size: 10px; }
+.billing-details-activity-list p { color: var(--text-3); font-size: 10px; margin: 0; }
+
+.billing-upcoming-placeholder {
+  align-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  display: grid;
+  gap: 7px;
+  justify-items: center;
+  min-height: 190px;
+  padding: 28px;
+  text-align: center;
+}
+.billing-upcoming-placeholder strong { color: var(--text-1); font-size: 13px; }
+.billing-upcoming-placeholder span { color: var(--text-3); font-size: 11px; }
+
+@media (max-width: 760px) {
+  .billing-directory { --billing-directory-columns: 0 0 30% 31% 21% 18%; }
+  .billing-directory-head > span:nth-child(-n + 2) { display: none; }
+  .billing-directory-account-row { grid-template-columns: 44.3% 30% 25.7%; }
+  .billing-details-component { grid-template-columns: 1fr; }
+  .billing-details-component > span { border-bottom: 1px solid var(--border); border-right: 0; }
+  .billing-details-component > span:last-child { border-bottom: 0; }
+}
 
 @media (max-width: 700px) {
   .billing-history-collapsed-summary { display: none; }

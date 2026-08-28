@@ -7,10 +7,10 @@ type ListPageToolbarProps = {
   accountLabels: string[];
   activeCategory: boolean;
   activeSection: "tools" | "linked" | "accounts" | "watchlist" | "billing" | "favorites" | "archive";
-  billingView: "All" | "Month";
+  billingView: "All" | "Upcoming" | "Month";
   planFilter: ReactNode;
   onAccountFilterChange: (value: string) => void;
-  onBillingViewChange: (value: "All" | "Month") => void;
+  onBillingViewChange: (value: "All" | "Upcoming" | "Month") => void;
   onSearchQueryChange: (value: string) => void;
   onToolSortChange: (value: ToolSortRange) => void;
   searchQuery: string;
@@ -78,6 +78,7 @@ export default function ListPageToolbar({
             <div className="category-view-tab-list">
               {[
                 { label: "All", value: "All" as const },
+                { label: "Upcoming", value: "Upcoming" as const },
                 { label: "By Month", value: "Month" as const },
               ].map((option) => (
                 <button
