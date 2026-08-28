@@ -10446,9 +10446,9 @@ select:focus-visible {
 .billing-past-modal.is-single-payment .billing-past-modal-actions { margin-top: 10px; }
 .billing-past-payment-info {
   align-items: center;
-  background: var(--modal-field-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   display: flex;
   gap: 10px;
   margin-top: 0;
@@ -10682,6 +10682,49 @@ select:focus-visible {
   resize: vertical;
 }
 
+.billing-past-status-notes-row { align-items: stretch; }
+.billing-past-status-notes-row .form-field { min-width: 0; }
+.billing-past-status-notes-row .billing-past-note-field input {
+  min-height: 42px;
+}
+.billing-past-status-notes-row .billing-past-note-field input:focus { border-color: var(--accent); }
+
+.billing-past-additional-payment {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 12px;
+  padding-top: 14px;
+}
+
+.billing-past-additional-payment-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.billing-past-additional-payment-heading h5 { color: var(--accent); font-size: 12px; margin: 0; }
+.billing-past-additional-payment-heading button { background: transparent; border: 0; color: var(--danger); cursor: pointer; font: inherit; font-size: 11px; padding: 2px 0; }
+.billing-past-shared-currency { align-items: center; border-right: 1px solid var(--border); color: var(--text-2); display: flex; min-width: 105px; padding: 0 12px; }
+.billing-past-add-another-payment {
+  align-items: center;
+  align-self: stretch;
+  background: transparent;
+  border: 1px solid var(--text-3);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  display: flex;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 14px;
+  width: 100%;
+}
+
+.billing-past-add-another-payment:hover { border-color: var(--text-2); }
+
 .billing-past-modal-actions {
   justify-content: flex-end;
   margin-top: 18px;
@@ -10740,10 +10783,12 @@ select:focus-visible {
 
 .billing-past-footer-row {
   align-items: center;
+  border-top: 1px solid var(--border);
   display: flex;
   gap: 12px;
   justify-content: space-between;
   margin-top: 10px;
+  padding-top: 12px;
 }
 
 .billing-past-footer-row .billing-past-payment-info {
@@ -10905,6 +10950,8 @@ select:focus-visible {
   margin: -4px 0 0;
 }
 
+.billing-period-review-currency { justify-self: start; width: 180px; }
+
 .billing-past-modal.is-single-payment .billing-past-payment-info {
   background: transparent;
   border: 0;
@@ -10971,7 +11018,8 @@ select:focus-visible {
   align-items: center;
   display: grid;
   gap: 8px;
-  grid-template-columns: 1.3fr 1.15fr 1.55fr 1.15fr 52px;
+  grid-template-columns: minmax(170px, 190px) minmax(150px, 170px) minmax(170px, 190px) minmax(130px, 150px) 50px;
+  justify-content: space-between;
   min-width: 0;
   padding: 8px 10px;
 }
@@ -11019,7 +11067,7 @@ select:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
   display: grid;
-  grid-template-columns: minmax(76px, 0.8fr) minmax(0, 1fr);
+  grid-template-columns: 68px minmax(0, 1fr);
   min-height: 34px;
 }
 
@@ -11028,11 +11076,14 @@ select:focus-visible {
   box-shadow: 0 0 0 2px rgba(247, 197, 62, 0.15);
 }
 
-.billing-period-inline-amount .billing-past-dropdown .custom-select-trigger {
-  border: 0;
-  border-radius: 0;
+.billing-period-inline-currency {
+  align-items: center;
   border-right: 1px solid var(--border);
+  color: var(--text-2);
+  display: flex;
+  font-size: 11px;
   min-height: 32px;
+  padding: 0 9px;
 }
 
 .billing-period-inline-amount input {
@@ -11156,7 +11207,18 @@ select:focus-visible {
 
 .billing-directory-account-identity { display: block; min-width: 0; padding: 0 12px; }
 .billing-directory-plan { align-items: center; color: var(--text-2); display: flex; font-size: 12px; min-width: 0; padding: 0 12px; }
-.billing-directory-status { min-width: 0; }
+.tool-database-linked.billing-directory .billing-directory-head > span:last-child,
+.tool-database-linked.billing-directory .billing-directory-account-row > .billing-directory-status {
+  justify-content: flex-start;
+  padding: 0 12px;
+  text-align: left;
+}
+
+.tool-database-linked.billing-directory .billing-directory-status > .linked-status-readonly {
+  min-width: 0;
+  padding-left: 0;
+  width: auto;
+}
 
 .billing-details-view { display: grid; gap: 16px; }
 .billing-details-header { display: grid; gap: 3px; }
@@ -11202,7 +11264,7 @@ select:focus-visible {
 
 .billing-upcoming-placeholder {
   align-content: center;
-  background: var(--surface);
+  background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   display: grid;
