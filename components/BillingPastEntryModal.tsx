@@ -35,8 +35,8 @@ export default function BillingPastEntryModal({ relationships, onCancel, onConti
 
   return <div className="welcome-modal-overlay billing-past-entry-overlay" onClick={(event) => { if (event.target === event.currentTarget) onCancel(); }} role="presentation">
     <section aria-labelledby="billing-past-entry-title" aria-modal="true" className="welcome-modal billing-past-entry-modal" role="dialog">
-      <div className="billing-past-modal-title-row"><h2 id="billing-past-entry-title">Add Past Billing</h2></div>
-      <button aria-label="Close Add Past Billing" className="modal-close-button billing-past-entry-close" onClick={onCancel} type="button">×</button>
+      <div className="billing-past-modal-title-row"><h2 id="billing-past-entry-title">Add Payment</h2></div>
+      <button aria-label="Close Add Payment" className="modal-close-button billing-past-entry-close" onClick={onCancel} type="button">×</button>
       <label className="form-field"><span>Tool / Account</span><span className="search-box billing-past-entry-search"><span className="search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg></span><input onChange={(event) => setQuery(event.target.value)} placeholder="Search paid tool or account" type="search" value={query}/></span></label>
       <div className="billing-past-relationship-list" role="listbox">
         {visibleRelationships.length ? visibleRelationships.map((relationship) => <button aria-selected={selectedRelationshipId === relationship.relationshipId} className={selectedRelationshipId === relationship.relationshipId ? "is-selected" : ""} key={relationship.relationshipId} onClick={() => setSelectedRelationshipId(relationship.relationshipId)} role="option" type="button">

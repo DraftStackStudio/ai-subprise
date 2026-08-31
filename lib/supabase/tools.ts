@@ -439,8 +439,10 @@ export async function updateToolLinkDetails(
     trialResolutionHistory?: TrialResolutionHistoryEntry[];
     trialResolved?: boolean;
   },
+  options?: { expectedRelationshipId: string },
 ) {
   const account = accounts.find((item) => item.label === accountLabel);
+  if (!account?.id && options) throw new Error("The account could not be identified. Reopen Billing Details before saving.");
   if (!account?.id) return;
 
   const supabase = createClient();
@@ -472,6 +474,9 @@ export async function updateToolLinkDetails(
     .maybeSingle();
 
   if (linkError) throw linkError;
+  if (options && activeLink?.id !== options.expectedRelationshipId) {
+    throw new Error("The relationship changed or is no longer linked. Reopen Billing Details before saving.");
+  }
   if (!activeLink) return;
 
   if (Object.keys(payload).length > 0) {

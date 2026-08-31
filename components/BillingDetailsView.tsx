@@ -4,6 +4,7 @@ import type { BillingAmount } from "@/types/toolDetail";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
+import BillingCurrentEditor, { type BillingCurrentActions } from "@/components/BillingCurrentEditor";
 
 export type BillingDetailsAccount = {
   accountActivity: BillingHistoryEntry[];
@@ -11,13 +12,14 @@ export type BillingDetailsAccount = {
   accountLabel: string;
   accountTag: string;
   billingAmounts: BillingAmount[];
+  canEditCurrentBilling: boolean;
   planName: string;
   relationshipId: string;
   status: string;
   transactions: BillingTransaction[];
 };
 
-type BillingDetailsViewProps = {
+type BillingDetailsViewProps = BillingCurrentActions & {
   accounts: BillingDetailsAccount[];
   onOpenBillingHistory: (relationshipId: string) => void;
   onSelectRelationship: (relationshipId: string | null) => void;
@@ -43,8 +45,9 @@ function DetailsSection({ action, children, title }: { action?: ReactNode; child
   </section>;
 }
 
-function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDetailsAccount; onOpenBillingHistory: (relationshipId: string) => void }) {
+function AccountDetails({ account, onOpenBillingHistory, ...currentActions }: BillingCurrentActions & { account: BillingDetailsAccount; onOpenBillingHistory: (relationshipId: string) => void }) {
   const accountPlan = account.planName;
+  const recurringComponents = account.billingAmounts.filter((component) => component.billingType === "Monthly" || component.billingType === "Yearly");
   const upcoming = account.billingAmounts.filter((component) => {
     if (component.billingType !== "Monthly" && component.billingType !== "Yearly") return false;
     return Boolean(component.nextRenewalDate && component.nextRenewalDate >= new Date().toISOString().slice(0, 10));
@@ -72,7 +75,15 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
 
     <DetailsSection title="Current Billing">
       {account.billingAmounts.length ? <div className="billing-history-components billing-details-components">{account.billingAmounts.map((component) => { const date = componentDate(component); return <div className="billing-history-component billing-details-component" key={component.id}><span className="billing-history-summary-cell"><span><small>Billing type</small><strong>{componentType(component.billingType)}</strong></span></span><span className="billing-history-summary-cell"><span><small>Amount</small><strong>{component.amount ? [component.currency, component.amount].filter(Boolean).join(" ") : "Not recorded"}</strong></span></span><span className="billing-history-summary-cell"><span><small>{date.label}</small><strong>{date.value ? billingHistoryDisplayDate(date.value) : "Not recorded"}</strong></span></span></div>; })}</div>
-        : <div className="billing-details-empty billing-details-setup-empty"><strong>No billing set up yet.</strong><span>Add the current billing details for this account.</span><button disabled type="button">Set up billing</button></div>}
+        : <div className="billing-details-empty billing-details-setup-empty"><strong>No billing set up yet.</strong><span>Add the current billing details for this account.</span></div>}
+      {account.canEditCurrentBilling && (recurringComponents.length > 0 || account.billingAmounts.length === 0)
+        ? (recurringComponents.length ? recurringComponents : [undefined]).map((component, index) => <BillingCurrentEditor
+          {...currentActions}
+          component={component}
+          key={index}
+          relationshipId={account.relationshipId}
+          transactions={account.transactions}
+        />) : null}
     </DetailsSection>
 
     <DetailsSection title="Upcoming">
@@ -83,7 +94,7 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
   </article>;
 }
 
-export default function BillingDetailsView({ accounts, onOpenBillingHistory, onSelectRelationship, selectedRelationshipId, toolName }: BillingDetailsViewProps) {
+export default function BillingDetailsView({ accounts, onOpenBillingHistory, onSelectRelationship, selectedRelationshipId, toolName, ...currentActions }: BillingDetailsViewProps) {
   const visibleAccounts = selectedRelationshipId ? accounts.filter((account) => account.relationshipId === selectedRelationshipId) : accounts;
   return <div className="billing-details-view">
     <header className="billing-details-header"><h2>{toolName}</h2><p>Billing Details</p></header>
@@ -91,6 +102,6 @@ export default function BillingDetailsView({ accounts, onOpenBillingHistory, onS
       <button className={`category-view-tab${!selectedRelationshipId ? " active" : ""}`} onClick={() => onSelectRelationship(null)} type="button">All accounts</button>
       {accounts.map((account) => <button className={`category-view-tab${selectedRelationshipId === account.relationshipId ? " active" : ""}`} key={account.relationshipId} onClick={() => onSelectRelationship(account.relationshipId)} type="button">{account.accountLabel}{account.planName ? ` · ${account.planName}` : ""}</button>)}
     </div> : null}
-    <div className="billing-details-account-list">{visibleAccounts.map((account) => <AccountDetails account={account} key={account.relationshipId} onOpenBillingHistory={onOpenBillingHistory} />)}</div>
+    <div className="billing-details-account-list">{visibleAccounts.map((account) => <AccountDetails {...currentActions} account={account} key={account.relationshipId} onOpenBillingHistory={onOpenBillingHistory} />)}</div>
   </div>;
 }

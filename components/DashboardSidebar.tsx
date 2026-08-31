@@ -234,7 +234,7 @@ export default function DashboardSidebar({
               <span className="email-tool-count">{account.linked}</span>
             </div>
           ))}
-          {hasMoreSidebarAccounts ? <a className="email-account-item email-view-all" href={viewAllAccountsHref}>View all accounts</a> : null}
+          {hasMoreSidebarAccounts ? <a className="email-account-item email-view-all" href={viewAllAccountsHref}>View by accounts</a> : null}
         </div>
       </nav>
 

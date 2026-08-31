@@ -4,6 +4,7 @@ type BulkToolActionsProps = {
   onArchive: () => void;
   onClear: () => void;
   onDelete: () => void;
+  onRestore?: () => void;
   onUnwatch?: () => void;
   selectedCount: number;
 };
@@ -14,6 +15,7 @@ export default function BulkToolActions({
   onArchive,
   onClear,
   onDelete,
+  onRestore,
   onUnwatch,
   selectedCount,
 }: BulkToolActionsProps) {
@@ -38,6 +40,11 @@ export default function BulkToolActions({
       {actionSet !== "archive" ? (
         <button className="bulk-action-btn" onClick={onArchive} type="button">
           Archive
+        </button>
+      ) : null}
+      {actionSet === "archive" ? (
+        <button className="bulk-action-btn" onClick={onRestore} type="button">
+          Restore
         </button>
       ) : null}
       {actionSet === "archive" ? (

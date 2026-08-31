@@ -11,8 +11,10 @@ import BillingHistoryPanel, { type BillingHistoryAccount } from "@/components/Bi
 import BillingPastEntryModal, { type BillingPastEntryRelationship } from "@/components/BillingPastEntryModal";
 import BillingDetailsView, { type BillingDetailsAccount } from "@/components/BillingDetailsView";
 import BillingDirectory, { type BillingDirectoryGroup } from "@/components/BillingDirectory";
+import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
+import ActionNeededView, { type ActionNeededItem } from "@/components/ActionNeededView";
 import AccountsOverview from "@/components/AccountsOverview";
-import BillingRow, { type BillingRowOptions } from "@/components/BillingRow";
+import BillingRow, { HistoricalBillingRow, type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
 import BulkToolActions from "@/components/BulkToolActions";
 import AIToolboxView from "@/components/AIToolboxView";
@@ -89,8 +91,9 @@ import type {
   ToolStatus,
 } from "@/types/toolDetail";
 import type { LinkToolAccountBlock } from "@/types/linkTool";
-import { getBillingTransactions } from "@/lib/supabase/billingTransactions";
-import type { BillingTransaction } from "@/types/billingTransaction";
+import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship, updateBillingTransaction } from "@/lib/supabase/billingTransactions";
+import { estimateCurrentPayment, hasCurrentPayment, localBillingToday, validBillingDate, type CurrentPaymentEstimate, type RecurringBillingSettings } from "@/lib/currentBilling";
+import type { BillingTransaction, BillingTransactionStatus, BillingTransactionType, UpdateBillingTransactionInput } from "@/types/billingTransaction";
 import {
   createToolRecord,
   getDeletedToolRecords,
@@ -909,6 +912,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const requestedView = searchParams.get("view");
   const initialView: Section = forcedSection ?? (requestedView === "account" || requestedView === "settings" ? requestedView : "dashboard");
   const [activeSection, setActiveSection] = useState<Section>(initialView);
+  const [isActionNeededViewOpen, setIsActionNeededViewOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState("");
   const [activeToolboxClusterId, setActiveToolboxClusterId] = useState("everyday");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1006,8 +1010,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [confirmPasswordError, setConfirmPasswordError] = useState("");
   const [passwordMessage, setPasswordMessage] = useState("");
   const [defaultCurrency, setDefaultCurrency] = useState("USD");
-  const [remindersEnabled, setRemindersEnabled] = useState(true);
-  const [reminderDays, setReminderDays] = useState("7");
+  const [trialAlertsEnabled, setTrialAlertsEnabled] = useState(true);
+  const [trialAlertDays, setTrialAlertDays] = useState("7");
   const [renewalAlertsEnabled, setRenewalAlertsEnabled] = useState(true);
   const [renewalAlertDays, setRenewalAlertDays] = useState("7");
   const [settingsTab, setSettingsTab] = useState<"billing" | "profile">("billing");
@@ -1064,6 +1068,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [selectedToolSort, setSelectedToolSort] = useState<ToolSortRange>("Category");
   const [linkedPlanFilter, setLinkedPlanFilter] = useState<LinkedPlanFilter>("All");
   const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Upcoming" | "Month">("All");
+  const [billingUpcomingFilter, setBillingUpcomingFilter] = useState<BillingUpcomingFilter>("All");
   const [billingDetailsTarget, setBillingDetailsTarget] = useState<{ relationshipId: string | null; toolId: string } | null>(null);
   const [billingTransactions, setBillingTransactions] = useState<BillingTransaction[]>([]);
   const [billingHistoryTarget, setBillingHistoryTarget] = useState<BillingHistoryTarget | null>(null);
@@ -1264,8 +1269,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       const storedRenewalAlertDays = window.localStorage.getItem("ai-subprise-renewal-alert-days");
 
       if (storedDefaultCurrency) setDefaultCurrency(normaliseCurrency(storedDefaultCurrency));
-      if (storedRemindersEnabled !== null) setRemindersEnabled(storedRemindersEnabled === "true");
-      if (["3", "7", "14"].includes(storedReminderDays ?? "")) setReminderDays(storedReminderDays ?? "7");
+      if (storedRemindersEnabled !== null) setTrialAlertsEnabled(storedRemindersEnabled === "true");
+      if (["3", "7", "14"].includes(storedReminderDays ?? "")) setTrialAlertDays(storedReminderDays ?? "7");
       if (storedRenewalAlertsEnabled !== null) setRenewalAlertsEnabled(storedRenewalAlertsEnabled === "true");
       if (["3", "7", "14"].includes(storedRenewalAlertDays ?? "")) setRenewalAlertDays(storedRenewalAlertDays ?? "7");
 
@@ -5166,35 +5171,69 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const trialToolCount = toolsWithValidAccountLinks.filter((tool) =>
     !tool.archived && (tool.status === "Trial" || Object.values(toolAccountStatuses[tool.id] ?? {}).includes("Trial")),
   ).length;
-  const trialsEndingSoon = remindersEnabled ? toolsWithValidAccountLinks
+  const relationPlan = (tool: ToolItem, accountLabel: string) => {
+    const status = relationStatus(tool, accountLabel);
+    if (status === "Active" || status === "Paid") return "Paid";
+    const override = toolPlanOverrideFor(tool);
+    if (override) return override.not_paid_label;
+    if (status === "Trial") return "Trial";
+    return "Free";
+  };
+  const futureTrialItems: BillingUpcomingItem[] = toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
-    .flatMap((tool) =>
-      tool.accounts.flatMap((accountLabel) => {
-        const detail = toolAccountDetails[tool.id]?.[accountLabel];
-        const relationPlan = relationStatus(tool, accountLabel);
-        const daysRemaining = detail?.trialExpiryDate ? daysUntilDate(detail.trialExpiryDate) : null;
-
-        if (relationPlan !== "Trial" || !detail?.trialExpiryDate || daysRemaining === null || daysRemaining < 0 || daysRemaining > Number(reminderDays)) {
-          return [];
-        }
-
-        return [{
-          accountLabel,
-          daysRemaining,
-          expiryDate: detail.trialExpiryDate,
-          tool,
-        }];
-      }),
-    )
-    .sort((a, b) => a.daysRemaining - b.daysRemaining) : [];
-  const trialsNeedingConfirmation = remindersEnabled ? toolsWithValidAccountLinks
+    .flatMap((tool) => tool.accounts.flatMap((accountLabel): BillingUpcomingItem[] => {
+      const detail = toolAccountDetails[tool.id]?.[accountLabel];
+      const relationshipId = detail?.relationshipId;
+      const date = detail?.trialExpiryDate ?? "";
+      if (!relationshipId || (detail.status ?? "Active") !== "Active" || relationPlan(tool, accountLabel) !== "Trial" || (daysUntilDate(date) ?? 0) <= 0) return [];
+      const account = accountList.find((candidate) => candidate.label === accountLabel);
+      return [{
+        accountEmail: account?.login ?? "",
+        accountLabel,
+        accountTag: accountTag(accountLabel, accountList),
+        amount: "—",
+        date,
+        event: "Trial ends",
+        logo: tool.logo,
+        logoBackground: tool.logoBg,
+        relationshipId,
+        toolId: tool.id,
+        toolName: displayToolName(tool.name),
+      }];
+    }));
+  const dashboardTrials = trialAlertsEnabled ? futureTrialItems
+    .filter((trial) => (daysUntilDate(trial.date) ?? 0) <= Number(trialAlertDays))
+    .map((trial) => ({
+      ...trial,
+      daysRemaining: daysUntilDate(trial.date) ?? undefined,
+      expiryDate: trial.date,
+      logoBackground: trial.logoBackground ?? "",
+    }))
+    .sort((left, right) => left.date.localeCompare(right.date)) : [];
+  const trialsNeedingConfirmation = trialAlertsEnabled ? toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
     .flatMap((tool) => tool.accounts.flatMap((accountLabel) => {
       const detail = toolAccountDetails[tool.id]?.[accountLabel];
       const daysRemaining = detail?.trialExpiryDate ? daysUntilDate(detail.trialExpiryDate) : null;
       if (relationStatus(tool, accountLabel) !== "Trial" || daysRemaining === null || daysRemaining >= 0) return [];
-      return [{ accountLabel, tool }];
+      if (!detail?.relationshipId) return [];
+      return [{ accountLabel, expiryDate: detail.trialExpiryDate, relationshipId: detail.relationshipId, tool }];
     })) : [];
+  const actionNeededItems: ActionNeededItem[] = trialsNeedingConfirmation.map((trial) => ({
+    accountLabel: trial.accountLabel,
+    accountLogin: accountList.find((account) => account.label === trial.accountLabel)?.login,
+    accountTag: accountTag(trial.accountLabel, accountList),
+    detail: "Trial ended · Confirm current status",
+    issue: "Trial ended",
+    issueDate: trial.expiryDate,
+    kind: "confirmation",
+    logo: trial.tool.logo,
+    logoBackground: trial.tool.logoBg,
+    relationshipId: trial.relationshipId,
+    statusLabel: "Needs review",
+    toolId: trial.tool.id,
+    toolName: trial.tool.name,
+  }));
   const renderCategoryCell = (tool: ToolItem) => (
     renderDropdown({
       ariaLabel: `Change ${tool.name} category`,
@@ -5212,14 +5251,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     })
   );
 
-  const relationPlan = (tool: ToolItem, accountLabel: string) => {
-    const status = relationStatus(tool, accountLabel);
-    if (status === "Active" || status === "Paid") return "Paid";
-    const override = toolPlanOverrideFor(tool);
-    if (override) return override.not_paid_label;
-    if (status === "Trial") return "Trial";
-    return "Free";
-  };
   const accountOverviewItems = accountsInLoginTableOrder.map((account) => {
     const linkedTools = toolsWithValidAccountLinks.filter(
       (tool) => !tool.archived && tool.accounts.includes(account.label),
@@ -5227,7 +5258,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const paidCount = linkedTools.filter(
       (tool) => relationPlan(tool, account.label) === "Paid",
     ).length;
-    const trialCount = trialsEndingSoon.filter(
+    const trialCount = dashboardTrials.filter(
       (trial) => trial.accountLabel === account.label,
     ).length;
     const trialEndedCount = linkedTools.filter((tool) => {
@@ -5361,7 +5392,68 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         });
       }),
     );
+  const futureRenewalItems: BillingUpcomingItem[] = toolsWithValidAccountLinks
+    .filter((tool) => !tool.archived)
+    .flatMap((tool) => tool.accounts.flatMap((accountLabel): BillingUpcomingItem[] => {
+      const detail = toolAccountDetails[tool.id]?.[accountLabel];
+      const relationshipId = detail?.relationshipId;
+      const relationshipStatus = detail?.status ?? "Active";
+      if (!relationshipId || relationshipStatus !== "Active") return [];
+
+      const account = accountList.find((candidate) => candidate.label === accountLabel);
+      const identity = {
+        accountEmail: account?.login ?? "",
+        accountLabel,
+        accountTag: accountTag(accountLabel, accountList),
+        logo: tool.logo,
+        logoBackground: tool.logoBg,
+        relationshipId,
+        toolId: tool.id,
+        toolName: displayToolName(tool.name),
+      };
+
+      if (relationPlan(tool, accountLabel) !== "Paid") return [];
+      return (detail?.billingAmounts ?? []).flatMap((billingAmount) => {
+        const billingType = normaliseBillingType(billingAmount.billingType);
+        if (billingType !== "Monthly" && billingType !== "Yearly") return [];
+        const date = billingAmount.nextRenewalDate || detail.nextChargeDate;
+        if (!date || (daysUntilDate(date) ?? 0) <= 0) return [];
+        const currency = normaliseOptionalCurrency(billingAmount.currency);
+        return [{ ...identity, amount: [currency, billingAmount.amount].filter(Boolean).join(" "), date, event: "Renewal" as const }];
+      });
+    }));
+  const billingUpcomingItems = [...futureRenewalItems, ...futureTrialItems];
+  const dashboardUpcomingRenewals = renewalAlertsEnabled
+    ? futureRenewalItems
+      .filter((item) => (daysUntilDate(item.date) ?? 0) <= Number(renewalAlertDays))
+      .sort((left, right) => left.date.localeCompare(right.date))
+    : [];
   const billingSearchTerm = billingSearch.trim();
+  const historicalBillingRows = billingTransactions
+    .filter((transaction) => [transaction.toolNameSnapshot, transaction.accountLabelSnapshot, transaction.accountLoginSnapshot, transaction.planNameSnapshot, transaction.billingTypeSnapshot, transaction.currency, transaction.amount, transaction.status, transaction.paymentDate]
+      .some((value) => value.toLowerCase().includes(billingSearchTerm.toLowerCase())))
+    .map((transaction) => ({
+      accountLabel: transaction.accountLabelSnapshot || "Unknown",
+      billingDate: transaction.paymentDate,
+      billingGroupDate: transaction.paymentDate,
+      billingType: transaction.billingTypeSnapshot || "Not available",
+      id: transaction.id,
+      planName: transaction.planNameSnapshot || "Not available",
+      tool: { id: transaction.toolId || transaction.id },
+      transaction,
+    }))
+    .sort((left, right) => right.billingDate.localeCompare(left.billingDate) || left.id.localeCompare(right.id));
+  const saveHistoricalTransaction = async (transaction: BillingTransaction, patch: UpdateBillingTransactionInput) => {
+    if (transaction.source !== "manual") return false;
+    try {
+      const updated = await updateBillingTransaction(transaction.id, patch);
+      setBillingTransactions((current) => current.map((item) => item.id === updated.id ? updated : item));
+      return true;
+    } catch (error: unknown) {
+      setToolDataError(error instanceof Error ? error.message : "Could not update historical payment.");
+      return false;
+    }
+  };
   const billingRows = allBillingRows
     .filter((row) => {
       const query = billingSearchTerm.toLowerCase();
@@ -5479,6 +5571,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           accountLabel: directoryAccount.accountLabel,
           accountTag: directoryAccount.accountTag,
           billingAmounts,
+          canEditCurrentBilling: Boolean(activeDetail && relationPlan(billingDetailsTool, directoryAccount.accountLabel) === "Paid"),
           planName: directoryAccount.planName,
           relationshipId: directoryAccount.relationshipId,
           status: directoryAccount.status,
@@ -5486,6 +5579,74 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         };
       }) ?? []
     : [];
+
+  const currentBillingTarget = (relationshipId: string) => {
+    const account = billingDetailsAccounts.find((item) => item.relationshipId === relationshipId);
+    const tool = billingDetailsTool;
+    const detail = tool && account ? toolAccountDetails[tool.id]?.[account.accountLabel] : undefined;
+    if (!tool || !account?.canEditCurrentBilling || !detail || detail.relationshipId !== relationshipId) {
+      throw new Error("This current Paid relationship is no longer available. Reopen Billing Details.");
+    }
+    return { account, tool, detail };
+  };
+
+  const saveCurrentBillingSettings = async (relationshipId: string, originalType: string | null, settings: RecurringBillingSettings) => {
+    const { account, tool, detail } = currentBillingTarget(relationshipId);
+    if (settings.billingType !== "Monthly" && settings.billingType !== "Yearly") throw new Error("Select Monthly or Yearly.");
+    if (settings.amount && !/^\d+(\.\d+)?$/.test(settings.amount)) throw new Error("Enter an amount of zero or greater.");
+    if (settings.currency && !/^[A-Z]{3}$/.test(settings.currency)) throw new Error("Select a valid currency.");
+    if (settings.nextRenewalDate && !validBillingDate(settings.nextRenewalDate)) throw new Error("Enter a valid next renewal date.");
+    const existing = detail.billingAmounts ?? [];
+    const original = existing.find((component) => component.billingType === originalType);
+    if (originalType && !original) throw new Error("This billing component changed. Reopen the editor.");
+    if (existing.some((component) => component.billingType === settings.billingType && component !== original)) throw new Error("That billing type already exists for this relationship.");
+    const updatedComponent: BillingAmount = { ...settings, id: original?.id ?? billingAmountId() };
+    const billingAmounts = original
+      ? existing.map((component) => component === original ? updatedComponent : component)
+      : [...existing, updatedComponent];
+    const patch = {
+      billingAmounts,
+      billingType: billingAmounts.map((component) => component.billingType).join(", "),
+      amount: billingAmounts[0]?.amount ?? "",
+      currency: billingAmounts[0]?.currency ?? "",
+      nextChargeDate: settings.nextRenewalDate,
+    };
+    if (shouldUseSupabase) await updateToolLinkDetails(tool.id, account.accountLabel, accountList, patch, { expectedRelationshipId: relationshipId });
+    setToolAccountDetails((current) => ({
+      ...current,
+      [tool.id]: { ...current[tool.id], [account.accountLabel]: { ...current[tool.id]?.[account.accountLabel], ...detail, ...patch } },
+    }));
+  };
+
+  const addCurrentBillingPayment = async (relationshipId: string, estimate: CurrentPaymentEstimate) => {
+    const { account, detail } = currentBillingTarget(relationshipId);
+    const component = detail.billingAmounts?.find((item) => item.billingType === estimate.billingType);
+    const currentEstimate = component ? estimateCurrentPayment(relationshipId, {
+      billingType: estimate.billingType, amount: component.amount, currency: component.currency, nextRenewalDate: component.nextRenewalDate ?? "",
+    }) : null;
+    if (!currentEstimate || currentEstimate.sourceKey !== estimate.sourceKey || currentEstimate.amount !== estimate.amount || currentEstimate.currency !== estimate.currency) {
+      throw new Error("Current billing changed. Review the saved cycle before adding a payment.");
+    }
+    if (estimate.paymentDate > localBillingToday()) throw new Error("The estimated payment date is still in the future.");
+    if (!shouldUseSupabase) throw new Error("Sign in to record this payment. Current billing settings remain saved.");
+    const latest = await getBillingTransactionsByRelationship(relationshipId);
+    if (hasCurrentPayment(latest, relationshipId, estimate)) {
+      setBillingTransactions((current) => [...current.filter((item) => item.relationshipId !== relationshipId), ...latest]);
+      return;
+    }
+    const transaction = await createBillingTransaction({
+      relationshipId,
+      sourceKey: estimate.sourceKey,
+      planNameSnapshot: account.planName,
+      billingTypeSnapshot: estimate.billingType,
+      currency: estimate.currency,
+      amount: estimate.amount,
+      paymentDate: estimate.paymentDate,
+      status: "Paid",
+      note: "Previous-cycle date estimated from next renewal; payment explicitly confirmed by user.",
+    });
+    setBillingTransactions((current) => [transaction, ...current.filter((item) => item.id !== transaction.id)]);
+  };
 
   const renderLinkedAccountCell = (accountLabel: string, compact = false) => {
     const accountDetails = accountList.find((account) => account.label === accountLabel);
@@ -5633,6 +5794,38 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     />
   );
 
+  const renderExpiredTrialResolutionControl = (
+    tool: ToolItem,
+    accountLabel: string,
+    options: { idPrefix?: string; relationshipId?: string } = {},
+  ) => renderDropdown({
+    ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
+    className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
+    id: `${options.idPrefix ?? "linked"}-trial-status-${options.relationshipId ?? `${tool.id}-${accountLabel}`}`,
+    onChange: (outcome) => {
+      if (options.relationshipId && toolAccountDetails[tool.id]?.[accountLabel]?.relationshipId !== options.relationshipId) {
+        setToolDataError("Could not resolve this item because its relationship could not be identified.");
+        return;
+      }
+      void resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended");
+    },
+    options: [
+      { disabled: true, label: "Confirm status", value: "" },
+      { label: "Trial converted to paid", value: "converted" },
+      { label: "Trial ended / cancelled", value: "ended" },
+    ],
+    value: "",
+  });
+
+  const renderActionNeededResolutionControl = (item: ActionNeededItem) => {
+    const tool = toolsWithValidAccountLinks.find((candidate) => candidate.id === item.toolId);
+    if (!tool) return null;
+    return renderExpiredTrialResolutionControl(tool, item.accountLabel, {
+      idPrefix: "action-needed",
+      relationshipId: item.relationshipId,
+    });
+  };
+
   const renderLinkedStatusControl = (tool: ToolItem, accountLabel: string) => {
     const plan = relationPlan(tool, accountLabel);
     const detail = toolAccountDetails[tool.id]?.[accountLabel];
@@ -5645,18 +5838,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       return <span className="linked-status-readonly">Active</span>;
     }
     if (isEndedTrial && !detail?.trialResolved) {
-      return renderDropdown({
-        ariaLabel: `Confirm expired trial status for ${tool.name} ${accountLabel}`,
-        className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
-        id: `linked-trial-status-${tool.id}-${accountLabel}`,
-        onChange: (outcome) => resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended"),
-        options: [
-          { disabled: true, label: "Confirm status", value: "" },
-          { label: "Trial converted to paid", value: "converted" },
-          { label: "Trial ended / cancelled", value: "ended" },
-        ],
-        value: "",
-      });
+      return renderExpiredTrialResolutionControl(tool, accountLabel);
     }
     return renderDropdown({
       ariaLabel: `Change ${tool.name} ${accountLabel} status`,
@@ -6188,6 +6370,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           onCloseMobile={() => setIsSidebarOpen(false)}
           viewAllAccountsHref={isDemoMode ? "/accounts?demo=1" : "/accounts"}
           onSelectCategory={(category) => {
+            setIsActionNeededViewOpen(false);
             setActiveSection("tools");
             setActiveCategory(category);
             setSelectedToolSort("All");
@@ -6195,7 +6378,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             setIsSidebarOpen(false);
           }}
           onSelectSection={(section) => {
-            if (section === "billing") setBillingDetailsTarget(null);
+            if (section === "billing") {
+              setBillingDetailsTarget(null);
+              setBillingUpcomingFilter("All");
+            }
+            setIsActionNeededViewOpen(false);
             setActiveSection(section);
             setActiveCategory("");
             setShowRecoveryPanel(false);
@@ -6265,7 +6452,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               ] as Section[]
             ).includes(activeSection)
               ? `main-content list-page-content${
-                  (activeSection === "tools" || activeSection === "watchlist") && selectedVisibleToolIds.length > 0
+                  (activeSection === "tools" || activeSection === "watchlist" || activeSection === "archive") && selectedVisibleToolIds.length > 0
                     ? " has-floating-bulk-actions"
                     : ""
                 }`
@@ -6281,13 +6468,14 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             onAddTool={handleAddToolClick}
             onBackToLogins={() => setActiveSection("account")}
             onBackToBilling={activeSection === "billing" && billingDetailsTarget ? () => setBillingDetailsTarget(null) : undefined}
+            onBackToDashboard={activeSection === "dashboard" && isActionNeededViewOpen ? () => setIsActionNeededViewOpen(false) : undefined}
             onEditCategories={openEditCategoryModal}
             onEditProviders={() => setActiveSection("providers")}
             onOpenPresets={openPresetToolPicker}
             onResetTools={openResetToolsFlow}
             onTogglePendingActions={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
             pendingActionCount={pendingBillingActions.length}
-            subtitle={activeSection === "account" ? (
+            subtitle={activeSection === "dashboard" && isActionNeededViewOpen ? "All unresolved items requiring your confirmation." : activeSection === "account" ? (
               <>
                 Add your logins with nicknames once, use them everywhere. See all accounts and tools in{" "}
                 <a className="inline-text-link" href={isDemoMode ? "/accounts?demo=1" : "/accounts"}>
@@ -6296,7 +6484,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 .
               </>
             ) : subtitle}
-            title={title}
+            title={activeSection === "dashboard" && isActionNeededViewOpen ? "Action needed" : title}
           />
 
           {activeSection === "billing" && isPendingActionsExpanded && pendingBillingActions.length > 0 ? (
@@ -6367,7 +6555,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 window.localStorage.setItem("ai-subprise-renewal-alerts-enabled", String(nextValue));
               }}
               onRemindersEnabledChange={(nextValue) => {
-                setRemindersEnabled(nextValue);
+                setTrialAlertsEnabled(nextValue);
                 window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
               }}
               onReseedDemo={reseedDemoWorkspace}
@@ -6389,34 +6577,32 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               reminderDaysDropdown={renderDropdown({
                 id: "settings-reminder-days",
                 onChange: (days) => {
-                  setReminderDays(days);
+                  setTrialAlertDays(days);
                   window.localStorage.setItem("ai-subprise-reminder-days", days);
                 },
                 options: [3, 7, 14].map((days) => ({ label: `${days} days`, value: String(days) })),
-                value: reminderDays,
+                value: trialAlertDays,
               })}
-              remindersEnabled={remindersEnabled}
+              remindersEnabled={trialAlertsEnabled}
               settingsTab={settingsTab}
               showDeveloperTools={isDemoMode}
             />
           ) : activeSection === "dashboard" ? (
-            <DashboardSummaryView
-              accountCount={accountList.length}
+            isActionNeededViewOpen ? <ActionNeededView items={actionNeededItems} renderAction={renderActionNeededResolutionControl} /> : <DashboardSummaryView
+              actionNeededItems={actionNeededItems}
+              connectedToolCount={totalLinkedToolCount}
+              onSeeUpcoming={(filter) => {
+                setBillingDetailsTarget(null);
+                setBillingUpcomingFilter(filter);
+                setSelectedBillingView("Upcoming");
+                setActiveSection("billing");
+              }}
+              onViewAllActionNeeded={() => setIsActionNeededViewOpen(true)}
               paidToolCount={paidToolCount}
-              reminderDays={reminderDays}
-              toolCount={toolsWithValidAccountLinks.length}
+              toolCount={toolsWithValidAccountLinks.filter((tool) => !tool.archived).length}
               trialToolCount={trialToolCount}
-              trialsEndingSoon={trialsEndingSoon.map((trial) => ({
-                accountLabel: trial.accountLabel,
-                expiryDate: trial.expiryDate,
-                toolId: trial.tool.id,
-                toolName: trial.tool.name,
-              }))}
-              trialsNeedingConfirmation={trialsNeedingConfirmation.map((trial) => ({
-                accountLabel: trial.accountLabel,
-                toolId: trial.tool.id,
-                toolName: trial.tool.name,
-              }))}
+              upcomingRenewals={dashboardUpcomingRenewals}
+              trialsEndingSoon={dashboardTrials}
             />
           ) : (
             <>
@@ -6429,6 +6615,17 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                     activeCategory={Boolean(activeCategory)}
                     activeSection={activeSection}
                     billingView={selectedBillingView}
+                    billingUpcomingFilter={renderDropdown({
+                      ariaLabel: "Filter upcoming billing events",
+                      className: "linked-plan-filter",
+                      id: "billing-upcoming-event-filter",
+                      onChange: (filter) => setBillingUpcomingFilter(filter as BillingUpcomingFilter),
+                      options: (["All", "Renewals", "Trials"] as BillingUpcomingFilter[]).map((filter) => ({
+                        label: `Event: ${filter}`,
+                        value: filter,
+                      })),
+                      value: billingUpcomingFilter,
+                    })}
                     planFilter={renderDropdown({
                       ariaLabel: activeSection === "accounts" ? "Filter account tools by plan" : "Filter linked tools by plan",
                       className: "linked-plan-filter",
@@ -6447,7 +6644,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                       value: activeSection === "accounts" ? accountsPlanFilter : linkedPlanFilter,
                     })}
                     onAccountFilterChange={setAccountsFilter}
-                    onBillingViewChange={setSelectedBillingView}
+                    onBillingViewChange={(view) => {
+                      if (view === "Upcoming") setBillingUpcomingFilter("All");
+                      setSelectedBillingView(view);
+                    }}
                     onSearchQueryChange={setActiveToolSearchQuery}
                     onToolSortChange={setSelectedToolSort}
                     searchQuery={activeToolSearchQuery}
@@ -6472,7 +6672,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                           ? "archive"
                           : "toolbox"
                     }
-                    isFloating={activeSection === "tools" || activeSection === "watchlist"}
+                    isFloating={activeSection === "tools" || activeSection === "watchlist" || activeSection === "archive"}
                     onArchive={() => void archiveSelectedToolIds(selectedVisibleToolIds)}
                     onClear={clearToolSelection}
                     onDelete={() => {
@@ -6482,6 +6682,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                       }
                       void deleteToolIds(selectedVisibleToolIds);
                     }}
+                    onRestore={() => void unarchiveToolIds(selectedVisibleToolIds)}
                     onUnwatch={() => void unwatchSelectedToolIds(selectedVisibleToolIds)}
                     selectedCount={selectedVisibleToolIds.length}
                   />
@@ -6496,6 +6697,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                   billingDetailsTarget && billingDetailsTool ? (
                     <BillingDetailsView
                       accounts={billingDetailsAccounts}
+                      currencyOptions={currencyOptions}
+                      onSaveCurrentBilling={saveCurrentBillingSettings}
+                      onAddCurrentPayment={addCurrentBillingPayment}
                       onOpenBillingHistory={(relationshipId) => {
                         const accountLabel = billingDetailsAccounts.find((account) => account.relationshipId === relationshipId)?.accountLabel;
                         if (!accountLabel) return;
@@ -6515,18 +6719,49 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                       searchTerm={billingSearchTerm}
                     />
                   ) : selectedBillingView === "Upcoming" ? (
-                    <div className="billing-upcoming-placeholder"><strong>Upcoming billing is not configured yet</strong><span>The scheduling engine will be introduced in a later billing phase.</span></div>
+                    <BillingUpcomingView eventFilter={billingUpcomingFilter} items={billingUpcomingItems} />
                   ) : (
-                    <div className="account-table tool-database tool-database-billing tool-database-flat">
+                    <div className="account-table tool-database tool-database-billing tool-database-flat billing-month-database">
                       <BillingView
+                        historical
                         billingMonthLabel={billingMonthLabel}
-                        billingRows={billingRows}
+                        billingRows={historicalBillingRows}
                         billingSearchTerm={billingSearchTerm}
-                        hasBillingRecords={allBillingRows.length > 0}
+                        hasBillingRecords={billingTransactions.length > 0}
                         isLoadingTools={isLoadingTools}
                         onClearSearch={() => setBillingSearch("")}
                         onLinkAccount={() => openLinkToolModal()}
-                        renderBillingRow={renderBillingRow}
+                        renderBillingRow={({ transaction }) => <HistoricalBillingRow
+                          transaction={transaction}
+                          toolVisual={toolList.find((tool) => tool.id === transaction.toolId)}
+                          accountTag={accountList.find((account) => account.id === transaction.loginId)?.tag}
+                          onChange={(patch) => saveHistoricalTransaction(transaction, patch)}
+                          currencyControl={renderDropdown({
+                            ariaLabel: "Payment currency",
+                            className: "billing-currency-dropdown",
+                            id: `transaction-currency-${transaction.id}`,
+                            options: currencyOptions,
+                            placeholder: "—",
+                            value: transaction.currency,
+                            onChange: (currency) => void saveHistoricalTransaction(transaction, { currency }),
+                          })}
+                          typeControl={renderDropdown({
+                            ariaLabel: "Payment billing type",
+                            className: "billing-type-dropdown",
+                            id: `transaction-type-${transaction.id}`,
+                            options: (["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"] as BillingTransactionType[]).map((value) => ({ label: value, value })),
+                            placeholder: "Not set",
+                            value: transaction.billingTypeSnapshot,
+                            onChange: (value) => void saveHistoricalTransaction(transaction, { billingTypeSnapshot: value as BillingTransactionType }),
+                          })}
+                          statusControl={renderDropdown({
+                            ariaLabel: "Payment status",
+                            id: `transaction-status-${transaction.id}`,
+                            options: (["Paid", "Refunded", "Failed", "Pending"] as BillingTransactionStatus[]).map((value) => ({ label: value, value })),
+                            value: transaction.status,
+                            onChange: (value) => void saveHistoricalTransaction(transaction, { status: value as BillingTransactionStatus }),
+                          })}
+                        />}
                         selectedBillingView={selectedBillingView}
                       />
                     </div>

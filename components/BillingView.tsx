@@ -14,6 +14,7 @@ type BillingViewRow = {
 };
 
 type BillingViewProps<Row extends BillingViewRow> = {
+  historical?: boolean;
   billingMonthLabel: (value: string) => string;
   billingRows: Row[];
   billingSearchTerm: string;
@@ -26,6 +27,7 @@ type BillingViewProps<Row extends BillingViewRow> = {
 };
 
 export default function BillingView<Row extends BillingViewRow>({
+  historical = false,
   billingMonthLabel,
   billingRows,
   billingSearchTerm,
@@ -44,13 +46,13 @@ export default function BillingView<Row extends BillingViewRow>({
         <span>Plan Name</span>
         <span>Amount</span>
         <span>Billing Type</span>
-        <span>Billing Date</span>
-        <span>Action</span>
+        <span>{historical ? "Payment Date" : "Billing Date"}</span>
+        <span>{historical ? "Payment Status" : "Action"}</span>
       </div>
       {isLoadingTools ? (
         <div className="empty-state tool-onboarding-empty">
           <strong>Loading billing</strong>
-          <span>Getting your paid subscriptions ready.</span>
+          <span>{historical ? "Getting your payment transactions ready." : "Getting your paid subscriptions ready."}</span>
         </div>
       ) : billingRows.length > 0 ? (
         billingRows.map((row, rowIndex) => {
@@ -83,7 +85,7 @@ export default function BillingView<Row extends BillingViewRow>({
           const isPlanGroupEnd = isPlanGrouped && !matchesPlanGroup(nextRow);
 
           return (
-            <Fragment key={`${row.tool.id}:${row.accountLabel}:${row.billingType}:${row.id}:${rowIndex}`}>
+            <Fragment key={row.id}>
               {showMonthHeader ? <div className="billing-month-row-header">{monthLabel}</div> : null}
               {renderBillingRow(row, {
                 isAccountContinuation,
@@ -107,13 +109,14 @@ export default function BillingView<Row extends BillingViewRow>({
             </>
           ) : (
             <>
-              <strong>No paid subscriptions yet</strong>
+              <strong>{historical ? "No payment transactions yet" : "No paid subscriptions yet"}</strong>
+              {historical ? <span>Saved historical payments will appear here.</span> :
               <span>
                 <button className="inline-text-link" onClick={onLinkAccount} type="button">
                   Link an account
                 </button>{" "}
                 with a Paid plan to see it here.
-              </span>
+              </span>}
             </>
           )}
         </div>

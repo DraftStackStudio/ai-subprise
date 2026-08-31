@@ -9,6 +9,7 @@ type DashboardPageHeaderProps = {
   onAddTool: () => void;
   onBackToLogins: () => void;
   onBackToBilling?: () => void;
+  onBackToDashboard?: () => void;
   onEditCategories: () => void;
   onEditProviders: () => void;
   onOpenPresets: () => void;
@@ -28,6 +29,7 @@ export default function DashboardPageHeader({
   onAddTool,
   onBackToLogins,
   onBackToBilling,
+  onBackToDashboard,
   onEditCategories,
   onEditProviders,
   onOpenPresets,
@@ -44,6 +46,15 @@ export default function DashboardPageHeader({
         <p className="main-subtitle">{activeSection === "linked" ? "Every tool, matched to the account behind it." : subtitle}</p>
       </div>
       <div className="header-actions">
+        {activeSection === "dashboard" && onBackToDashboard ? (
+          <button className="btn-sm btn-sm-ghost button-with-icon" onClick={onBackToDashboard} type="button">
+            <svg aria-hidden="true" className="button-inline-icon" fill="none" viewBox="0 0 24 24">
+              <path d="M19 12H5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+              <path d="m12 19-7-7 7-7" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+            </svg>
+            Back to Dashboard
+          </button>
+        ) : null}
         {activeSection === "billing" && onBackToBilling ? (
           <button className="btn-sm btn-sm-ghost button-with-icon" onClick={onBackToBilling} type="button">
             <svg aria-hidden="true" className="button-inline-icon" fill="none" viewBox="0 0 24 24">
@@ -62,7 +73,7 @@ export default function DashboardPageHeader({
             {pendingActionCount} {pendingActionCount === 1 ? "item needs" : "items need"} attention
           </button>
         ) : null}
-        {activeSection === "billing" && onAddPastBilling ? <button className="btn-sm btn-sm-primary" onClick={onAddPastBilling} type="button">+ Add Past Billing</button> : null}
+        {activeSection === "billing" && onAddPastBilling ? <button className="btn-sm btn-sm-primary" onClick={onAddPastBilling} type="button">+ Add Payment</button> : null}
         {activeSection === "providers" ? (
           <button className="btn-sm btn-sm-ghost button-with-icon" onClick={onBackToLogins} type="button">
             <svg aria-hidden="true" className="button-inline-icon" fill="none" viewBox="0 0 24 24">

@@ -202,15 +202,6 @@ export default function LinkAIToolModal({
                 block.accountLabel &&
                 blocks.some((otherBlock, otherIndex) => otherIndex !== blockIndex && otherBlock.accountLabel === block.accountLabel),
               );
-              const selectedBillingTypes = block.billingType.split(", ").filter(Boolean);
-              const hasTopUpCredit = selectedBillingTypes.includes("Top-up");
-              const hasRecurringBillingType = selectedBillingTypes.some(
-                (billingType) => billingType === "Monthly" || billingType === "Yearly",
-              );
-              const hasPurchaseBillingType = selectedBillingTypes.some(
-                (billingType) => billingType === "Lifetime" || billingType === "One-time",
-              );
-              const hasDatedBillingType = hasRecurringBillingType || hasPurchaseBillingType;
 
               return (
                 <div className="link-account-block" key={block.id}>
@@ -301,41 +292,6 @@ export default function LinkAIToolModal({
                             value={block.planName}
                           />
                         </label>
-                        <div className={`tool-detail-amount-row${hasDatedBillingType && hasTopUpCredit ? "" : " is-single"}`}>
-                          {hasRecurringBillingType ? (
-                            <label className="form-field link-account-paid-plan-name">
-                              <span>Next Charge</span>
-                              <DateFieldControl
-                                ariaLabel="Next Charge"
-                                onChange={(nextChargeDate) => setBlocks((current) =>
-                                  current.map((item) => item.id === block.id ? { ...item, nextChargeDate } : item))}
-                                value={block.nextChargeDate}
-                              />
-                            </label>
-                          ) : null}
-                          {hasPurchaseBillingType ? (
-                            <label className="form-field link-account-paid-plan-name">
-                              <span>Purchased on</span>
-                              <DateFieldControl
-                                ariaLabel="Purchased on"
-                                onChange={(purchaseDate) => setBlocks((current) =>
-                                  current.map((item) => item.id === block.id ? { ...item, purchaseDate } : item))}
-                                value={block.purchaseDate}
-                              />
-                            </label>
-                          ) : null}
-                          {hasTopUpCredit ? (
-                            <label className="form-field link-account-paid-plan-name">
-                              <span>Last topped up</span>
-                              <DateFieldControl
-                                ariaLabel="Last topped up"
-                                onChange={(lastTopUpDate) => setBlocks((current) =>
-                                  current.map((item) => item.id === block.id ? { ...item, lastTopUpDate } : item))}
-                                value={block.lastTopUpDate}
-                              />
-                            </label>
-                          ) : null}
-                        </div>
                       </>
                     ) : null}
                   </div>
