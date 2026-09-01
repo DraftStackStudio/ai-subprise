@@ -91,7 +91,7 @@ export default function DashboardPageHeader({
           </>
         ) : null}
         {activeSection === "tools" ? <button className="btn-sm btn-sm-ghost" onClick={onOpenPresets} type="button">Presets</button> : null}
-        {activeSection !== "dashboard" && activeSection !== "billing" && activeSection !== "settings" ? (
+        {activeSection !== "dashboard" && activeSection !== "billing" && activeSection !== "subscriptions" && activeSection !== "settings" ? (
           <button className="btn-sm btn-sm-primary" onClick={activeSection === "account" || activeSection === "providers" ? onAddAccount : onAddTool} type="button">
             {activeSection === "account" || activeSection === "providers" ? "+ Add Logins" : activeSection === "linked" ? "+ Link AI Tool" : "+ AI Tool"}
           </button>

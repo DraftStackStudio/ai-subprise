@@ -13,6 +13,8 @@ import BillingDetailsView, { type BillingDetailsAccount } from "@/components/Bil
 import BillingDirectory, { type BillingDirectoryGroup } from "@/components/BillingDirectory";
 import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
 import ActionNeededView, { type ActionNeededItem } from "@/components/ActionNeededView";
+import SubscriptionsView, { type SubscriptionRow } from "@/components/SubscriptionsView";
+import { qualifiesForSubscriptions, subscriptionComponents, subscriptionState, subscriptionBillingSummary, subscriptionBillingPatch } from "@/lib/subscriptions";
 import AccountsOverview from "@/components/AccountsOverview";
 import BillingRow, { HistoricalBillingRow, type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
@@ -91,9 +93,9 @@ import type {
   ToolStatus,
 } from "@/types/toolDetail";
 import type { LinkToolAccountBlock } from "@/types/linkTool";
-import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship, updateBillingTransaction } from "@/lib/supabase/billingTransactions";
+import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship } from "@/lib/supabase/billingTransactions";
 import { estimateCurrentPayment, hasCurrentPayment, localBillingToday, validBillingDate, type CurrentPaymentEstimate, type RecurringBillingSettings } from "@/lib/currentBilling";
-import type { BillingTransaction, BillingTransactionStatus, BillingTransactionType, UpdateBillingTransactionInput } from "@/types/billingTransaction";
+import type { BillingTransaction } from "@/types/billingTransaction";
 import {
   createToolRecord,
   getDeletedToolRecords,
@@ -122,7 +124,7 @@ import {
   useState,
 } from "react";
 
-type Section = "dashboard" | "tools" | "linked" | "accounts" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
+type Section = "dashboard" | "tools" | "linked" | "subscriptions" | "accounts" | "billing" | "watchlist" | "account" | "providers" | "favorites" | "archive" | "recovery" | "settings";
 type ToolSortRange = "All" | "Category" | "A-G" | "H-N" | "O-S" | "T-Z";
 type LinkedPlanFilter = "All" | "Paid" | "Trial" | "Free";
 const toolboxSidebarClusterIds = new Set(["everyday", "create", "work", "automate", "build", "business"]);
@@ -242,6 +244,7 @@ const navItems: Array<{ id: Section; icon: string; label: string; badge?: number
   { id: "account", icon: "user", label: "Logins", badge: 3 },
   { id: "tools", icon: "list", label: "AI Toolbox", badge: 12 },
   { id: "linked", icon: "link", label: "Linked" },
+  { id: "subscriptions", icon: "recurring", label: "Subscriptions" },
   { id: "billing", icon: "billing", label: "Billing" },
   { id: "watchlist", icon: "eye", label: "Watchlist" },
   { id: "favorites", icon: "star", label: "Favourites", badge: 4 },
@@ -399,6 +402,12 @@ function SidebarIcon({ name }: { name: string }) {
           <path d="M9.5 14.5 14.5 9.5" {...common} />
           <path d="M10.5 7.5 12 6a4 4 0 0 1 5.7 5.7l-1.5 1.5" {...common} />
           <path d="M13.5 16.5 12 18a4 4 0 0 1-5.7-5.7l1.5-1.5" {...common} />
+        </>
+      )}
+      {name === "recurring" && (
+        <>
+          <path d="M19 10a7.2 7.2 0 0 0-12-3L4.5 9.5M4.5 5.5v4h4" {...common} />
+          <path d="M5 14a7.2 7.2 0 0 0 12 3l2.5-2.5M19.5 18.5v-4h-4" {...common} />
         </>
       )}
       {name === "billing" && (
@@ -3826,9 +3835,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     }
   };
 
-  const updateLinkedManageStatus = async (tool: ToolItem, accountLabel: string, status: ManageStatus) => {
+  const updateLinkedManageStatus = async (tool: ToolItem, accountLabel: string, status: ManageStatus, expectedRelationshipId?: string) => {
     const currentDetail = toolAccountDetails[tool.id]?.[accountLabel];
+    if (expectedRelationshipId && currentDetail?.relationshipId !== expectedRelationshipId) throw new Error("This relationship changed. Reopen the account.");
     const nextDetail: ToolAccountDetail = {
+      ...(expectedRelationshipId ? currentDetail : {}),
       amount: currentDetail?.amount ?? "",
       billingAmounts: currentDetail?.billingAmounts,
       billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
@@ -3874,13 +3885,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       }
     }
 
-    setToolAccountDetails((current) => ({
-      ...current,
-      [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: nextDetail },
-    }));
-    setToolDetailDrafts((current) => current[accountLabel]
-      ? { ...current, [accountLabel]: { ...current[accountLabel], status } }
-      : current);
+    const publishStatus = () => {
+      setToolAccountDetails((current) => ({ ...current, [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: nextDetail } }));
+      setToolDetailDrafts((current) => current[accountLabel] ? { ...current, [accountLabel]: { ...current[accountLabel], status } } : current);
+    };
+    if (!expectedRelationshipId) publishStatus();
 
     if (shouldUseSupabase) {
       try {
@@ -3901,11 +3910,13 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           trialResolution: nextDetail.trialResolution,
           trialResolutionHistory: nextDetail.trialResolutionHistory,
           trialResolved: nextDetail.trialResolved,
-        });
+        }, expectedRelationshipId ? { expectedRelationshipId } : undefined);
       } catch (error) {
+        if (expectedRelationshipId) throw error;
         setToolDataError(error instanceof Error ? error.message : "Could not update account status.");
       }
     }
+    if (expectedRelationshipId) publishStatus();
   };
 
   const saveToolLink = async (event?: FormEvent<HTMLFormElement>) => {
@@ -3961,29 +3972,16 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           ...nextDetails,
           [block.accountLabel]: {
             amount: "",
-            billingAmounts: block.plan === "Active"
-              ? normaliseBillingType(block.billingType).split(", ").filter(Boolean).map((billingType) => ({
-                  amount: "",
-                  billingType,
-                  currency: "",
-                  id: billingAmountId(),
-                }))
-              : [],
+            billingAmounts: [],
             billingHistoryEntries: [],
-            billingType: normaliseBillingType(block.billingType),
+            billingType: "",
             convertedDate: "",
             currency: "",
-            lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
-              ? block.lastTopUpDate
-              : "",
-            nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Monthly" || billingType === "Yearly")
-              ? block.nextChargeDate
-              : "",
-            purchaseDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Lifetime" || billingType === "One-time")
-              ? block.purchaseDate
-              : "",
+            lastTopUpDate: "",
+            nextChargeDate: "",
+            purchaseDate: "",
             planName: block.plan === "Active" ? block.planName.trim() : "",
-            startDate: block.plan === "Active" && recurringBillingType(block.billingType) ? block.nextChargeDate : "",
+            startDate: "",
             status: "Active",
             trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
             trialResolution: "",
@@ -4010,35 +4008,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         await Promise.all(
           filledBlocks.map((block) =>
             updateToolLinkDetails(selectedTool.id, block.accountLabel, accountList, {
-              billingAmounts: block.plan === "Active" && normaliseBillingType(block.billingType)
-                ? normaliseBillingType(block.billingType).split(", ").filter(Boolean).map((billingType) => ({
-                    amount: "",
-                    billingType,
-                    currency: "",
-                    id: billingAmountId(),
-                    lastTopUpDate: billingType === "Top-up" ? block.lastTopUpDate : "",
-                    nextRenewalDate:
-                      billingType === "Monthly" || billingType === "Yearly" ? block.nextChargeDate : "",
-                    purchaseDate:
-                      billingType === "Lifetime" || billingType === "One-time" ? block.purchaseDate : "",
-                  }))
-                : undefined,
-              billingType: normaliseBillingType(block.billingType) || undefined,
-              lastTopUpDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").includes("Top-up")
-                ? block.lastTopUpDate
-                : undefined,
-              nextChargeDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Monthly" || billingType === "Yearly")
-                ? block.nextChargeDate
-                : undefined,
-              purchaseDate: block.plan === "Active" && normaliseBillingType(block.billingType).split(", ").some((billingType) => billingType === "Lifetime" || billingType === "One-time")
-                ? block.purchaseDate
-                : undefined,
-              startDate: block.plan === "Active" && recurringBillingType(block.billingType) ? block.nextChargeDate : undefined,
               plan: block.plan,
               planName: block.plan === "Active" ? block.planName.trim() || undefined : "",
               status: undefined,
               trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
-            }),
+            }, { expectedRelationshipId: relationshipIds[block.accountLabel] }),
           ),
         );
         if (shouldActivateTool) {
@@ -5127,6 +5101,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     account: "Add your logins with nicknames once, use them everywhere.",
     tools: "Every tool you use, paid or free. Nothing forgotten.",
     linked: "See which account belongs to which tool. No more guessing.",
+    subscriptions: "Manage your current plans and billing details.",
     accounts: "Every account you use, and the tools behind it.",
     billing: "All your bills, one place, no surprises.",
     watchlist: "Tools you're considering. Keep them close before you link an account.",
@@ -5179,6 +5154,42 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (status === "Trial") return "Trial";
     return "Free";
   };
+  const subscriptionCandidates = new Map(billingRelationshipDetails.map((detail) => [detail.relationshipId, detail]));
+  Object.entries(toolAccountDetails).forEach(([toolId, accounts]) => Object.entries(accounts).forEach(([accountLabel, detail]) => {
+    if (!detail.relationshipId) return;
+    const stored = subscriptionCandidates.get(detail.relationshipId);
+    subscriptionCandidates.set(detail.relationshipId, {
+      ...stored, ...detail, toolId, accountLabel,
+      plan: toolAccountStatuses[toolId]?.[accountLabel] ?? stored?.plan ?? "",
+      billingAmounts: detail.billingAmounts ?? stored?.billingAmounts ?? [],
+      currency: detail.currency ?? stored?.currency ?? "",
+      startDate: detail.startDate ?? stored?.startDate ?? "",
+      relationshipId: detail.relationshipId,
+      unlinkedAt: stored?.unlinkedAt ?? "",
+    });
+  }));
+  const subscriptionTransactionIds = new Set(billingTransactions.map((transaction) => transaction.relationshipId).filter(Boolean));
+  const subscriptionRows: SubscriptionRow[] = [...subscriptionCandidates.values()]
+    .filter((detail) => qualifiesForSubscriptions(detail, subscriptionTransactionIds))
+    .flatMap((detail): SubscriptionRow[] => {
+      const tool = toolList.find((candidate) => candidate.id === detail.toolId);
+      if (!tool) return [];
+      const accountLabel = detail.accountLabel;
+      const components = subscriptionComponents(detail.billingAmounts, detail.billingType);
+      const account = accountList.find((candidate) => candidate.label === accountLabel);
+      return [{
+        relationshipId: detail.relationshipId, toolId: tool.id, toolName: displayToolName(tool.name),
+        canManageBilling: !detail.unlinkedAt && toolAccountDetails[tool.id]?.[accountLabel]?.relationshipId === detail.relationshipId,
+        logo: tool.logo, logoBackground: tool.logoBg, accountLabel, accountEmail: account?.login ?? "",
+        accountTag: accountTag(accountLabel, accountList),
+        plan: detail.planName || (detail.plan === "Active" || detail.plan === "Paid" ? "Paid" : detail.plan === "Trial" ? "Trial" : "Free"),
+        status: normaliseManageStatus(detail.status), billing: subscriptionBillingSummary(components), state: subscriptionState(components),
+        planName: detail.planName,
+        billingComponents: components,
+        payments: billingTransactions.filter((transaction) => transaction.relationshipId === detail.relationshipId),
+        activity: detail.billingHistoryEntries ?? [],
+      }];
+    });
   const futureTrialItems: BillingUpcomingItem[] = toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
     .flatMap((tool) => tool.accounts.flatMap((accountLabel): BillingUpcomingItem[] => {
@@ -5295,15 +5306,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
   const billingTypeOptions: DropdownOption[] = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"].map((billingType) => ({
     label: billingType,
-    value: billingType,
-  }));
-  const linkBillingTypeOptions: DropdownOption[] = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"].map((billingType) => ({
-    label:
-      billingType === "One-time"
-        ? "One-time payment"
-        : billingType === "Top-up"
-          ? "Top-up credit"
-          : billingType,
     value: billingType,
   }));
 
@@ -5443,17 +5445,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       transaction,
     }))
     .sort((left, right) => right.billingDate.localeCompare(left.billingDate) || left.id.localeCompare(right.id));
-  const saveHistoricalTransaction = async (transaction: BillingTransaction, patch: UpdateBillingTransactionInput) => {
-    if (transaction.source !== "manual") return false;
-    try {
-      const updated = await updateBillingTransaction(transaction.id, patch);
-      setBillingTransactions((current) => current.map((item) => item.id === updated.id ? updated : item));
-      return true;
-    } catch (error: unknown) {
-      setToolDataError(error instanceof Error ? error.message : "Could not update historical payment.");
-      return false;
-    }
-  };
   const billingRows = allBillingRows
     .filter((row) => {
       const query = billingSearchTerm.toLowerCase();
@@ -5588,6 +5579,35 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       throw new Error("This current Paid relationship is no longer available. Reopen Billing Details.");
     }
     return { account, tool, detail };
+  };
+
+  const subscriptionTarget = (relationshipId: string) => {
+    const row = subscriptionRows.find((item) => item.relationshipId === relationshipId);
+    const tool = row && toolList.find((item) => item.id === row.toolId);
+    const detail = row && toolAccountDetails[row.toolId]?.[row.accountLabel];
+    if (!row || !tool || !detail || detail.relationshipId !== relationshipId || subscriptionCandidates.get(relationshipId)?.unlinkedAt) {
+      throw new Error("This relationship is no longer linked. Its saved billing and payments remain read-only.");
+    }
+    return { row, tool, detail };
+  };
+
+  const saveSubscriptionBilling = async (relationshipId: string, planName: string, components: BillingAmount[]) => {
+    const { row, tool, detail } = subscriptionTarget(relationshipId);
+    const patch = subscriptionBillingPatch(planName, components);
+    // Explicit component dates must not borrow another component's date through
+    // the legacy relationship-level fallbacks in the existing persistence API.
+    if (shouldUseSupabase) await updateToolLinkDetails(tool.id, row.accountLabel, accountList,
+      { ...patch, nextChargeDate: "", purchaseDate: "", lastTopUpDate: "" }, { expectedRelationshipId: relationshipId });
+    setToolAccountDetails((current) => ({ ...current, [tool.id]: { ...current[tool.id], [row.accountLabel]: { ...detail, ...patch } } }));
+    setToolAccountPlanNames((current) => ({ ...current, [tool.id]: { ...current[tool.id], [row.accountLabel]: patch.planName } }));
+    setBillingRelationshipDetails((current) => current.map((item) => item.relationshipId === relationshipId ? { ...item, ...patch } : item));
+    showToast("Current Billing updated");
+  };
+
+  const saveSubscriptionStatus = async (relationshipId: string, status: ManageStatus) => {
+    const { row, tool } = subscriptionTarget(relationshipId);
+    await updateLinkedManageStatus(tool, row.accountLabel, status, relationshipId);
+    showToast("Account status updated");
   };
 
   const saveCurrentBillingSettings = async (relationshipId: string, originalType: string | null, settings: RecurringBillingSettings) => {
@@ -6443,6 +6463,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 "providers",
                 "tools",
                 "linked",
+                "subscriptions",
                 "accounts",
                 "billing",
                 "watchlist",
@@ -6587,6 +6608,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               settingsTab={settingsTab}
               showDeveloperTools={isDemoMode}
             />
+          ) : activeSection === "subscriptions" ? (
+            <SubscriptionsView rows={subscriptionRows} isLoading={isLoadingTools} currencyOptions={currencyOptions} onSaveBilling={saveSubscriptionBilling} onSaveStatus={saveSubscriptionStatus} onPaymentsChanged={() => {
+              if (shouldUseSupabase) void getBillingTransactions().then(setBillingTransactions).catch((error: unknown) => setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions."));
+            }} />
           ) : activeSection === "dashboard" ? (
             isActionNeededViewOpen ? <ActionNeededView items={actionNeededItems} renderAction={renderActionNeededResolutionControl} /> : <DashboardSummaryView
               actionNeededItems={actionNeededItems}
@@ -6735,32 +6760,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                           transaction={transaction}
                           toolVisual={toolList.find((tool) => tool.id === transaction.toolId)}
                           accountTag={accountList.find((account) => account.id === transaction.loginId)?.tag}
-                          onChange={(patch) => saveHistoricalTransaction(transaction, patch)}
-                          currencyControl={renderDropdown({
-                            ariaLabel: "Payment currency",
-                            className: "billing-currency-dropdown",
-                            id: `transaction-currency-${transaction.id}`,
-                            options: currencyOptions,
-                            placeholder: "—",
-                            value: transaction.currency,
-                            onChange: (currency) => void saveHistoricalTransaction(transaction, { currency }),
-                          })}
-                          typeControl={renderDropdown({
-                            ariaLabel: "Payment billing type",
-                            className: "billing-type-dropdown",
-                            id: `transaction-type-${transaction.id}`,
-                            options: (["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"] as BillingTransactionType[]).map((value) => ({ label: value, value })),
-                            placeholder: "Not set",
-                            value: transaction.billingTypeSnapshot,
-                            onChange: (value) => void saveHistoricalTransaction(transaction, { billingTypeSnapshot: value as BillingTransactionType }),
-                          })}
-                          statusControl={renderDropdown({
-                            ariaLabel: "Payment status",
-                            id: `transaction-status-${transaction.id}`,
-                            options: (["Paid", "Refunded", "Failed", "Pending"] as BillingTransactionStatus[]).map((value) => ({ label: value, value })),
-                            value: transaction.status,
-                            onChange: (value) => void saveHistoricalTransaction(transaction, { status: value as BillingTransactionStatus }),
-                          })}
                         />}
                         selectedBillingView={selectedBillingView}
                       />
@@ -7241,13 +7240,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           isPickerOpen={isLinkToolPickerOpen}
           isSaving={isSavingLinkTool}
           isPlanAllowedForTool={(plan) => isPlanAllowedForTool(selectedLinkTool, plan)}
-          linkBillingTypeOptions={linkBillingTypeOptions}
           linkToolId={linkToolId}
           openAddToolModal={openAddToolModal}
           orderedAccountOptions={orderedAccountOptions}
           remainingAccountOptions={remainingLinkAccountOptions}
           renderDropdown={renderDropdown}
-          renderMultiSelectDropdown={renderMultiSelectDropdown}
           renderPlanSelector={(plan, onChange) => renderPlanSelector(plan, onChange, selectedLinkTool)}
           searchQuery={linkToolSearchQuery}
           selectedTool={selectedLinkTool}
@@ -7257,7 +7254,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           setOpenDropdownId={setOpenDropdownId}
           setSearchQuery={setLinkToolSearchQuery}
           submit={saveToolLink}
-          toggleBillingTypeSelection={toggleBillingTypeSelection}
           toolInitials={toolInitials}
         />
       ) : null}

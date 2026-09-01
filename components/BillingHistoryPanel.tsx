@@ -3,7 +3,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { createBillingTransaction, deleteManualBillingTransaction, getBillingTransactionsByRelationship, updateBillingTransaction } from "@/lib/supabase/billingTransactions";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
-import { addMonthsSafely } from "@/lib/currentBilling";
+import { subscriptionPaymentPrefill, resolvePaymentDate } from "@/lib/subscriptionPaymentPrefill";
+import { firstTimeBillingComponents } from "@/lib/firstTimeBillingSetup";
+import { validSubscriptionBillingTypes } from "@/lib/subscriptions";
+import { addMonthsSafely, validBillingDate, localBillingToday } from "@/lib/currentBilling";
 import { DropdownControl, type DropdownOption } from "@/components/DropdownControls";
 import DateFieldControl from "@/components/DateFieldControl";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
@@ -32,6 +35,7 @@ type PeriodDraftRow = TransactionDraft & {
   sourceKey: string;
 };
 type SinglePaymentBillingDraft = {
+  nextRenewalDate?: string;
   amount: string;
   billingType: BillingTransactionType;
   currency: string;
@@ -47,6 +51,10 @@ type AdditionalTopUpDraft = {
 type PanelProps = {
   accounts: BillingHistoryAccount[];
   initialEntryMode?: Exclude<EntryMode, "">;
+  prefillCurrentBilling?: boolean;
+  onEstablishCurrentBilling?: (relationshipId: string, planName: string, components: BillingAmount[]) => Promise<void>;
+  onSetupComplete?: () => void;
+  selectedBillingType?: string;
   initialRelationshipId: string;
   onChangeRelationship?: () => void;
   onClose: () => void;
@@ -57,6 +65,10 @@ type PanelProps = {
 };
 type AccountSectionProps = BillingHistoryAccount & {
   initialEntryMode?: Exclude<EntryMode, "">;
+  prefillCurrentBilling?: boolean;
+  onEstablishCurrentBilling?: (relationshipId: string, planName: string, components: BillingAmount[]) => Promise<void>;
+  onSetupComplete?: () => void;
+  selectedBillingType?: string;
   isExpanded: boolean;
   onChangeRelationship?: () => void;
   onToggle: () => void;
@@ -78,24 +90,12 @@ const initialDraft = (): TransactionDraft => ({ amount: "", billingType: "", cur
 const singlePaymentBillingDraft = (billingType: BillingTransactionType): SinglePaymentBillingDraft => ({ amount: "", billingType, currency: "", paymentDate: "" });
 const localDraftId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
 
-function singlePaymentDateLabel(billingType: BillingTransactionType) {
-  if (billingType === "Monthly" || billingType === "Yearly") return "Next renewal";
-  if (billingType === "Lifetime" || billingType === "One-time") return "Purchased on";
-  return "Last top-up";
-}
-
-function singlePaymentTransactionDate(component: SinglePaymentBillingDraft) {
-  if (component.billingType === "Monthly") return addMonthsSafely(component.paymentDate, -1);
-  if (component.billingType === "Yearly") return addMonthsSafely(component.paymentDate, -12);
-  return component.paymentDate;
-}
-
 function periodDates(start: string, end: string, type: BillingTransactionType | "") {
-  if (!start || !end || start > end || (type !== "Monthly" && type !== "Yearly")) return [];
+  if (!validBillingDate(start) || !validBillingDate(end) || start >= end || (type !== "Monthly" && type !== "Yearly")) return [];
   const dates: string[] = [];
   for (let index = 0; index < 1200; index += 1) {
     const date = addMonthsSafely(start, index * (type === "Yearly" ? 12 : 1));
-    if (date > end) break;
+    if (date >= end || date > localBillingToday()) break;
     dates.push(date);
   }
   return dates;
@@ -156,7 +156,10 @@ function PastBillingAccountSummary({ accountEmail, accountLabel, accountTag, onC
   </div>;
 }
 
-function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, initialEntryMode, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
+function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
+  const prefill = prefillCurrentBilling && initialEntryMode ? subscriptionPaymentPrefill(billingAmounts, initialEntryMode, selectedBillingType) : null;
+  const [setupRenewalDate, setSetupRenewalDate] = useState(prefill?.nextRenewalDate ?? "");
+  const [setupBillingSaved, setSetupBillingSaved] = useState(false);
   const [transactions, setTransactions] = useState<BillingTransaction[]>([]);
   const [showAllPayments, setShowAllPayments] = useState(false);
   const [detailTransactionId, setDetailTransactionId] = useState("");
@@ -164,7 +167,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const [error, setError] = useState("");
   const [entryMode, setEntryMode] = useState<EntryMode>(initialEntryMode ?? "");
   const [showPastBillingModal, setShowPastBillingModal] = useState(Boolean(initialEntryMode));
-  const [draft, setDraft] = useState<TransactionDraft>(() => ({ ...initialDraft(), planName }));
+  const [draft, setDraft] = useState<TransactionDraft>(() => ({ ...initialDraft(), planName, ...(prefill ? { ...prefill, startDate: initialEntryMode === "period" ? prefill.paymentDate : "", endDate: initialEntryMode === "period" ? prefill.paymentDate : "" } : {}) }));
   const [editingId, setEditingId] = useState("");
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [periodDraftRows, setPeriodDraftRows] = useState<PeriodDraftRow[]>([]);
@@ -176,7 +179,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [invoiceFileName, setInvoiceFileName] = useState("");
   const [showPeriodPreview, setShowPeriodPreview] = useState(false);
-  const [singlePaymentBillingDrafts, setSinglePaymentBillingDrafts] = useState<SinglePaymentBillingDraft[]>([]);
+  const [singlePaymentBillingDrafts, setSinglePaymentBillingDrafts] = useState<SinglePaymentBillingDraft[]>(() => prefill && initialEntryMode === "single" ? [{ ...prefill }] : []);
   const [singlePaymentKey, setSinglePaymentKey] = useState(localDraftId);
   const [additionalTopUpDrafts, setAdditionalTopUpDrafts] = useState<AdditionalTopUpDraft[]>([]);
 
@@ -191,10 +194,10 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
     return () => { cancelled = true; };
   }, [relationshipId]);
 
-  const previewDates = useMemo(() => periodDates(draft.startDate, draft.endDate, draft.billingType), [draft.billingType, draft.endDate, draft.startDate]);
+  const previewDates = useMemo(() => periodDates(draft.startDate, setupRenewalDate, draft.billingType), [draft.billingType, setupRenewalDate, draft.startDate]);
   useEffect(() => {
     if (entryMode !== "period") return;
-    const generationKey = `${draft.startDate}|${draft.endDate}|${draft.billingType}`;
+    const generationKey = `${draft.startDate}|${setupRenewalDate}|${draft.billingType}`;
     if (generationKey === periodGenerationKey) return;
     setPeriodGenerationKey(generationKey);
     setPeriodDraftRows((current) => [
@@ -213,7 +216,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
       })),
       ...current.filter((row) => row.origin === "one-off"),
     ]);
-  }, [draft.amount, draft.billingType, draft.currency, draft.endDate, draft.note, draft.planName, draft.startDate, draft.status, entryMode, periodGenerationKey, previewDates, relationshipId]);
+  }, [draft.amount, draft.billingType, draft.currency, setupRenewalDate, draft.note, draft.planName, draft.startDate, draft.status, entryMode, periodGenerationKey, previewDates, relationshipId]);
   const previewTotals = useMemo(() => periodDraftRows.reduce<Record<string, number>>((totals, row) => {
     const amount = Number(row.amount);
     if (!row.amount || !Number.isFinite(amount)) return totals;
@@ -254,6 +257,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const billingTypeLabel = (value: BillingTransactionType) => value === "One-time" ? "One-time payment" : value === "Top-up" ? "Top-up credit" : value;
   const canAddSingleBillingType = (selectedTypes: BillingTransactionType[], candidate: BillingTransactionType) => {
     if (selectedTypes.includes(candidate)) return true;
+    if (onEstablishCurrentBilling) return validSubscriptionBillingTypes([...selectedTypes, candidate]);
     if (selectedTypes.length === 0) return true;
     if (selectedTypes.length >= 2) return false;
     const selected = selectedTypes[0];
@@ -295,15 +299,25 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
     </div>;
   };
 
+  const directPaymentDates = Boolean((prefillCurrentBilling || onEstablishCurrentBilling) && !editingId);
+  const singleDateLabel = (_type: BillingTransactionType) => "Payment Date (optional)";
   const saveSingle = async () => {
     if (!singlePaymentBillingDrafts.length) return setError("Select at least one billing type.");
-    if (singlePaymentBillingDrafts.some((component) => !component.paymentDate)) return setError("A billing date is required for each billing type.");
+    if (singlePaymentBillingDrafts.some((component) => !resolvePaymentDate(component))) return setError("Enter a valid Payment Date, or provide Next renewal for a Monthly/Yearly payment.");
     if (additionalTopUpDrafts.some((component) => !component.paymentDate)) return setError("A top-up date is required for each additional payment.");
-    const transactionDates = singlePaymentBillingDrafts.map(singlePaymentTransactionDate);
+    const transactionDates = singlePaymentBillingDrafts.map(resolvePaymentDate);
     const today = new Date().toISOString().slice(0, 10);
-    if (transactionDates.some((paymentDate, index) => (singlePaymentBillingDrafts[index].billingType === "Monthly" || singlePaymentBillingDrafts[index].billingType === "Yearly") && paymentDate > today)) return setError("The inferred current-cycle payment is still in the future. Review the Next renewal date.");
+    if (transactionDates.some((paymentDate, index) => (singlePaymentBillingDrafts[index].billingType === "Monthly" || singlePaymentBillingDrafts[index].billingType === "Yearly") && paymentDate > today)) return setError(directPaymentDates ? "The payment date is in the future. Review it before saving." : "The inferred current-cycle payment is still in the future. Review the Next renewal date.");
+    if (isSaving) return;
     setIsSaving(true); setError("");
     try {
+      if (onEstablishCurrentBilling && !editingId) {
+        const components = firstTimeBillingComponents(singlePaymentBillingDrafts.map((component, index) => ({ ...component, paymentDate: transactionDates[index] })));
+        if ([...transactionDates, ...additionalTopUpDrafts.map((item) => item.paymentDate)].some((date) => !validBillingDate(date) || date > today)) throw new Error("Enter valid past or current payment dates.");
+        if (additionalTopUpDrafts.some((item) => !/^\d+(\.\d+)?$/.test(item.amount.trim()))) throw new Error("Enter an amount for each additional payment.");
+        await onEstablishCurrentBilling(relationshipId, draft.planName, components);
+        setSetupBillingSaved(true);
+      }
       const sharedCurrency = singlePaymentBillingDrafts[0]?.currency ?? "";
       const baseInputs = singlePaymentBillingDrafts.map((component, index) => ({ amount: component.amount, billingTypeSnapshot: component.billingType, currency: component.currency, note: draft.note, paymentDate: transactionDates[index], planNameSnapshot: draft.planName, status: draft.status }));
       const extraInputs = additionalTopUpDrafts.map((component) => ({ amount: component.amount, billingTypeSnapshot: "Top-up" as const, currency: sharedCurrency, draftId: component.id, note: component.note, paymentDate: component.paymentDate, planNameSnapshot: draft.planName, status: component.status }));
@@ -320,16 +334,26 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
         ]);
       }
       await reload(); closeForm();
+      if (onEstablishCurrentBilling && !editingId) onSetupComplete?.();
     } catch (caught: unknown) { setError(caught instanceof Error ? caught.message : "Could not save billing transaction."); }
     finally { setIsSaving(false); }
   };
 
   const savePeriod = async () => {
+    if (isSaving) return;
     if (!periodDraftRows.length) return setError("Generate at least one billing record before confirming.");
     setIsSaving(true); setError("");
     try {
+      if (onEstablishCurrentBilling) {
+        const components = firstTimeBillingComponents([{ ...draft, paymentDate: previewDates.at(-1) ?? "", nextRenewalDate: setupRenewalDate }]);
+        const today = new Date().toISOString().slice(0, 10);
+        if (periodDraftRows.some((row) => !validBillingDate(row.paymentDate) || row.paymentDate > today || !/^[A-Z]{3}$/.test(row.currency.trim().toUpperCase()) || !/^\d+(\.\d+)?$/.test(row.amount.trim()))) throw new Error("Review payment dates, currencies and amounts before saving.");
+        await onEstablishCurrentBilling(relationshipId, draft.planName, components);
+        setSetupBillingSaved(true);
+      }
       await Promise.all(periodDraftRows.map((row) => createBillingTransaction({ amount: row.amount, billingTypeSnapshot: row.billingType, currency: row.currency, note: row.note, paymentDate: row.paymentDate, planNameSnapshot: row.planName, relationshipId, sourceKey: row.sourceKey, status: row.status })));
       await reload(); closeForm();
+      if (onEstablishCurrentBilling) onSetupComplete?.();
     } catch (caught: unknown) { setError(caught instanceof Error ? caught.message : "Could not save subscription period."); }
     finally { setIsSaving(false); }
   };
@@ -337,16 +361,20 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const reviewPeriod = () => {
     setError("");
     if (draft.billingType !== "Monthly" && draft.billingType !== "Yearly") return setError("Select Monthly or Yearly billing type.");
-    if (!draft.startDate || !draft.endDate) return setError("Start Date and End Date are required.");
+    if (!validBillingDate(draft.startDate) || !validBillingDate(setupRenewalDate) || draft.startDate >= setupRenewalDate) return setError("Enter a valid Start Date before Next renewal.");
     if (!periodDraftRows.length) return setError("Choose a valid billing period to generate payments.");
     setOpenDropdownId(null);
+    if (onEstablishCurrentBilling) {
+      try { firstTimeBillingComponents([{ ...draft, paymentDate: previewDates.at(-1) ?? "", nextRenewalDate: setupRenewalDate }]); }
+      catch (caught) { return setError(caught instanceof Error ? caught.message : "Complete Current Billing details."); }
+    }
     setShowPeriodPreview(true);
   };
 
   const beginEdit = (transaction: BillingTransaction) => {
     setEntryMode("single"); setEditingId(transaction.id); setShowPastBillingModal(true);
     setDraft({ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, endDate: "", note: transaction.note, paymentDate: transaction.paymentDate, planName: transaction.planNameSnapshot, startDate: "", status: transaction.status });
-    if (transaction.billingTypeSnapshot) setSinglePaymentBillingDrafts([{ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, paymentDate: transaction.billingTypeSnapshot === "Monthly" ? addMonthsSafely(transaction.paymentDate, 1) : transaction.billingTypeSnapshot === "Yearly" ? addMonthsSafely(transaction.paymentDate, 12) : transaction.paymentDate }]);
+    if (transaction.billingTypeSnapshot) setSinglePaymentBillingDrafts([{ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, paymentDate: transaction.paymentDate }]);
     else setSinglePaymentBillingDrafts([]);
     setAdditionalTopUpDrafts([]);
     setSinglePaymentKey(`edit-${transaction.id}`);
@@ -446,7 +474,8 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
               <div className="tool-detail-field-row"><label className="form-field"><span>Plan Name</span><input className="field-input billing-past-plan-name-input" onChange={(event) => field("planName", event.target.value)} placeholder="Not recorded" value={draft.planName}/></label><div className="form-field billing-past-type-field"><span className="billing-past-field-label">Billing Type <small>(Select up to 2)</small></span>{renderSingleBillingTypeDropdown()}</div></div>
               <div className="billing-past-single-components">{singlePaymentBillingDrafts.map((component) => <section className="billing-past-single-component" key={component.billingType}>
                 <h5>{billingTypeLabel(component.billingType)}</h5>
-                <div className="tool-detail-field-row"><label className="form-field"><span>{singlePaymentDateLabel(component.billingType)}</span><DateFieldControl ariaLabel={`${billingTypeLabel(component.billingType)} ${singlePaymentDateLabel(component.billingType).toLowerCase()}`} className="field-input" onChange={(value) => updateSingleBillingDraft(component.billingType, { paymentDate: value })} value={component.paymentDate}/></label><label className="form-field"><span>Currency + Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field">{renderPastDropdown(`past-currency-${component.billingType}`, component.currency, "Currency", currencyOptions, updateSingleBillingCurrency)}<input aria-label={`${billingTypeLabel(component.billingType)} amount`} className="field-input-control" inputMode="decimal" onChange={(event) => updateSingleBillingDraft(component.billingType, { amount: event.target.value })} placeholder="0.00" value={component.amount}/></span></label></div>
+                {(component.billingType === "Monthly" || component.billingType === "Yearly") ? <label className="form-field"><span>Next renewal</span><DateFieldControl ariaLabel="Next renewal" className="field-input" value={component.nextRenewalDate ?? ""} onChange={(value) => updateSingleBillingDraft(component.billingType, { nextRenewalDate: value })} /></label> : null}
+                <div className="tool-detail-field-row"><label className="form-field"><span>{singleDateLabel(component.billingType)}</span><DateFieldControl ariaLabel={`${billingTypeLabel(component.billingType)} ${singleDateLabel(component.billingType).toLowerCase()}`} className="field-input" onChange={(value) => updateSingleBillingDraft(component.billingType, { paymentDate: value })} value={component.paymentDate}/></label><label className="form-field"><span>Currency + Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field">{renderPastDropdown(`past-currency-${component.billingType}`, component.currency, "Currency", currencyOptions, updateSingleBillingCurrency)}<input aria-label={`${billingTypeLabel(component.billingType)} amount`} className="field-input-control" inputMode="decimal" onChange={(event) => updateSingleBillingDraft(component.billingType, { amount: event.target.value })} placeholder="0.00" value={component.amount}/></span></label></div>
               </section>)}</div>
               <div className="tool-detail-field-row billing-past-status-notes-row"><label className="form-field"><span>Status</span>{renderPastDropdown("past-status", draft.status, "Status", statusOptions, (value) => field("status", value))}</label><label className="form-field billing-past-note-field"><span>Notes</span><input className="field-input" onChange={(event) => field("note", event.target.value)} placeholder="Add a note..." value={draft.note}/></label></div>
               {additionalTopUpDrafts.map((component, index) => <section className="billing-past-additional-payment" key={component.id}><div className="billing-past-additional-payment-heading"><h5>Top-up payment {index + 2}</h5><button aria-label={`Remove top-up payment ${index + 2}`} onClick={() => removeAdditionalTopUpDraft(component.id)} type="button">Remove</button></div><div className="tool-detail-field-row"><label className="form-field"><span>Last top-up</span><DateFieldControl ariaLabel={`Additional top-up date ${index + 2}`} className="field-input" onChange={(value) => updateAdditionalTopUpDraft(component.id, { paymentDate: value })} value={component.paymentDate}/></label><label className="form-field"><span>Currency + Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field"><span className="billing-past-shared-currency">{singlePaymentBillingDrafts[0]?.currency || "Currency"}</span><input aria-label={`Additional top-up amount ${index + 2}`} className="field-input-control" inputMode="decimal" onChange={(event) => updateAdditionalTopUpDraft(component.id, { amount: event.target.value })} placeholder="0.00" value={component.amount}/></span></label></div><div className="tool-detail-field-row billing-past-status-notes-row"><label className="form-field"><span>Status</span>{renderPastDropdown(`past-extra-status-${component.id}`, component.status, "Status", statusOptions, (value) => updateAdditionalTopUpDraft(component.id, { status: value as BillingTransactionStatus }))}</label><label className="form-field billing-past-note-field"><span>Notes</span><input className="field-input" onChange={(event) => updateAdditionalTopUpDraft(component.id, { note: event.target.value })} placeholder="Add a note..." value={component.note}/></label></div></section>)}
@@ -455,18 +484,20 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
               <div className="billing-period-review-header"><h4>Preview Payments ({periodDraftRows.length} payments)</h4><button onClick={beginOneOffDraft} type="button">+ Add Extra Payment</button></div>
               <p className="billing-period-review-helper">AI Subprise generated these payments from your billing details. Review and edit anything before saving to Billing History.</p>
               <label className="form-field billing-period-review-currency"><span>Currency</span>{renderPastDropdown("past-period-review-currency", draft.currency, "Currency", currencyOptions, updatePeriodDraftCurrency)}</label>
-              {reviewPeriodDraftRows.length ? <div className="billing-period-draft-table"><div className="billing-period-draft-head"><span>Date</span><span>Type</span><span>Amount</span><span>Status</span><span>Action</span></div>{reviewPeriodDraftRows.map((row) => <div className="billing-period-draft-row" key={row.id}><span data-label="Date"><DateFieldControl ariaLabel={`Payment date for ${billingHistoryDisplayDate(row.paymentDate)}`} className="field-input billing-period-inline-date" onChange={(value) => updatePeriodDraft(row.id, { paymentDate: value })} value={row.paymentDate}/></span><span data-label="Type">{renderPastDropdown(`period-row-type-${row.id}`, row.billingType, "Select type", draftBillingTypeOptions, (value) => updatePeriodDraft(row.id, { billingType: value as BillingTransactionType }))}</span><span className="billing-period-inline-amount" data-label="Amount"><span className="billing-period-inline-currency">{row.currency || "—"}</span><input aria-label={`Amount for ${billingHistoryDisplayDate(row.paymentDate)}`} inputMode="decimal" onChange={(event) => updatePeriodDraft(row.id, { amount: event.target.value })} value={row.amount}/></span><span data-label="Status">{renderPastDropdown(`period-row-status-${row.id}`, row.status, "Status", statusOptions, (value) => updatePeriodDraft(row.id, { status: value as BillingTransactionStatus }))}</span><span data-label="Action"><button aria-label={`Edit ${billingHistoryDisplayDate(row.paymentDate)} draft`} className="billing-history-details-button" onClick={() => beginPeriodDraftEdit(row)} type="button">•••</button></span></div>)}</div> : <p className="billing-period-draft-empty">Choose a valid start date, end date and Monthly or Yearly billing type to generate records.</p>}
+              {reviewPeriodDraftRows.length ? <div className="billing-period-draft-table"><div className="billing-period-draft-head"><span>Date</span><span>Type</span><span>Amount</span><span>Status</span><span>Action</span></div>{reviewPeriodDraftRows.map((row) => <div className="billing-period-draft-row" key={row.id}><span data-label="Date"><DateFieldControl ariaLabel={`Payment date for ${billingHistoryDisplayDate(row.paymentDate)}`} className="field-input billing-period-inline-date" onChange={(value) => updatePeriodDraft(row.id, { paymentDate: value })} value={row.paymentDate}/></span><span data-label="Type">{renderPastDropdown(`period-row-type-${row.id}`, row.billingType, "Select type", draftBillingTypeOptions, (value) => updatePeriodDraft(row.id, { billingType: value as BillingTransactionType }))}</span><span className="billing-period-inline-amount" data-label="Amount"><span className="billing-period-inline-currency">{row.currency || "—"}</span><input aria-label={`Amount for ${billingHistoryDisplayDate(row.paymentDate)}`} inputMode="decimal" onChange={(event) => updatePeriodDraft(row.id, { amount: event.target.value })} value={row.amount}/></span><span data-label="Status">{renderPastDropdown(`period-row-status-${row.id}`, row.status, "Status", statusOptions, (value) => updatePeriodDraft(row.id, { status: value as BillingTransactionStatus }))}</span><span data-label="Action"><button aria-label={`Edit ${billingHistoryDisplayDate(row.paymentDate)} draft`} className="billing-history-details-button" onClick={() => beginPeriodDraftEdit(row)} type="button">•••</button></span></div>)}</div> : <p className="billing-period-draft-empty">Choose a valid start date, next renewal and Monthly or Yearly billing type to generate records.</p>}
               <p className="billing-period-review-order">Payments are generated from newest to oldest.</p>
               </> : <>
               <h4 className="billing-past-section-heading category-view-title">Payment Details</h4>
               <InvoiceUploadField fileName={invoiceFileName} onChange={setInvoiceFileName}/>
               <div className="tool-detail-field-row"><label className="form-field"><span>Plan Name</span><input className="field-input billing-past-plan-name-input" onChange={(event) => periodField("planName", event.target.value)} placeholder="Not recorded" value={draft.planName}/></label><label className="form-field"><span>Billing Type</span>{renderPastDropdown("past-recurring-type", draft.billingType, "Select billing type", recurringBillingTypeOptions, (value) => field("billingType", value))}</label></div>
-              <div className="tool-detail-field-row"><label className="form-field"><span>Start Date</span><DateFieldControl ariaLabel="Start date" className="field-input" onChange={(value) => field("startDate", value)} value={draft.startDate}/></label><label className="form-field"><span>End Date / Last Payment</span><DateFieldControl ariaLabel="End date or last payment" className="field-input" onChange={(value) => field("endDate", value)} value={draft.endDate}/></label></div>
+
+              <div className="tool-detail-field-row"><label className="form-field"><span>Start Date</span><DateFieldControl ariaLabel="Start date" className="field-input" onChange={(value) => field("startDate", value)} value={draft.startDate}/></label><label className="form-field"><span>Next renewal</span><DateFieldControl ariaLabel="Next renewal" className="field-input" onChange={setSetupRenewalDate} value={setupRenewalDate}/></label></div>
               <label className="form-field"><span>Currency + Amount</span><span className="billing-amount-field modal-amount-field field-input billing-past-amount-field">{renderPastDropdown("past-period-currency", draft.currency, "Currency", currencyOptions, (value) => periodField("currency", value))}<input aria-label="Amount per payment" className="field-input-control" inputMode="decimal" onChange={(event) => periodField("amount", event.target.value)} placeholder="0.00" value={draft.amount}/></span></label>
               <div className="tool-detail-field-row billing-past-status-notes-row"><label className="form-field"><span>Status</span>{renderPastDropdown("past-period-status", draft.status, "Status", statusOptions, (value) => periodField("status", value))}</label><label className="form-field billing-past-note-field"><span>Notes</span><input className="field-input" onChange={(event) => periodField("note", event.target.value)} placeholder="Add a note..." value={draft.note}/></label></div>
               <div className="billing-period-preview-actions"><span>{periodDraftRows.length} total payments{previewTotal ? ` · ${previewTotal}` : ""}</span></div>
               </>}
           </div>
+          {setupBillingSaved && error ? <p role="status">Current Billing was saved. Payment recording may be incomplete. Retry this form to finish; existing duplicate protection remains in place.</p> : null}
           <div className="billing-past-footer-row">
             <div className="billing-past-payment-info"><span aria-hidden="true">i</span><p>{entryMode === "period" ? `${periodDraftRows.length} payment${periodDraftRows.length === 1 ? "" : "s"} will be added to billing history for` : `${singlePaymentCount} payment${singlePaymentCount === 1 ? "" : "s"} will be added to billing history for`}<br/><strong>{toolName} · {accountLabel}</strong>{accountEmail ? <small> ({accountEmail})</small> : null}</p></div>
             <div className="welcome-modal-actions billing-past-modal-actions"><button className="btn-sm btn-sm-ghost" onClick={returnToEntrySelector} type="button">Cancel</button><button className="btn-sm btn-sm-primary" disabled={isSaving} onClick={entryMode === "period" ? showPeriodPreview ? savePeriod : reviewPeriod : saveSingle} type="button">{isSaving ? "Saving..." : entryMode === "period" ? showPeriodPreview ? "Save Period" : "Review Payments" : singlePaymentCount > 1 ? `Save ${singlePaymentCount} Payments` : "Save Payment"}</button></div>
@@ -479,7 +510,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   </section>;
 }
 
-export default function BillingHistoryPanel({ accounts, initialEntryMode, initialRelationshipId, onChangeRelationship, onClose, restoredDate, toolLogo, toolLogoBackground, toolName }: PanelProps) {
+export default function BillingHistoryPanel({ accounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onSetupComplete, selectedBillingType, initialRelationshipId, onChangeRelationship, onClose, restoredDate, toolLogo, toolLogoBackground, toolName }: PanelProps) {
   const [expandedRelationshipIds, setExpandedRelationshipIds] = useState(() => new Set([initialRelationshipId]));
   const toggleRelationship = (relationshipId: string) => setExpandedRelationshipIds((current) => {
     const next = new Set(current);
@@ -491,6 +522,6 @@ export default function BillingHistoryPanel({ accounts, initialEntryMode, initia
     <div className="billing-history-panel-actions"><button aria-label="Close billing history" className="modal-close-button" onClick={onClose} type="button">x</button></div>
     <h2 className="billing-history-heading">Billing History</h2>
     <div className="billing-history-tool-row"><h3 className="billing-history-tool-heading">{toolName}</h3>{accounts.length > 1 ? <div className="billing-history-expand-controls"><button onClick={() => setExpandedRelationshipIds(new Set(accounts.map((account) => account.relationshipId)))} type="button">Expand all</button><button onClick={() => setExpandedRelationshipIds(new Set())} type="button">Collapse all</button></div> : null}</div>
-    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} initialEntryMode={account.relationshipId === initialRelationshipId ? initialEntryMode : undefined} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onChangeRelationship={onChangeRelationship} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>)}</div>
+    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} onEstablishCurrentBilling={account.relationshipId === initialRelationshipId ? onEstablishCurrentBilling : undefined} onSetupComplete={onSetupComplete} prefillCurrentBilling={account.relationshipId === initialRelationshipId && prefillCurrentBilling} selectedBillingType={account.relationshipId === initialRelationshipId ? selectedBillingType : undefined} initialEntryMode={account.relationshipId === initialRelationshipId ? initialEntryMode : undefined} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onChangeRelationship={onChangeRelationship} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>)}</div>
   </aside></div>;
 }

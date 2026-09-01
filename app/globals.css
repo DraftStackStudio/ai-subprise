@@ -11502,6 +11502,145 @@ select:focus-visible {
   overflow: hidden;
 }
 
+.subscriptions-toolbar { justify-content: flex-end; margin-bottom: 24px; }
+.subscriptions-database {
+  /* Linked's fixed tracks total 799px. Preserve its centered action anchor
+     with a compact 64px action cell and the same trailing half-track space. */
+  --subscriptions-action-tail: calc((max(64px, 100% - 799px) - 64px) / 2);
+  --subscriptions-columns: 44px 44px 236px 213px 150px repeat(2, minmax(0, 1fr)) 64px var(--subscriptions-action-tail);
+}
+.subscriptions-database > .subscriptions-head,
+.subscriptions-database > .subscriptions-row { display: grid; grid-template-columns: var(--subscriptions-columns); }
+.subscriptions-row { height: 54px; box-sizing: border-box; border-top: 1px solid var(--border); color: var(--table-secondary-text); font-size: 13px; }
+.subscriptions-row > * { display: flex; align-items: center; min-width: 0; padding: 0 12px; }
+.subscriptions-row .linked-tool-name-cell { flex-wrap: nowrap; }
+.subscriptions-row .linked-tool-name-cell strong { color: var(--text-1); }
+.subscriptions-row .linked-tool-name-cell strong,
+.subscriptions-row .tool-status-chip,
+.subscriptions-billing > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subscriptions-row .subscriptions-billing { flex-direction: column; align-items: stretch; justify-content: center; }
+.subscriptions-billing small { font-size: 11px; color: var(--text-3); }
+.subscriptions-database > .subscriptions-head > span:last-child { width: auto; min-width: 0; text-align: center; justify-content: center; }
+.subscriptions-row > span:last-child { justify-content: center; }
+.subscriptions-empty-state strong { color: var(--text-3); font-weight: 400; }
+.subscription-state-label { color: var(--text-3); white-space: nowrap; }
+.subscription-state-label.state-incomplete { color: var(--tag-yellow-text); }
+.subscription-state-label.state-complete { color: var(--tag-green-text); }
+.subscriptions-parent-row { cursor: pointer; }
+.subscriptions-child-row { background: #1b1b1e; border-top: 0; }
+.subscription-billing-draft { display: grid; gap: 12px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.subscription-billing-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.subscription-billing-chips .tool-status-chip { gap: 8px; }
+.subscription-billing-chips button { border: 0; background: transparent; color: inherit; padding: 0 2px; cursor: pointer; }
+.multi-select-chip-field { gap: 8px; cursor: pointer; }
+.multi-select-chip-values { display: flex; flex: 1; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.subscription-billing-editor .multi-select-chip-values .tool-status-chip { gap: 8px; border: 1px solid var(--border); border-radius: var(--r-pill); padding: 2px 8px; background: transparent; }
+.multi-select-chip-field button { background: transparent; color: inherit; border: 0; cursor: pointer; padding: 2px; }
+.multi-select-chip-field .multi-select-chip-toggle { display: flex; align-items: center; flex-shrink: 0; padding: 4px; }
+.multi-select-chip-placeholder { color: var(--text-3); }
+.subscription-billing-editor { width: 100%; box-sizing: border-box; }
+.subscription-billing-editor .tool-detail-field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.subscription-billing-editor .form-field { min-width: 0; }
+.subscription-add-billing-type { width: max-content; max-width: 100%; }
+.subscription-add-billing-type .custom-select-trigger { min-height: 32px; padding: 6px 12px; font-size: 12px; }
+.subscription-add-billing-type .custom-select-options { min-width: 190px; }
+.subscription-account-status { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; }
+
+.subscription-account-view { display: grid; gap: 28px; margin-top: 20px; color: var(--table-secondary-text); font-size: 13px; }
+.subscription-account-card,
+.subscription-current-components,
+.subscription-payment-database,
+.subscription-activity-list { border: 1px solid var(--border); border-radius: var(--r-md); }
+.subscription-account-card { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 13px 18px; background: var(--surface); }
+.subscription-account-card h2 { color: var(--text-1); font-size: 14px; margin: 0; }
+.subscription-callout-identity { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.subscription-callout-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; height: 28px; margin-bottom: 0; }
+.subscription-account-card .linked-account-cell { display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; }
+.subscription-account-card .linked-account-address { margin-top: 0; }
+.subscription-callout-status { margin-left: auto; min-width: 150px; }
+.subscription-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
+.subscription-account-section .subscription-section-heading h3 { margin: 0; }
+.subscription-account-view .btn-primary { width: auto; margin-top: 0; padding: 8px 14px; font-size: 12px; }
+.subscription-account-identity,
+.subscription-current-component { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0; }
+.subscription-account-identity { margin-top: 20px; }
+.subscription-account-view dt { color: var(--text-3); font-size: 11px; margin-bottom: 8px; }
+.subscription-account-view dd { margin: 0; overflow-wrap: anywhere; }
+.subscription-account-section h3 { color: var(--text-1); font-size: 14px; font-weight: 600; margin: 0 0 12px; }
+.subscription-current-component { padding: 16px 20px; }
+.subscription-current-component + .subscription-current-component { border-top: 1px solid var(--border); }
+.subscription-current-components { position: relative; }
+.subscription-current-components .subscription-current-component:first-of-type { padding-right: 92px; }
+.subscription-current-edit { align-items: center; appearance: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-2); cursor: pointer; display: flex; height: 30px; justify-content: center; padding: 0; position: absolute; right: 14px; top: 14px; width: 30px; z-index: 1; }
+.subscription-current-edit:hover { background: var(--sidebar-hover); color: var(--text-1); }
+.subscription-current-edit:disabled { cursor: default; opacity: .5; }
+.subscription-current-edit:focus-visible { outline: 1px solid var(--text-2); outline-offset: 2px; }
+.subscription-current-edit svg { fill: none; height: 14px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; width: 14px; }
+.subscription-payment-database { overflow: visible; }
+.subscription-payment-table th:first-child { border-top-left-radius: var(--r-md); }
+.subscription-payment-table th:last-child { border-top-right-radius: var(--r-md); }
+.subscription-payment-table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+.subscription-payment-table th { background: var(--surface-raised); color: var(--text-3); font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; height: 40px; }
+.subscription-payment-table th,
+.subscription-payment-table td { text-align: left; padding: 0 12px; overflow-wrap: anywhere; }
+.subscription-payment-table td { height: 54px; border-top: 1px solid var(--border); vertical-align: middle; }
+.subscription-payment-edit-row .field-input,
+.subscription-payment-edit-row .custom-select-trigger {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 6px;
+  font: inherit;
+  color: inherit;
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.subscription-payment-edit-row input[type="date"] { color-scheme: dark; }
+.subscription-payment-edit-row input[type="date"]::-webkit-datetime-edit { padding: 0; }
+.subscription-payment-dropdown { min-width: 0; margin: 0; padding: 0; border: 0; font: inherit; color: inherit; }
+.subscription-payment-dropdown .custom-select-trigger { gap: 4px; }
+.subscription-payment-dropdown .custom-select-options { min-width: 100%; width: max-content; right: auto; }
+.subscription-payment-dropdown .custom-select-option { font: inherit; color: inherit; gap: 12px; }
+.subscription-payment-edit-row .subscription-payment-row-actions { flex-wrap: nowrap; }
+.subscription-payment-edit-row .btn-sm { padding: 7px 6px; white-space: nowrap; }
+.subscription-payment-table .subscription-payment-feedback-row td { height: auto; padding: 6px 12px; }
+.subscription-payment-feedback-row .field-feedback { margin: 0; }
+.subscription-payment-amount-inputs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
+.subscription-payment-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.subscription-payment-add-area { align-items: flex-end; display: grid; justify-items: end; min-height: 54px; }
+.subscription-payment-add-area small { color: var(--text-3); font-size: 11px; line-height: 16px; min-height: 16px; text-align: right; }
+.subscription-payment-cell { display: block; width: 100%; min-height: 53px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.subscription-payment-cell:focus-visible { outline: 1px solid var(--text-3); outline-offset: -2px; }
+.subscription-payment-cell:disabled { cursor: default; opacity: 1; }
+.subscription-activity-list { list-style: none; padding: 0; margin: 0; }
+.subscription-activity-list li { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 16px; padding: 16px 20px; }
+.subscription-activity-list li + li { border-top: 1px solid var(--border); }
+.subscription-activity-events { display: grid; }
+.subscription-activity-event + .subscription-activity-event { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 12px; }
+.subscription-activity-list strong { font-weight: 500; }
+.subscription-activity-list p { color: var(--text-3); margin: 4px 0 0; overflow-wrap: anywhere; }
+.subscription-detail-empty { border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-3); padding: 20px; margin: 0; }
+.subscription-activity-empty { padding: 12px 16px; }
+.billing-past-entry-modal.subscription-payment-choice { height: auto; min-height: 0; max-height: 90vh; grid-template-rows: none; overflow-y: auto; }
+.subscription-payment-choice .billing-past-entry-choices { min-height: 0; }
+.subscription-payment-choice .billing-past-entry-choices button { min-height: 0; padding: 14px; gap: 8px; }
+.subscription-setup-helper { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; box-sizing: border-box; background: var(--surface); }
+.subscription-setup-helper > div { flex: 1 1 280px; min-width: 0; }
+.subscription-setup-helper > .btn-primary { flex-shrink: 0; margin-left: auto; }
+.subscription-setup-helper > svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.subscription-setup-helper > .subscription-warning-icon { stroke-linejoin: round; }
+.subscription-setup-helper strong { color: var(--text-1); font-weight: 600; }
+.subscription-setup-helper p { margin: 6px 0 0; }
+.subscription-current-billing-modal { max-height: 90vh; max-width: 620px; overflow-y: auto; }
+.subscription-current-billing-modal > h2 { margin-bottom: 18px; }
+@media (max-width: 700px) {
+  .subscription-account-identity,
+  .subscription-current-component { grid-template-columns: 1fr; }
+}
+
 .billing-upcoming-database {
   --billing-upcoming-columns: 44px 44px 236px 213px minmax(100px, 1fr) 150px 130px;
   overflow: hidden;
@@ -11661,15 +11800,12 @@ select:focus-visible {
 .billing-directory-accounts { grid-column: 4 / -1; min-width: 0; }
 .billing-directory-account-row {
   align-items: center;
-  border-top: 1px solid var(--border);
   display: grid;
   grid-template-columns: 213px 150px minmax(112px, 1fr);
   height: 54px;
   padding: 0;
   width: 100%;
 }
-.billing-directory-account-row:first-child { border-top: 0; }
-
 .billing-directory-account-identity { display: block; min-width: 0; padding: 0 12px; }
 .billing-directory-plan { align-items: center; color: var(--text-2); display: flex; font-size: 12px; min-width: 0; padding: 0 12px; }
 .tool-database-linked.billing-directory .billing-directory-head > span:last-child,

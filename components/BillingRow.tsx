@@ -1,46 +1,24 @@
 import { BillingToolNameCell, LinkedAccountCell } from "@/components/ToolRowRenderer";
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
-import type { BillingTransaction, UpdateBillingTransactionInput } from "@/types/billingTransaction";
+import type { BillingTransaction } from "@/types/billingTransaction";
 
-export function HistoricalBillingRow({ transaction, toolVisual, accountTag = "tag-gray", onChange, currencyControl, typeControl, statusControl }: {
+export function HistoricalBillingRow({ transaction, toolVisual, accountTag = "tag-gray" }: {
   transaction: BillingTransaction;
   toolVisual?: { logo: string; logoBg: string };
   accountTag?: string;
-  onChange: (patch: UpdateBillingTransactionInput) => Promise<boolean>;
-  currencyControl: ReactNode;
-  typeControl: ReactNode;
-  statusControl: ReactNode;
 }) {
-  const editable = transaction.source === "manual";
-  const [editingAmount, setEditingAmount] = useState(false);
   const amountDisplay = transaction.currency.trim() && transaction.amount.trim()
     ? `${transaction.currency.trim()} ${transaction.amount.trim()}` : "—";
-  const textField = (field: "amount" | "planNameSnapshot") => editable ? <input
-    aria-label={field === "amount" ? "Payment amount" : "Payment plan snapshot"}
-    className={`billing-inline-field${field === "planNameSnapshot" ? " billing-plan-name-input" : ""}`}
-    defaultValue={transaction[field]}
-    key={`${field}-${transaction[field]}`}
-    placeholder={field === "amount" ? "—" : "Not set"}
-    type={field === "amount" ? "number" : "text"}
-    min={field === "amount" ? "0" : undefined}
-    step={field === "amount" ? "any" : undefined}
-    onBlur={async (event) => {
-      const input = event.currentTarget;
-      const value = input.value.trim();
-      if (value !== transaction[field] && !await onChange({ [field]: value })) input.value = transaction[field];
-    }}
-    onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
-  /> : transaction[field].trim() || (field === "amount" ? "—" : "Not set");
 
   return <article className="billing-month-transaction-row" data-transaction-id={transaction.id} data-relationship-id={transaction.relationshipId || undefined}>
     <div data-label="Tool Name"><span className="linked-tool-name-cell"><span className="tool-logo" style={{ background: toolVisual?.logoBg ?? "var(--surface-raised)", color: toolVisual ? undefined : "var(--text-2)" }} aria-hidden="true">{toolVisual?.logo || (transaction.toolNameSnapshot.trim() ? transaction.toolNameSnapshot.trim().slice(0, 2).toUpperCase() : "?")}</span><strong>{transaction.toolNameSnapshot.trim() || "Unknown"}</strong></span></div>
     <div data-label="Account"><LinkedAccountCell accountLabel={transaction.accountLabelSnapshot.trim() || "Unknown"} login={transaction.accountLoginSnapshot.trim()} tagClass={accountTag} /></div>
-    <span className="billing-plan-name" data-label="Plan Name">{textField("planNameSnapshot")}</span>
-    <span data-label="Amount">{editable ? editingAmount ? <span className="billing-month-amount-editor">{currencyControl}{textField("amount")}<button className="inline-text-link" onClick={() => setEditingAmount(false)} type="button" aria-label="Close amount editor">✓</button></span> : <button className="billing-inline-field" onClick={() => setEditingAmount(true)} type="button" aria-label="Edit payment amount and currency">{amountDisplay}</button> : amountDisplay}</span>
-    <span data-label="Billing Type">{editable ? typeControl : transaction.billingTypeSnapshot.trim() || "Not set"}</span>
-    <span data-label="Payment Date">{editable ? <label className="billing-date-picker billing-date-picker-table has-value"><span className="billing-date-value">{billingHistoryDisplayDate(transaction.paymentDate)}</span><input aria-label="Payment date" className="billing-native-date-input" type="date" key={transaction.paymentDate} defaultValue={transaction.paymentDate} onChange={async (event) => { const input = event.currentTarget; const value = input.value; if (!value || (value !== transaction.paymentDate && !await onChange({ paymentDate: value }))) input.value = transaction.paymentDate; }} /></label> : billingHistoryDisplayDate(transaction.paymentDate)}</span>
-    <span data-label="Status" title={editable ? "Edit payment status" : "Read-only transaction"}>{editable ? statusControl : <span className={`billing-transaction-status is-${transaction.status.toLowerCase()}`}>{transaction.status}</span>}</span>
+    <span className="billing-plan-name" data-label="Plan Name">{transaction.planNameSnapshot.trim() || "Not set"}</span>
+    <span data-label="Amount">{amountDisplay}</span>
+    <span data-label="Billing Type">{transaction.billingTypeSnapshot.trim() || "Not set"}</span>
+    <span data-label="Payment Date">{billingHistoryDisplayDate(transaction.paymentDate)}</span>
+    <span data-label="Status" title="Read-only transaction"><span className={`billing-transaction-status is-${transaction.status.toLowerCase()}`}>{transaction.status}</span></span>
   </article>;
 }
 

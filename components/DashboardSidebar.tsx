@@ -8,6 +8,7 @@ type Section =
   | "dashboard"
   | "tools"
   | "linked"
+  | "subscriptions"
   | "accounts"
   | "billing"
   | "watchlist"
@@ -179,7 +180,7 @@ export default function DashboardSidebar({
   );
 
   const dashboardItem = navItems.find((item) => item.id === "dashboard");
-  const manageItems = navItems.filter((item) => ["account", "tools", "linked", "billing"].includes(item.id));
+  const manageItems = navItems.filter((item) => ["account", "tools", "linked", "subscriptions", "billing"].includes(item.id));
   const listItems = navItems.filter((item) => ["watchlist", "favorites", "archive", "recovery"].includes(item.id));
 
   return (

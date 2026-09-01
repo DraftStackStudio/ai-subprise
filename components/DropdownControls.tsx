@@ -100,6 +100,7 @@ export function DropdownControl({
 }
 
 export type MultiSelectDropdownControlProps = {
+  removableChips?: boolean;
   ariaLabel?: string;
   className?: string;
   compactSummary?: boolean;
@@ -114,6 +115,7 @@ export type MultiSelectDropdownControlProps = {
 };
 
 export function MultiSelectDropdownControl({
+  removableChips = false,
   ariaLabel,
   className = "",
   compactSummary = false,
@@ -145,7 +147,13 @@ export function MultiSelectDropdownControl({
         }
       }}
     >
-      <button
+      {removableChips ? <div className="custom-select-trigger multi-select-chip-field" onClick={(event) => { if (event.currentTarget.closest("fieldset:disabled")) return; event.stopPropagation(); onOpenChange(isOpen ? null : id); }}>
+        <div className="multi-select-chip-values">{values.length ? values.map((value) => <span className="tool-status-chip" key={value}>
+          {options.find((option) => option.value === value)?.label ?? value}
+          <button aria-label={`Remove ${options.find((option) => option.value === value)?.label ?? value}`} type="button" onClick={(event) => { event.stopPropagation(); onChange(values.filter((item) => item !== value)); }}>×</button>
+        </span>) : <span className="multi-select-chip-placeholder">{placeholder}</span>}</div>
+        <button className="multi-select-chip-toggle" aria-label={ariaLabel} aria-expanded={isOpen} type="button" onClick={(event) => { event.stopPropagation(); onOpenChange(isOpen ? null : id); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg></button>
+      </div> : <button
         aria-expanded={isOpen}
         aria-label={ariaLabel}
         className={selectedLabels.length > 0 ? "custom-select-trigger" : "custom-select-trigger is-placeholder"}
@@ -164,7 +172,7 @@ export function MultiSelectDropdownControl({
         <svg aria-hidden="true" viewBox="0 0 24 24">
           <path d="m6 9 6 6 6-6" />
         </svg>
-      </button>
+      </button>}
       {isOpen ? (
         <div className="custom-select-options">
           {options.map((option) => {

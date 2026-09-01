@@ -20,18 +20,6 @@ type DropdownArgs = {
   value: string;
 };
 
-type MultiSelectDropdownArgs = {
-  ariaLabel?: string;
-  className?: string;
-  compactSummary?: boolean;
-  id: string;
-  onChange: (values: string[]) => void;
-  options: LinkToolDropdownOption[];
-  placeholder?: string;
-  toggleSelection?: (currentValues: string[], toggledValue: string) => string[];
-  values: string[];
-};
-
 type DateFieldProps = {
   ariaLabel: string;
   onChange: (value: string) => void;
@@ -51,13 +39,11 @@ type LinkAIToolModalProps = {
   isPickerOpen: boolean;
   isSaving: boolean;
   isPlanAllowedForTool: (plan: ToolStatus | "") => boolean;
-  linkBillingTypeOptions: LinkToolDropdownOption[];
   linkToolId: string;
   openAddToolModal: () => void;
   orderedAccountOptions: LinkToolDropdownOption[];
   remainingAccountOptions: LinkToolDropdownOption[];
   renderDropdown: (args: DropdownArgs) => ReactNode;
-  renderMultiSelectDropdown: (args: MultiSelectDropdownArgs) => ReactNode;
   renderPlanSelector: (
     value: ToolStatus | "",
     onChange: (nextPlan: ToolStatus | "") => void,
@@ -70,7 +56,6 @@ type LinkAIToolModalProps = {
   setOpenDropdownId: (id: string | null) => void;
   setSearchQuery: (query: string) => void;
   submit: (event: FormEvent<HTMLFormElement>) => void;
-  toggleBillingTypeSelection: (currentValues: string[], toggledValue: string) => string[];
   toolInitials: (name: string) => string;
   DateFieldControl: ComponentType<DateFieldProps>;
 };
@@ -88,13 +73,11 @@ export default function LinkAIToolModal({
   isPickerOpen,
   isSaving,
   isPlanAllowedForTool,
-  linkBillingTypeOptions,
   linkToolId,
   openAddToolModal,
   orderedAccountOptions,
   remainingAccountOptions,
   renderDropdown,
-  renderMultiSelectDropdown,
   renderPlanSelector,
   searchQuery,
   selectedTool,
@@ -104,7 +87,6 @@ export default function LinkAIToolModal({
   setOpenDropdownId,
   setSearchQuery,
   submit,
-  toggleBillingTypeSelection,
   toolInitials,
   DateFieldControl,
 }: LinkAIToolModalProps) {
@@ -251,21 +233,6 @@ export default function LinkAIToolModal({
                             current.map((item) => item.id === block.id ? { ...item, plan } : item)),
                         )}
                       </div>
-                      {block.plan === "Active" ? (
-                        <label className="form-field link-account-paid-billing">
-                          <span>Billing type</span>
-                          {renderMultiSelectDropdown({
-                            className: "modal-dropdown",
-                            id: `link-tool-billing-type-${block.id}`,
-                            onChange: (values) => setBlocks((current) =>
-                              current.map((item) => item.id === block.id ? { ...item, billingType: values.join(", ") } : item)),
-                            options: linkBillingTypeOptions,
-                            placeholder: "Select billing type",
-                            toggleSelection: toggleBillingTypeSelection,
-                            values: block.billingType ? block.billingType.split(", ") : [],
-                          })}
-                        </label>
-                      ) : null}
                       {block.plan === "Trial" ? (
                         <label className="form-field link-account-trial-date">
                           <span>Trial end date</span>
