@@ -14,6 +14,7 @@ import BillingDirectory, { type BillingDirectoryGroup } from "@/components/Billi
 import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
 import SubscriptionsView, { type SubscriptionRow } from "@/components/SubscriptionsView";
 import { qualifiesForSubscriptions, subscriptionComponents, subscriptionState, subscriptionBillingSummary, subscriptionBillingPatch } from "@/lib/subscriptions";
+import { isHistoricalBillingRelationship } from "@/lib/billingRelationshipPresentation";
 import AccountsOverview from "@/components/AccountsOverview";
 import BillingRow, { HistoricalBillingRow, type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
@@ -5569,6 +5570,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           accountEmail: account?.login ?? "",
           accountLabel,
           accountTag: accountTag(accountLabel, accountList),
+          isHistorical: isHistoricalBillingRelationship({
+            currentRelationshipId: relationshipId,
+            relationshipId,
+            unlinkedAt: billingRelationshipDetails.find((relationship) => relationship.relationshipId === relationshipId)?.unlinkedAt,
+          }),
           planName: capitaliseFirstLetter(linkedPlanName(tool, accountLabel)),
           relationshipId,
           status: detail?.status ?? "Active",
@@ -5585,6 +5591,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           accountEmail: accountList.find((account) => account.label === relationship.accountLabel)?.login ?? "",
           accountLabel: relationship.accountLabel,
           accountTag: accountTag(relationship.accountLabel, accountList),
+          isHistorical: isHistoricalBillingRelationship({
+            currentRelationshipId: toolAccountDetails[tool.id]?.[relationship.accountLabel]?.relationshipId,
+            relationshipId: relationship.relationshipId,
+            unlinkedAt: relationship.unlinkedAt,
+          }),
           planName: capitaliseFirstLetter(relationship.planName),
           relationshipId: relationship.relationshipId,
           status: relationship.status,
@@ -5643,6 +5654,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           accountTag: directoryAccount.accountTag,
           billingAmounts,
           canEditCurrentBilling: Boolean(activeDetail && relationPlan(billingDetailsTool, directoryAccount.accountLabel) === "Paid"),
+          isHistorical: directoryAccount.isHistorical,
           planName: directoryAccount.planName,
           relationshipId: directoryAccount.relationshipId,
           status: directoryAccount.status,

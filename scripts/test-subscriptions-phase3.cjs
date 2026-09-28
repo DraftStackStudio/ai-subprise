@@ -121,7 +121,7 @@ async function main() {
   const billingDetailsSource = read('components/BillingDetailsView.tsx');
   assert(billingDetailsSource.includes('nameSuffix={accountPlan ? <span className="tool-status-chip current-plan-pill">{accountPlan}</span> : null}'));
   assert(!billingDetailsSource.includes('billing-details-account-separator'));
-  assert(billingDetailsSource.includes("{account.accountLabel}{account.planName ? ` · ${account.planName}` : \"\"}"));
+  assert(billingDetailsSource.includes('billingRelationshipSelectorLabel(account.accountLabel, account.planName, account.isHistorical)'));
   const datesSource = panelSource.slice(panelSource.indexOf('function periodDates('), panelSource.indexOf('function displayAmount('));
   const dateFunctions = compile(`const { addMonthsSafely, validBillingDate } = require('dates'); const localBillingToday = () => '2026-08-31'; ${datesSource}\nmodule.exports = { periodDates };`, { dates: load('lib/currentBilling.ts') });
   assert.deepEqual(dateFunctions.periodDates('2026-01-31', '2026-04-30', 'Monthly'), ['2026-01-31', '2026-02-28', '2026-03-31']);

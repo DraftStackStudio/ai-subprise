@@ -5,6 +5,7 @@ export type BillingDirectoryAccount = {
   accountEmail: string;
   accountLabel: string;
   accountTag: string;
+  isHistorical: boolean;
   planName: string;
   relationshipId: string;
   status: string;
@@ -37,16 +38,17 @@ export default function BillingDirectory({
   onOpenTool,
   searchTerm,
 }: BillingDirectoryProps) {
-  const groupedByStatus = billingStatusGroups.map((status) => ({
-    groups: groups
-      .map((group) => ({
-        ...group,
-        accounts: group.accounts.filter((account) => account.status === status),
-      }))
-      .filter((group) => group.accounts.length > 0)
-      .sort((left, right) => left.toolName.localeCompare(right.toolName)),
-    status,
-  }));
+  const groupAccounts = (predicate: (account: BillingDirectoryAccount) => boolean) => groups
+    .map((group) => ({ ...group, accounts: group.accounts.filter(predicate) }))
+    .filter((group) => group.accounts.length > 0)
+    .sort((left, right) => left.toolName.localeCompare(right.toolName));
+  const groupedByStatus = [
+    ...billingStatusGroups.map((status) => ({
+      groups: groupAccounts((account) => !account.isHistorical && account.status === status),
+      status,
+    })),
+    { groups: groupAccounts((account) => account.isHistorical), status: "History" },
+  ];
 
   return <div className="account-table tool-database tool-database-linked tool-database-flat billing-directory">
     <div className="account-table-head tool-table-head billing-directory-head"><span /><span /><span>Tool Name</span><span>Account</span><span>Plan</span><span>Status</span></div>
@@ -66,7 +68,7 @@ export default function BillingDirectory({
             {group.accounts.map((account) => <button className="billing-directory-account-row" key={account.relationshipId} onClick={() => onOpenAccount(group.toolId, account.relationshipId)} type="button">
               <span className="billing-directory-account-identity"><LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail} tagClass={account.accountTag} /></span>
               <span className="billing-directory-plan">{account.planName ? <span className="tool-status-chip status-paid">{account.planName}</span> : <span className="muted-cell">Not set</span>}</span>
-              <span className="billing-directory-status linked-expanded-status-cell"><span className="linked-status-readonly">{account.status === "On a Break" ? "On a break" : account.status}</span></span>
+              <span className="billing-directory-status linked-expanded-status-cell"><span className="linked-status-readonly">{account.isHistorical ? "Historical" : account.status === "On a Break" ? "On a break" : account.status}</span></span>
             </button>)}
           </div>
         </div>)}
