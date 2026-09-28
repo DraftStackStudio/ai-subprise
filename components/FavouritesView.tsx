@@ -95,7 +95,7 @@ export default function FavouritesView({
           )}
         </div>
         <span data-label="URL">{renderUrl()}</span>
-        <span className="row-actions" data-label="Action">
+        <span className="row-actions" data-label="Status">
           <button
             className="action-btn"
             onClick={(event) => {

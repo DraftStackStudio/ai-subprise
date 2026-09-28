@@ -1,4 +1,4 @@
-import type { ToolStatus } from "@/types/toolDetail";
+import type { ManageStatus, ToolStatus } from "@/types/toolDetail";
 
 export type LinkToolAccountBlock = {
   accountLabel: string;
@@ -9,6 +9,7 @@ export type LinkToolAccountBlock = {
   purchaseDate: string;
   plan: ToolStatus | "";
   planName: string;
+  status: ManageStatus;
   trialExpiryDate: string;
 };
 

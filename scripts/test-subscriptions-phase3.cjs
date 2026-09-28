@@ -9,7 +9,10 @@ function compile(source, dependencies = {}) {
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX, target: ts.ScriptTarget.ES2022 } }).outputText;
   new Function('require', 'module', 'exports', js)((name) => {
     if (name in dependencies) return dependencies[name];
-    if (name.startsWith('@/')) return load(name.slice(2) + '.ts');
+    if (name.startsWith('@/')) {
+      const stem = name.slice(2);
+      return load(fs.existsSync(path.join(root, `${stem}.ts`)) ? `${stem}.ts` : `${stem}.tsx`);
+    }
     return require(name);
   }, module, module.exports);
   return module.exports;
@@ -25,9 +28,12 @@ assert.equal(resolvePaymentDate({ billingType: 'Monthly', paymentDate: '', nextR
 assert.equal(resolvePaymentDate({ billingType: 'Top-up', paymentDate: '', nextRenewalDate: '2026-03-31' }), '');
 assert.equal(resolvePaymentDate({ billingType: 'Monthly', paymentDate: '2026-02-30', nextRenewalDate: '2026-03-31' }), '');
 const { firstTimeBillingComponents } = load('lib/firstTimeBillingSetup.ts');
+const periodValidation = load('lib/billingPeriodValidation.ts');
 assert.throws(() => firstTimeBillingComponents([{ billingType: 'Monthly', currency: 'SGD', amount: '30', paymentDate: '2026-08-25' }]));
 assert.throws(() => firstTimeBillingComponents([{ billingType: 'Monthly', currency: '', amount: '30', paymentDate: '2026-08-25', nextRenewalDate: '2026-09-25' }]));
 const setupComponents = firstTimeBillingComponents([{ billingType: 'Monthly', currency: 'SGD', amount: '30', paymentDate: '2026-08-25', nextRenewalDate: '2026-09-25' }, { billingType: 'Top-up', currency: 'SGD', amount: '5', paymentDate: '2026-08-26' }]);
+const unknownAmountComponent = firstTimeBillingComponents([{ billingType: 'Monthly', currency: 'SGD', amount: '', paymentDate: '2026-08-25', nextRenewalDate: '2026-09-25' }], { amountOptional: true });
+assert.equal(unknownAmountComponent[0].amount, '');
 assert.equal(setupComponents[0].nextRenewalDate, '2026-09-25');
 assert.equal(setupComponents[1].lastTopUpDate, '2026-08-26');
 const prefillComponents = [
@@ -71,6 +77,20 @@ assert.equal(subscriptionState(changed.billingAmounts), 'Complete');
 assert.equal(subscriptionState(subscriptionBillingPatch('', []).billingAmounts), 'Not started');
 assert.equal(subscriptionState(subscriptionBillingPatch('', [{ ...monthly, amount: '' }, topup]).billingAmounts), 'Incomplete');
 assert.equal(subscriptionState(subscriptionBillingPatch('', [{ ...monthly, amount: '0' }]).billingAmounts), 'Complete');
+// Completeness uses Current Billing only; optional save validation is unchanged.
+for (const billingType of ['Monthly', 'Yearly', 'Top-up', 'Lifetime', 'One-time']) {
+  const component = { ...monthly, billingType, purchaseDate: '2026-08-25', lastTopUpDate: '2026-08-25' };
+  for (const amount of ['', '  ', null, undefined]) {
+    assert.equal(subscriptionState([{ ...component, amount }]), 'Incomplete');
+  }
+  for (const amount of ['0', '0.00', '30']) {
+    assert.equal(subscriptionState([{ ...component, amount }]), 'Complete');
+    assert.equal(subscriptionState([{ ...component, amount, currency: '' }]), 'Incomplete');
+    assert.equal(subscriptionState([{ ...component, amount, nextRenewalDate: '', purchaseDate: '', lastTopUpDate: '' }]), 'Incomplete');
+  }
+}
+assert.equal(subscriptionState([monthly, { ...topup, amount: '' }]), 'Incomplete');
+assert.equal(subscriptionState(subscriptionBillingPatch('', [{ ...monthly, amount: '' }]).billingAmounts), 'Incomplete');
 assert.throws(() => subscriptionBillingPatch('', [monthly, { ...monthly, billingType: 'Yearly' }]));
 assert.throws(() => subscriptionBillingPatch('', [{ ...monthly, nextRenewalDate: '2026-02-30' }]));
 
@@ -96,33 +116,41 @@ const wiring = compile(`const { subscriptionBillingPatch } = require('helper'); 
 async function main() {
   // Exercise the actual payment save/review handlers without network access.
   const panelSource = read('components/BillingHistoryPanel.tsx');
+  assert(panelSource.includes('planName={entryMode === "period" ? draft.planName : planName}'));
+  assert(panelSource.includes('className="field-feedback error billing-past-field-error" role="alert">{singleCurrencyError}</small>'));
+  const billingDetailsSource = read('components/BillingDetailsView.tsx');
+  assert(billingDetailsSource.includes('nameSuffix={accountPlan ? <span className="tool-status-chip current-plan-pill">{accountPlan}</span> : null}'));
+  assert(!billingDetailsSource.includes('billing-details-account-separator'));
+  assert(billingDetailsSource.includes("{account.accountLabel}{account.planName ? ` · ${account.planName}` : \"\"}"));
   const datesSource = panelSource.slice(panelSource.indexOf('function periodDates('), panelSource.indexOf('function displayAmount('));
   const dateFunctions = compile(`const { addMonthsSafely, validBillingDate } = require('dates'); const localBillingToday = () => '2026-08-31'; ${datesSource}\nmodule.exports = { periodDates };`, { dates: load('lib/currentBilling.ts') });
   assert.deepEqual(dateFunctions.periodDates('2026-01-31', '2026-04-30', 'Monthly'), ['2026-01-31', '2026-02-28', '2026-03-31']);
   assert.deepEqual(dateFunctions.periodDates('2026-08-15', '2026-11-15', 'Monthly'), ['2026-08-15']);
   assert.deepEqual(dateFunctions.periodDates('2026-08-15', '', 'Monthly'), []);
   const paymentHandlers = panelSource.slice(panelSource.indexOf('  const directPaymentDates ='), panelSource.indexOf('  const beginEdit ='));
-  function setupHarness(failCurrentBilling = false) {
+  function setupHarness(failCurrentBilling = false, amount = '30', planName = 'Pro', currency = 'SGD') {
     return compile(`
-      const { firstTimeBillingComponents, validBillingDate, resolvePaymentDate } = require('setupHelpers');
-      const calls = []; const relationshipId = 'exact-setup-id';
+      const { firstTimeBillingComponents, validBillingDate, resolvePaymentDate, optionalPaymentAmountError, periodHeaderErrors, periodPaymentErrors, localBillingToday } = require('setupHelpers');
+      const calls = []; const relationshipId = 'exact-setup-id'; const billingAmounts = [];
       const prefillCurrentBilling = true, editingId = '', singlePaymentKey = 'stable-key';
-      const singlePaymentBillingDrafts = [{ billingType: 'Monthly', currency: 'SGD', amount: '30', paymentDate: '2020-08-25', nextRenewalDate: '2020-09-25' }];
+      const singlePaymentBillingDrafts = [{ billingType: 'Monthly', currency: ${JSON.stringify(currency)}, amount: '30', paymentDate: '2020-08-25', nextRenewalDate: '2020-09-25' }];
       const additionalTopUpDrafts = [];
-      const draft = { planName: 'Pro', note: '', status: 'Paid', billingType: 'Monthly', amount: '30', currency: 'SGD', startDate: '2020-08-25', endDate: '2020-08-25' };
+      const draft = { planName: ${JSON.stringify(planName)}, note: '', status: 'Paid', billingType: 'Monthly', amount: ${JSON.stringify(amount)}, currency: 'SGD', startDate: '2020-08-25', endDate: '2020-08-25' };
       const setupRenewalDate = '2020-09-25';
       const periodDraftRows = [{ ...draft, paymentDate: '2020-08-25', sourceKey: 'stable-period-key' }];
       const previewDates = ['2020-08-25'];
-      let isSaving = false, error = '', reviewed = false;
+      let isSaving = false, error = '', reviewed = false, singleCurrencyError = '';
+      const setPeriodValidationAttempted = () => {}; const setPeriodRowsValidationAttempted = () => {};
       const setError = (value) => { error = value; }; const setIsSaving = (value) => { isSaving = value; };
+      const setSingleCurrencyError = (value) => { singleCurrencyError = value; };
       const setSetupBillingSaved = () => {}; const setOpenDropdownId = () => {};
       const setShowPeriodPreview = (value) => { reviewed = value; };
       const onEstablishCurrentBilling = async (...args) => { calls.push(['current', ...args]); if (${failCurrentBilling}) throw new Error('current failed'); };
       const createBillingTransaction = async (input) => { calls.push(['payment', input]); };
       const reload = async () => {}; const closeForm = () => {}; const onSetupComplete = () => { calls.push(['complete']); };
       ${paymentHandlers}
-      module.exports = { saveSingle, savePeriod, reviewPeriod, calls, get: () => ({ error, reviewed }) };
-    `, { setupHelpers: { firstTimeBillingComponents, resolvePaymentDate, validBillingDate: load('lib/currentBilling.ts').validBillingDate } });
+      module.exports = { saveSingle, savePeriod, reviewPeriod, calls, get: () => ({ error, reviewed, singleCurrencyError, singlePaymentBillingDrafts, additionalTopUpDrafts, periodDraftRows, draft }) };
+    `, { setupHelpers: { ...periodValidation, localBillingToday: load('lib/currentBilling.ts').localBillingToday, firstTimeBillingComponents, resolvePaymentDate, validBillingDate: load('lib/currentBilling.ts').validBillingDate } });
   }
   const singleSetup = setupHarness();
   assert.equal(singleSetup.calls.length, 0);
@@ -132,6 +160,12 @@ async function main() {
   assert.equal(singleSetup.calls[1][1].relationshipId, 'exact-setup-id');
   assert.equal(singleSetup.calls[1][1].paymentDate, '2020-08-25');
   assert.equal(singleSetup.calls[0][3][0].nextRenewalDate, '2020-09-25');
+  const missingCurrencySetup = setupHarness(false, '30', 'Pro', '');
+  await missingCurrencySetup.saveSingle();
+  assert.equal(missingCurrencySetup.get().singleCurrencyError, 'Select a currency.');
+  assert.equal(missingCurrencySetup.get().error, '');
+  assert.equal(missingCurrencySetup.get().singlePaymentBillingDrafts[0].amount, '30');
+  assert.equal(missingCurrencySetup.calls.length, 0);
   const failedSetup = setupHarness(true);
   await failedSetup.saveSingle();
   assert.deepEqual(failedSetup.calls.map((call) => call[0]), ['current']);
@@ -141,6 +175,64 @@ async function main() {
   assert.equal(periodSetup.calls.length, 0);
   await periodSetup.savePeriod();
   assert.deepEqual(periodSetup.calls.map((call) => call[0]), ['current', 'payment', 'complete']);
+  const unknownAmountPeriod = setupHarness(false, '', 'Max');
+  unknownAmountPeriod.reviewPeriod();
+  assert.equal(unknownAmountPeriod.get().reviewed, true);
+  assert.equal(unknownAmountPeriod.calls.length, 0);
+  await unknownAmountPeriod.savePeriod();
+  assert.equal(unknownAmountPeriod.calls[0][2], 'Max');
+  assert.equal(unknownAmountPeriod.calls[0][3][0].amount, '');
+  assert.equal(unknownAmountPeriod.calls[1][1].planNameSnapshot, 'Max');
+  assert.equal(unknownAmountPeriod.calls[1][1].amount, '');
+  // Optional amounts remain unknown; explicit zeros survive both setup and payment writes.
+  for (const amount of ['', ' ', '0', '0.00', '18.25']) {
+    const h = setupHarness();
+    h.get().singlePaymentBillingDrafts[0].amount = amount;
+    h.get().additionalTopUpDrafts.push({ id: 'extra', amount, paymentDate: '2020-08-26', note: '', status: 'Paid' });
+    await h.saveSingle();
+    assert.equal(h.get().error, '');
+    assert.equal(h.calls[0][3][0].amount, amount.trim());
+    assert.equal(h.calls.filter(c => c[0] === 'payment').length, 2);
+    assert(h.calls.filter(c => c[0] === 'payment').every(c => c[1].amount === amount));
+  }
+  for (const amount of ['-1', 'abc', '1.2.3', 'Infinity', '1000000000000']) {
+    for (const extra of [false, true]) {
+      const h = setupHarness();
+      if (extra) h.get().additionalTopUpDrafts.push({ id: 'extra', amount, paymentDate: '2020-08-26', note: '', status: 'Paid' });
+      else h.get().singlePaymentBillingDrafts[0].amount = amount;
+      await h.saveSingle();
+      assert(h.get().error); assert.equal(h.calls.length, 0);
+    }
+  }
+  for (const patch of [{ currency: '' }, { amount: '-1' }, { startDate: '' }, { startDate: '2020-02-30' }, { startDate: '2999-01-01' }, { billingType: 'Top-up' }, { status: 'invalid' }]) {
+    const h = setupHarness(); Object.assign(h.get().draft, patch);
+    h.reviewPeriod(); assert.equal(h.get().reviewed, false); assert.equal(h.get().error, '');
+    await h.savePeriod(); assert.equal(h.calls.length, 0);
+  }
+  for (const patch of [{ paymentDate: '' }, { paymentDate: '2020-02-30' }, { paymentDate: '2999-01-01' }, { amount: '-1' }, { currency: '' }, { status: 'invalid' }, { billingType: 'invalid' }]) {
+    const h = setupHarness(); h.reviewPeriod();
+    assert.equal(h.calls.length, 0);
+    Object.assign(h.get().periodDraftRows[0], patch);
+    await h.savePeriod(); assert.equal(h.calls.length, 0); assert.equal(h.get().error, '');
+  }
+  const emptyPeriod = setupHarness(); emptyPeriod.reviewPeriod(); emptyPeriod.get().periodDraftRows.length = 0;
+  await emptyPeriod.savePeriod(); assert.equal(emptyPeriod.calls.length, 0);
+  assert.equal(periodValidation.optionalPaymentAmountError('999999999999.999999'), '');
+  assert(periodValidation.optionalPaymentAmountError('999999999999.9999999'));
+  const validFields = { amount: '', currency: '', billingType: 'Monthly', status: 'Paid', startDate: '2020-01-01', paymentDate: '2020-01-01' };
+  assert.deepEqual(periodValidation.periodHeaderErrors(validFields, '2020-02-01', false), {});
+  assert(periodValidation.periodHeaderErrors({ ...validFields, currency: 'SGD' }, '2020-02-01', true, '2026-09-28', ['Yearly']).billingType);
+  assert(periodValidation.periodHeaderErrors(validFields, '', false).nextRenewalDate);
+  assert(periodValidation.periodHeaderErrors(validFields, '2019-12-01', false).nextRenewalDate);
+  assert.deepEqual(periodValidation.periodPaymentErrors({ ...validFields, billingType: '' }, false), {});
+  // Real serializer: blank -> null, zero -> zero string; no database calls.
+  const apiSource = read('lib/supabase/billingTransactions.ts');
+  const amountSerializer = compile(apiSource.slice(apiSource.indexOf('function optionalAmount('), apiSource.indexOf('function asBillingTransaction(')) + '\nmodule.exports = optionalAmount;');
+  for (const value of ['', ' ']) assert.equal(amountSerializer(value) || null, null);
+  for (const value of ['0', '0.00', '8.50']) assert.equal(amountSerializer(value) || null, value);
+  const amountDisplay = compile(panelSource.slice(panelSource.indexOf('function displayAmount('), panelSource.indexOf('function componentDate(')) + '\nmodule.exports = displayAmount;');
+  assert.equal(amountDisplay({ amount: '', currency: 'SGD' }), '—');
+  assert.equal(amountDisplay({ amount: '0', currency: 'SGD' }), 'SGD 0');
   const history = JSON.stringify(wiring.transactions);
   await wiring.saveSubscriptionBilling('r1', 'Max', changed.billingAmounts);
   assert.equal(wiring.writes[0][4].expectedRelationshipId, 'r1');
@@ -254,11 +346,44 @@ async function main() {
     '@/components/SubscriptionPayments': { default: () => null },
     '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
   }).default;
+  assert(read('components/SubscriptionAccountView.tsx').includes('const shouldUpdateCurrentBilling = firstTimeSetup || paymentMode === "period";'));
   const account = { ...props.account, planName: '', canManageBilling: true, toolName: 'Test Tool', status: 'Active', payments: [
     { id: 'p1', relationshipId: 'r1', paymentDate: '2026-08-10', planNameSnapshot: 'Historical', billingTypeSnapshot: 'Monthly', currency: 'SGD', amount: '20', status: 'Paid' },
     { id: 'p2', relationshipId: 'r2', paymentDate: '2026-08-11' },
   ], activity: [{ id: 'a1', saved: true, event: 'Paused', date: '2026-08-01', note: 'First' }, { id: 'a2', saved: false, event: 'Resumed', date: '2026-08-02' }, { id: 'a3', saved: true, event: 'Cancelled', date: '2026-08-01', note: 'Second' }, { id: 'a4', saved: true, event: 'Trial Started', date: '2026-07-31' }] };
   const renderAccount = () => { cursor = 0; return AccountView({ ...props, account, onSaveStatus: async (...args) => statusCalls.push(args) }); };
+  hooks = [];
+  hooks[7] = 'period';
+  hooks[9] = false;
+  let periodCurrentBillingSave;
+  const savedBillingHandler = props.onSaveBilling;
+  props.onSaveBilling = async (...args) => { periodCurrentBillingSave = args; };
+  const ordinaryPeriodPanel = nodes(renderAccount()).find((node) => node.props?.initialEntryMode === 'period');
+  assert.equal(typeof ordinaryPeriodPanel.props.onEstablishCurrentBilling, 'function');
+  await assert.rejects(ordinaryPeriodPanel.props.onEstablishCurrentBilling('r2', 'Max', unknownAmountComponent));
+  await ordinaryPeriodPanel.props.onEstablishCurrentBilling('r1', 'Max', unknownAmountComponent);
+  assert.equal(periodCurrentBillingSave[0], 'r1');
+  assert.equal(periodCurrentBillingSave[1], 'Max');
+  assert.equal(periodCurrentBillingSave[2][0].amount, '');
+  props.onSaveBilling = savedBillingHandler;
+  hooks = [];
+  account.planName = 'Max';
+  let syncedCurrentBilling;
+  props.onSaveBilling = async (...args) => { syncedCurrentBilling = args; };
+  tree = renderAccount();
+  assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip current-plan-pill' && node.props.children === 'Max'));
+  const paymentProps = nodes(tree).find((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.onUpdateCurrentBillingAmount === 'function').props;
+  await assert.rejects(paymentProps.onUpdateCurrentBillingAmount('r2', 'Monthly', 'SGD', '30.84'));
+  await assert.rejects(paymentProps.onUpdateCurrentBillingAmount('r1', 'Weekly', 'SGD', '30.84'));
+  await paymentProps.onUpdateCurrentBillingAmount('r1', 'Monthly', 'SGD', '30.84');
+  assert.equal(syncedCurrentBilling[0], 'r1');
+  assert.equal(syncedCurrentBilling[1], 'Max');
+  assert.equal(syncedCurrentBilling[2][0].amount, '30.84');
+  assert.equal(syncedCurrentBilling[2][0].currency, 'SGD');
+  assert.deepEqual(syncedCurrentBilling[2][1], saved[1]);
+  props.onSaveBilling = savedBillingHandler;
+  account.planName = '';
+  hooks = [];
   tree = renderAccount();
   assert(!nodes(tree).some((node) => node.props?.className === 'tool-status-chip' && node.props.children === 'Not set'));
   assert(nodes(tree).some((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.canAdd === 'boolean'));
@@ -350,6 +475,7 @@ async function main() {
   hooks = [];
   {
   const writes = [];
+  const currentBillingWrites = [];
   let failCreate = false;
   let releaseUpdate;
   let delayUpdate = false;
@@ -367,33 +493,37 @@ async function main() {
   account.billingComponents = setupComponents;
   account.payments = [historical, { ...historical, id: 'legacy', source: 'legacy_json' }, { ...historical, id: 'api', source: 'api' }, { ...historical, id: 'other-account', relationshipId: 'r2' }];
   const billingBefore = JSON.stringify(account.billingComponents);
-  const renderPayments = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: ['USD', 'SGD', 'EUR'].map((value) => ({ label: value, value })) }); };
+  const renderPayments = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: ['USD', 'SGD', 'EUR'].map((value) => ({ label: value, value })), onUpdateCurrentBillingAmount: async (...args) => currentBillingWrites.push(args) }); };
   const field = (label) => nodes(renderPayments()).find((node) => (node.props?.['aria-label'] ?? node.props?.ariaLabel) === label);
-  assert.equal(nodes(renderPayments()).filter((node) => node.props?.className === 'subscription-payment-cell').length, 5);
-  for (const label of ['Date', 'Plan', 'Type', 'Currency/Amount', 'Status']) {
-    field(`Edit ${label}`).props.onClick();
-    assert(field('Payment Date'));
-    button(renderPayments(), 'Cancel').props.onClick();
-  }
+  const row = (id) => nodes(renderPayments()).find((node) => node.props?.['data-transaction-id'] === id);
+  const editPayment = (id) => nodes(row(id)).find((node) => node.props?.className === 'subscription-payment-edit-button');
+  assert.equal(nodes(renderPayments()).filter((node) => node.props?.className === 'subscription-payment-cell').length, 0);
+  assert.equal(nodes(row('p1')).filter((node) => node.type === 'button').length, 1);
+  assert(nodes(row('p1')).filter((node) => node.type === 'td').slice(0, 5).every((cell) => cell.props.onClick === undefined));
+  editPayment('p1').props.onClick();
+  assert(field('Payment Date'));
+  button(renderPayments(), 'Cancel').props.onClick();
   assert.equal(writes.length, 0);
   for (const id of ['legacy', 'api']) {
     const row = nodes(renderPayments()).find((node) => node.props?.['data-transaction-id'] === id);
     assert(!nodes(row).some((node) => node.type === 'button'));
   }
   assert(!nodes(renderPayments()).some((node) => node.props?.['data-transaction-id'] === 'other-account'));
-  field('Edit Plan').props.onClick();
+  editPayment('p1').props.onClick();
   assert.equal(field('Plan Name').props.value, 'Old plan');
   field('Amount').props.onChange({ target: { value: '99' } });
   button(renderPayments(), 'Cancel').props.onClick();
   assert.equal(writes.length, 0);
   assert.equal(historical.amount, '8');
-  field('Edit Currency/Amount').props.onClick();
+  editPayment('p1').props.onClick();
   field('Amount').props.onChange({ target: { value: '9' } });
+  assert.equal(field('Update Current Billing amount to USD 9 too?').props.checked, false);
   await button(renderPayments(), 'Save').props.onClick();
   assert.equal(writes[0].id, 'p1');
   assert.equal(writes[0].values.amount, '9');
   assert.equal(writes[0].values.note, undefined);
   assert.equal(writes[0].values.relationshipId, undefined);
+  assert.equal(currentBillingWrites.length, 0);
   button(renderPayments(), '+ Add Payment').props.onClick();
   assert.equal(field('Billing Type').props.value, ''); // Monthly + Top-up is ambiguous.
   field('Billing Type').props.onChange('Top-up');
@@ -415,13 +545,12 @@ async function main() {
   button(renderPayments(), 'Cancel').props.onClick();
   assert.equal(writes.length, 3);
   account.payments.push({ ...historical, id: 'p2', amount: '12', currency: '' }, { ...historical, id: 'p3', amount: '15', currency: '' });
-  const row = (id) => nodes(renderPayments()).find((node) => node.props?.['data-transaction-id'] === id);
   const rowField = (id, label) => nodes(row(id)).find((node) => (node.props?.['aria-label'] ?? node.props?.ariaLabel) === label);
-  rowField('p1', 'Edit Plan').props.onClick();
+  editPayment('p1').props.onClick();
   rowField('p1', 'Plan Name').props.onChange({ target: { value: 'Draft A' } });
-  rowField('p2', 'Edit Currency/Amount').props.onClick();
+  editPayment('p2').props.onClick();
   rowField('p2', 'Amount').props.onChange({ target: { value: '42' } });
-  rowField('p3', 'Edit Currency/Amount').props.onClick();
+  editPayment('p3').props.onClick();
   button(renderPayments(), '+ Add Payment').props.onClick();
   const newRow = () => nodes(renderPayments()).find((node) => node.props?.['data-draft-key'] === 'new');
   assert(newRow());
@@ -448,7 +577,7 @@ async function main() {
   button(row('p1'), 'Cancel').props.onClick();
   assert.equal(rowField('p2', 'Amount').props.value, '42');
   assert(newRow());
-  rowField('p1', 'Edit Plan').props.onClick();
+  editPayment('p1').props.onClick();
   assert.equal(rowField('p1', 'Plan Name').props.value, 'Old plan');
   rowField('p1', 'Amount').props.onChange({ target: { value: 'invalid' } });
   await button(row('p1'), 'Save').props.onClick();
@@ -462,10 +591,12 @@ async function main() {
   assert.equal(button(row('p2'), 'Save').props.disabled, true);
   assert.equal(button(row('p1'), 'Save').props.disabled, false);
   rowField('p1', 'Amount').props.onChange({ target: { value: '17' } });
+  field('Update Current Billing amount to USD 17 too?').props.onChange({ target: { checked: true } });
   delayUpdate = false;
   await button(row('p1'), 'Save').props.onClick();
   assert.equal(writes[4].id, 'p1');
   assert.equal(writes[4].values.amount, '17');
+  assert.deepEqual(currentBillingWrites[0], ['r1', 'Monthly', 'USD', '17']);
   assert.equal(rowField('p2', 'Amount').props.value, '42');
   releaseUpdate();
   await saveB;
@@ -477,6 +608,65 @@ async function main() {
   assert.equal(JSON.stringify(account.billingComponents), billingBefore);
   assert.equal(writes.length, 5);
   }
-  console.log('PASS: setup routing, billing drafts, inline payment Save/Cancel, exact isolation, prefill, read-only legacy rows, retry keys, and unchanged Current Billing.');
+  // Render the real inline editor and use the real update API serializer with an
+  // in-memory database boundary. Verify SQL null rather than just a blank draft.
+  {
+    let database, writes, syncWrites;
+    const api = load('lib/supabase/billingTransactions.ts', {
+      '@/lib/supabase/client': { createClient: () => ({ from(table) {
+        assert.equal(table, 'billing_transactions');
+        return { update(payload) { return { eq(column, id) {
+          assert.equal(column, 'id');
+          return { select() { return { async single() {
+            writes.push({ id, payload });
+            database[id] = { ...database[id], ...payload };
+            return { data: database[id], error: null };
+          } }; } };
+        } }; } };
+      } }) },
+    });
+    const Payments = load('components/SubscriptionPayments.tsx', {
+      react,
+      '@/components/DropdownControls': { DropdownControl: () => null },
+      '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
+      '@/lib/supabase/billingTransactions': api,
+    }).default;
+    const raw = { id: 'unknown', tool_email_link_id: 'r1', source: 'manual', payment_date: '2020-01-10', plan_name_snapshot: 'Old plan', billing_type_snapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: null, note: 'Keep this note' };
+    const renderInline = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: [], onUpdateCurrentBillingAmount: async () => { syncWrites++; } }); };
+    const inlineField = (label) => nodes(renderInline()).find(node => (node.props?.['aria-label'] ?? node.props?.ariaLabel) === label);
+    const begin = (amount) => {
+      hooks = []; writes = []; syncWrites = 0;
+      database = { unknown: { ...raw, amount }, untouched: { ...raw, id: 'untouched', tool_email_link_id: 'r2', amount: '81' } };
+      account.relationshipId = 'r1'; account.billingComponents = setupComponents;
+      account.payments = [{ id: 'unknown', relationshipId: 'r1', source: 'manual', paymentDate: raw.payment_date, planNameSnapshot: raw.plan_name_snapshot, billingTypeSnapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: amount === null ? '' : amount, note: raw.note }];
+      nodes(renderInline()).find(node => node.props?.className === 'subscription-payment-edit-button').props.onClick();
+    };
+    for (const [amount, changedField, value] of [[null, 'Plan Name', 'New plan'], [null, 'Payment Status', 'Refunded'], ['0', 'Plan Name', 'Zero plan'], ['0.00', 'Plan Name', 'Zero decimal'], ['8.50', 'Plan Name', 'Same amount']]) {
+      begin(amount);
+      const otherBefore = JSON.stringify(database.untouched);
+      const currentBefore = JSON.stringify(account.billingComponents);
+      inlineField(changedField).props.onChange(changedField === 'Payment Status' ? value : { target: { value } });
+      await button(renderInline(), 'Save').props.onClick();
+      assert.equal(writes.length, 1);
+      assert.equal(writes[0].id, 'unknown');
+      assert.equal(database.unknown.amount, amount);
+      assert.equal(database.unknown[changedField === 'Payment Status' ? 'status' : 'plan_name_snapshot'], value);
+      assert.equal(database.unknown.note, raw.note);
+      assert.equal(JSON.stringify(database.untouched), otherBefore);
+      assert.equal(JSON.stringify(account.billingComponents), currentBefore);
+      assert.equal(syncWrites, 0);
+      const cells = nodes(renderInline()).filter(node => node.type === 'td');
+      assert(cells.some(node => node.props.children === (amount === null ? '—' : `USD ${amount}`)));
+    }
+    for (const amount of ['-1', 'abc', '1.2.3']) {
+      begin(null);
+      inlineField('Amount').props.onChange({ target: { value: amount } });
+      await button(renderInline(), 'Save').props.onClick();
+      assert.equal(writes.length, 0);
+      assert.equal(syncWrites, 0);
+      assert(nodes(renderInline()).some(node => node.props?.role === 'alert'));
+    }
+  }
+  console.log('PASS: Inline unknown/null and zero amounts, payment edits, validation, Current Billing sync, exact isolation, prefill, and retry keys.');
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

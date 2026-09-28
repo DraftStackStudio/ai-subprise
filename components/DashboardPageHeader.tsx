@@ -13,7 +13,6 @@ type DashboardPageHeaderProps = {
   onEditCategories: () => void;
   onEditProviders: () => void;
   onOpenPresets: () => void;
-  onResetTools: () => void;
   onTogglePendingActions: () => void;
   pendingActionCount: number;
   subtitle: ReactNode;
@@ -33,7 +32,6 @@ export default function DashboardPageHeader({
   onEditCategories,
   onEditProviders,
   onOpenPresets,
-  onResetTools,
   onTogglePendingActions,
   pendingActionCount,
   subtitle,
@@ -85,10 +83,7 @@ export default function DashboardPageHeader({
         ) : null}
         {activeSection === "account" ? <button className="btn-sm btn-sm-charcoal" onClick={onEditProviders} type="button">+ Edit Provider</button> : null}
         {activeSection === "tools" && hasConfirmedCategories ? (
-          <>
-            <button className="btn-sm btn-sm-ghost" onClick={onResetTools} type="button">Reset AI Tools</button>
-            <button className="btn-sm btn-sm-charcoal" onClick={onEditCategories} type="button">Edit Category</button>
-          </>
+          <button className="btn-sm btn-sm-charcoal" onClick={onEditCategories} type="button">Edit Category</button>
         ) : null}
         {activeSection === "tools" ? <button className="btn-sm btn-sm-ghost" onClick={onOpenPresets} type="button">Presets</button> : null}
         {activeSection !== "dashboard" && activeSection !== "billing" && activeSection !== "subscriptions" && activeSection !== "settings" ? (

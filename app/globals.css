@@ -2452,8 +2452,9 @@ p {
 /* Dashboard summary hierarchy. Tool marks and account colours reuse shared dashboard styles. */
 .dashboard-overview {
   display: grid;
-  gap: 16px;
+  column-gap: 16px;
   padding: 22px 24px 24px;
+  row-gap: 16px;
 }
 
 .dashboard-stats-grid {
@@ -2484,7 +2485,7 @@ p {
 .dashboard-stat-value {
   align-self: end;
   color: var(--text-1);
-  font-size: 25px;
+  font-size: 31px;
   font-weight: 680;
   letter-spacing: -0.035em;
   line-height: 1;
@@ -2505,7 +2506,19 @@ p {
 }
 
 .dashboard-attention-panel {
-  border-color: rgba(240, 200, 70, 0.5);
+  border-color: transparent;
+  overflow: visible;
+  position: relative;
+}
+
+.dashboard-attention-panel::after {
+  border: 1px solid rgba(240, 200, 70, 0.5);
+  border-radius: inherit;
+  content: "";
+  inset: -1px;
+  pointer-events: none;
+  position: absolute;
+  z-index: 110;
 }
 
 .dashboard-panel-header {
@@ -2516,7 +2529,8 @@ p {
   padding: 0 14px;
 }
 
-.dashboard-view-all {
+.dashboard-panel-header .dashboard-view-all {
+  color: var(--text-3);
   margin-left: auto;
 }
 
@@ -2582,6 +2596,66 @@ p {
   border-top: 1px solid var(--border);
 }
 
+.dashboard-attention-panel .dashboard-action-needed-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.8fr) minmax(190px, 0.9fr) minmax(220px, 1fr) 132px;
+}
+
+.dashboard-attention-panel .dashboard-action-needed-row {
+  background: var(--bg);
+  column-gap: 0;
+  height: 58px;
+  min-height: 58px;
+  padding: 0 14px;
+}
+
+.dashboard-action-needed-row > * {
+  min-width: 0;
+  padding-right: 14px;
+}
+
+.dashboard-action-needed-row > *:last-child {
+  padding-right: 0;
+}
+
+.dashboard-action-tool {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.dashboard-action-tool > strong {
+  color: var(--text-1);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboard-action-needed-row > .linked-account-cell {
+  width: auto;
+}
+
+.dashboard-action-control .linked-trial-status-dropdown,
+.dashboard-action-control .linked-trial-status-dropdown .custom-select-trigger {
+  min-width: 132px;
+  width: 132px;
+}
+
+.dashboard-action-control {
+  justify-self: end;
+  position: relative;
+}
+
+.dashboard-action-control .custom-select.is-open,
+.dashboard-action-needed-row:has(.custom-select.is-open) {
+  z-index: 100;
+}
+
+.dashboard-action-needed-row:has(.custom-select.is-open) {
+  position: relative;
+}
+
 .dashboard-tool-avatar {
   height: 30px;
   width: 30px;
@@ -2639,32 +2713,12 @@ p {
   letter-spacing: 0.05em;
 }
 
-.dashboard-list-identity {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-
-.dashboard-list-identity strong {
+.dashboard-list-tool-name {
   color: var(--text-1);
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.dashboard-account-neutral {
-  align-items: center;
-  color: var(--text-2);
-  display: inline-flex;
-  font-size: 12px;
-  font-weight: 400;
-  gap: 6px;
-  line-height: 1.4;
-}
-
-.dashboard-account-neutral .email-dot {
-  flex: 0 0 auto;
 }
 
 .dashboard-row-detail {
@@ -2692,12 +2746,20 @@ p {
 }
 
 .dashboard-bottom-grid .dashboard-compact-row {
-  grid-template-columns: 34px minmax(100px, 1fr) auto;
+  grid-template-columns: 34px minmax(80px, 0.65fr) minmax(145px, 1fr) 82px;
+}
+
+.dashboard-bottom-grid .dashboard-compact-row > .linked-account-cell {
+  min-width: 0;
+  width: auto;
 }
 
 .dashboard-bottom-grid .dashboard-renewal-row,
 .dashboard-bottom-grid .dashboard-trial-row {
   background: transparent;
+  box-sizing: border-box;
+  height: 62px;
+  min-height: 62px;
 }
 
 .dashboard-renewal-amount {
@@ -4770,6 +4832,26 @@ p {
   color: var(--text-2);
 }
 
+.watchlist-note-display[title="Add a note..."] {
+  color: var(--text-3);
+}
+
+.tool-database-favorites .account-table-head > span:last-child,
+.tool-database-favorites .tool-table-row .row-actions {
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.tool-database-favorites .tool-table-row .row-actions {
+  justify-self: stretch;
+  width: 100%;
+}
+
+.tool-database-favorites .tool-table-row .row-actions .action-btn {
+  justify-self: start;
+  text-align: left;
+}
+
 @media (min-width: 1025px) {
   .tool-database-watchlist .account-table-head > span:nth-child(5),
   .tool-database-watchlist .tool-table-row > [data-label="URL"] {
@@ -5374,18 +5456,18 @@ p {
 }
 
 .link-plan-field .plan-selector {
-  width: 100%;
+  width: auto;
 }
 
 .link-plan-field .plan-selector-pill {
-  flex: 1 1 0;
-  padding-inline: 10px;
+  flex: 0 0 auto;
+  padding-inline: 14px;
 }
 
 .link-account-plan-billing-row {
-  align-items: end;
-  display: flex;
-  gap: 32px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
   min-width: 0;
   width: 100%;
 }
@@ -5457,6 +5539,31 @@ p {
 .link-account-paid-plan-name {
   width: 100%;
   min-width: 0;
+}
+
+.link-account-plan-status-row {
+  align-items: end;
+  display: flex;
+  gap: 24px;
+  height: 66px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.link-account-status-field {
+  flex: 0 0 150px;
+  margin: 0;
+  min-width: 0;
+  width: 150px;
+}
+
+.link-account-plan-specific-area {
+  height: 68px;
+  min-width: 0;
+}
+
+.link-account-plan-specific-area > .form-field {
+  margin: 0;
 }
 
 .link-account-plan-billing-row .custom-select-trigger,
@@ -7463,6 +7570,14 @@ p {
   line-height: 1.45;
 }
 
+.category-edit-modal {
+  max-width: 420px;
+}
+
+.category-edit-helper > span {
+  display: block;
+}
+
 .category-selection-warning-icon {
   align-items: center;
   background: #333337;
@@ -7949,6 +8064,10 @@ p {
 
 .preset-removal-confirmation-modal {
   width: min(440px, calc(100vw - 32px));
+}
+
+.preset-removal-confirmation-modal.preset-combined-change-modal {
+  border-color: var(--accent);
 }
 
 .preset-removal-confirmation-modal .delete-account-icon svg,
@@ -9055,6 +9174,211 @@ p {
   padding-left: 9px;
   text-align: left;
   width: 112px;
+}
+
+.settings-workspace-data-section {
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 14px;
+  margin-top: 6px;
+  padding-top: 22px;
+}
+
+.settings-workspace-data-section > header {
+  display: grid;
+  gap: 4px;
+}
+
+.settings-workspace-data-section > header h2,
+.settings-workspace-data-row h3 {
+  margin: 0;
+}
+
+.settings-workspace-data-section > header h2 {
+  font-size: 16px;
+}
+
+.settings-workspace-data-row {
+  align-items: center;
+  background: rgba(92, 24, 38, 0.22);
+  border: 1px solid rgba(239, 68, 68, 0.42);
+  border-radius: var(--r-lg);
+  display: flex;
+  gap: 22px;
+  justify-content: space-between;
+  padding: 18px 20px;
+}
+
+.reset-overview-modal {
+  background: #151516;
+  max-width: 500px;
+}
+
+.reset-confirmation-modal {
+  border: 1px solid #ff3045;
+}
+
+.reset-confirmation-modal .btn-sm-danger:not(:disabled) {
+  background: #ff3045;
+  border: 1px solid #ff3045;
+  color: #ffffff;
+}
+
+.reset-confirmation-modal .btn-sm-danger:not(:disabled):hover {
+  background: #ff4355;
+}
+
+.reset-overview-modal > p {
+  color: var(--text-2);
+}
+
+.reset-overview-list {
+  color: var(--text-2);
+  display: grid;
+  font-size: 13px;
+  gap: 18px;
+  margin-top: 18px;
+  text-align: left;
+}
+
+.reset-overview-group {
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  display: grid;
+  gap: 10px;
+  padding: 15px 16px;
+}
+
+.reset-overview-group strong {
+  color: #f5f5f7;
+  font-size: 13px;
+}
+
+.reset-overview-group ul {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.reset-overview-group li {
+  align-items: baseline;
+  display: grid;
+  gap: 9px;
+  grid-template-columns: 12px minmax(0, 1fr);
+  line-height: 1.4;
+}
+
+.reset-overview-group li > span {
+  color: var(--text-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+.reset-confirmation-modal .reset-overview-group li > span {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  width: 12px;
+}
+
+.reset-overview-final-warning {
+  align-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--text-2);
+  display: grid;
+  font-size: 13px;
+  gap: 10px;
+  grid-template-columns: 18px minmax(0, 1fr);
+  margin-top: 16px;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.reset-overview-final-warning svg {
+  color: var(--text-3);
+  fill: none;
+  height: 16px;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  width: 16px;
+}
+
+.settings-workspace-data-row h3 {
+  font-size: 15px;
+  margin-bottom: 4px;
+}
+
+.settings-workspace-data-row p {
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0;
+  max-width: 760px;
+}
+
+.settings-workspace-data-row .btn-sm-danger {
+  background: #ff3045;
+  border: 1px solid #ff3045;
+  color: #ffffff;
+  flex: 0 0 auto;
+}
+
+.settings-workspace-data-row .btn-sm-danger:hover {
+  background: #ff4355;
+}
+
+.reset-confirmation-field {
+  display: grid;
+  gap: 7px;
+  margin-top: 18px;
+  text-align: left;
+}
+
+.reset-confirmation-field > span {
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.reset-confirmation-field input {
+  background: var(--modal-field-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-1);
+  font: inherit;
+  height: 40px;
+  outline: none;
+  padding: 0 12px;
+}
+
+.reset-confirmation-field input:focus,
+.reset-confirmation-field input:focus-visible {
+  border: 1px solid #ff3045;
+  box-shadow: none;
+  outline: none;
+}
+
+.reset-confirmation-error {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 18px;
+  min-height: 18px;
+  text-align: left;
+}
+
+.reset-confirmation-error + .welcome-modal-actions .btn-sm-danger:disabled {
+  background: rgba(120, 24, 36, 0.58);
+  border-color: rgba(255, 48, 69, 0.28);
+  cursor: not-allowed;
+  color: rgba(255, 255, 255, 0.48);
+  opacity: 1;
 }
 
 .billing-history-current-summary {
@@ -10990,6 +11314,12 @@ select:focus-visible {
   min-width: 130px;
 }
 
+.billing-past-field-error {
+  display: block;
+  font-size: 11px;
+  margin-top: 4px;
+}
+
 .billing-past-note-field textarea {
   min-height: 82px !important;
   padding: 11px 12px;
@@ -11390,6 +11720,11 @@ select:focus-visible {
   box-shadow: 0 0 0 2px rgba(247, 197, 62, 0.15);
 }
 
+.billing-period-inline-amount > .billing-past-field-error {
+  grid-column: 1 / -1;
+  padding: 0 7px 4px;
+}
+
 .billing-period-inline-currency {
   align-items: center;
   border-right: 1px solid var(--border);
@@ -11555,8 +11890,7 @@ select:focus-visible {
 .subscription-account-card h2 { color: var(--text-1); font-size: 14px; margin: 0; }
 .subscription-callout-identity { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
 .subscription-callout-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; height: 28px; margin-bottom: 0; }
-.subscription-account-card .linked-account-cell { display: flex; align-items: center; flex-wrap: wrap; column-gap: 10px; row-gap: 2px; }
-.subscription-account-card .linked-account-address { margin-top: 0; }
+.current-plan-pill { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text-2); }
 .subscription-callout-status { margin-left: auto; min-width: 150px; }
 .subscription-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
 .subscription-account-section .subscription-section-heading h3 { margin: 0; }
@@ -11608,13 +11942,18 @@ select:focus-visible {
 .subscription-payment-edit-row .btn-sm { padding: 7px 6px; white-space: nowrap; }
 .subscription-payment-table .subscription-payment-feedback-row td { height: auto; padding: 6px 12px; }
 .subscription-payment-feedback-row .field-feedback { margin: 0; }
+.subscription-payment-table .subscription-payment-sync-row td { background: rgba(255, 255, 255, .015); height: auto; padding: 7px 12px; }
+.subscription-payment-sync-option { align-items: center; color: var(--text-2); cursor: pointer; display: inline-flex; font-size: 12px; gap: 8px; }
+.subscription-payment-sync-option input { accent-color: var(--accent); cursor: pointer; margin: 0; }
+.subscription-payment-sync-option input:disabled { cursor: default; }
 .subscription-payment-amount-inputs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
 .subscription-payment-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .subscription-payment-add-area { align-items: flex-end; display: grid; justify-items: end; min-height: 54px; }
 .subscription-payment-add-area small { color: var(--text-3); font-size: 11px; line-height: 16px; min-height: 16px; text-align: right; }
-.subscription-payment-cell { display: block; width: 100%; min-height: 53px; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.subscription-payment-cell:focus-visible { outline: 1px solid var(--text-3); outline-offset: -2px; }
-.subscription-payment-cell:disabled { cursor: default; opacity: 1; }
+.subscription-payment-edit-button { align-items: center; appearance: none; background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--r-md); color: var(--text-2); cursor: pointer; display: inline-flex; height: 30px; justify-content: center; padding: 0; width: 30px; }
+.subscription-payment-edit-button:hover { background: var(--sidebar-hover); color: var(--text-1); }
+.subscription-payment-edit-button:focus-visible { outline: 1px solid var(--text-2); outline-offset: 2px; }
+.subscription-payment-edit-button svg { fill: none; height: 14px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; width: 14px; }
 .subscription-activity-list { list-style: none; padding: 0; margin: 0; }
 .subscription-activity-list li { display: grid; grid-template-columns: 130px minmax(0, 1fr); gap: 16px; padding: 16px 20px; }
 .subscription-activity-list li + li { border-top: 1px solid var(--border); }
@@ -11828,18 +12167,18 @@ select:focus-visible {
 .billing-details-account-selector { flex-wrap: wrap; }
 .billing-details-account-list { display: grid; gap: 16px; }
 .billing-details-account { background: #1d1d20; }
-.billing-details-account-header { align-items: center; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; min-height: 48px; padding: 0 14px; }
+.billing-details-account-header { align-items: flex-start; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; min-height: 48px; padding: 12px 14px; }
 .billing-details-account-header > .linked-account-cell { width: auto; }
-.billing-details-account-separator,
-.billing-details-account-plan { color: var(--text-1); }
-.billing-details-status { align-items: center; display: flex; font-size: 11px; gap: 7px; }
+.billing-details-account-header .linked-account-address { margin-left: 13px; }
+.billing-details-account-header .current-plan-pill { margin-left: 9px; }
+.billing-details-status { color: var(--text-3); font-size: 11px; line-height: 20px; }
 .billing-details-account-body { display: grid; gap: 14px; padding: 13px 14px 16px; }
-.billing-details-section { display: grid; gap: 8px; padding: 0; }
+.billing-details-section { display: grid; gap: 18px; padding: 0; }
 .billing-current-editor { display: grid; gap: 10px; min-width: 0; }
 .billing-current-fields { border: 0; display: grid; gap: 12px; margin: 0; min-width: 0; padding: 0; }
 .billing-current-payment { border: 1px solid var(--border); }
 .billing-current-payment .welcome-modal-actions { margin-top: 8px; }
-.billing-details-section h3 { color: var(--text-2); font-size: 12px; letter-spacing: .02em; margin: 0; text-transform: uppercase; }
+.billing-details-section h3 { color: var(--text-3); font-size: 14px; font-weight: 400; margin: 0; }
 .billing-details-section-heading { align-items: center; display: flex; min-height: 36px; justify-content: space-between; }
 .billing-details-primary-action { background: var(--accent); border: 0; border-radius: 8px; color: #17130a; cursor: pointer; font: inherit; font-size: 11px; font-weight: 700; padding: 8px 12px; }
 .billing-details-payment-list { background: rgba(255, 255, 255, .012); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -11866,6 +12205,25 @@ select:focus-visible {
 .billing-details-upcoming-list small,
 .billing-details-upcoming-list span { color: var(--text-3); font-size: 10px; }
 .billing-details-activity-list p { color: var(--text-3); font-size: 10px; margin: 0; }
+/* Per-tool Billing Details uses one account surface and read-only sections. */
+.billing-details-account-header { border-bottom: .5px solid var(--border); }
+.billing-details-account-header .current-plan-pill { background: transparent; border: .5px solid var(--text-3); padding: 0 7px; min-height: 0; height: auto; line-height: 17px; }
+.billing-details-account-body { gap: 0; padding: 0 14px; }
+.billing-details-account-body > .billing-details-section { padding: 18px 0; }
+.billing-details-account-body > .billing-details-section + .billing-details-section { border-top: .5px solid var(--border); }
+.billing-details-account .billing-details-empty { background: transparent; border: 0; border-radius: 0; padding: 0; }
+.billing-details-account .billing-details-payment-list,
+.billing-details-account .billing-details-activity-list,
+.billing-details-account .billing-details-upcoming-list { background: transparent; border: 0; border-radius: 0; }
+.billing-details-account .subscription-payment-table { color: var(--table-secondary-text); font-size: 14px; }
+.billing-details-account .subscription-payment-table td { border-top-width: .5px; }
+.billing-details-account .billing-details-stat-row { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; gap: 20px 40px; padding: 0; min-height: 0; border: 0; }
+.billing-details-account .billing-details-stat-row + .billing-details-stat-row { border-top: .5px solid var(--border); margin-top: 16px; padding-top: 16px; }
+.billing-details-stat > span { display: grid; gap: 8px; }
+.billing-details-account .billing-details-stat small { color: var(--text-3); font-size: 12px; }
+.billing-details-account .billing-details-stat strong { color: var(--text-1); font-size: 15px; }
+.billing-details-account .billing-details-activity-list > div { padding: 12px 0; border-top-width: .5px; }
+
 
 .billing-upcoming-placeholder {
   align-content: center;

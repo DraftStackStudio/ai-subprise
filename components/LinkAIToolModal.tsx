@@ -1,7 +1,7 @@
 "use client";
 
 import type { ComponentType, Dispatch, FormEvent, ReactNode, SetStateAction } from "react";
-import type { ToolStatus } from "@/types/toolDetail";
+import type { ManageStatus, ToolStatus } from "@/types/toolDetail";
 import type {
   LinkToolAccountBlock,
   LinkToolDropdownOption,
@@ -224,7 +224,7 @@ export default function LinkAIToolModal({
                         <small className="field-feedback error">Select an account</small>
                       ) : null}
                     </div>
-                    <div className="link-account-plan-billing-row">
+                    <div className="link-account-plan-status-row">
                       <div className="form-field link-plan-field">
                         <span>Plan</span>
                         {renderPlanSelector(
@@ -233,6 +233,26 @@ export default function LinkAIToolModal({
                             current.map((item) => item.id === block.id ? { ...item, plan } : item)),
                         )}
                       </div>
+                      {block.plan !== "Trial" ? (
+                        <div className="form-field link-account-status-field">
+                          <span>Status</span>
+                          {renderDropdown({
+                            ariaLabel: `Account ${blockIndex + 1} Status`,
+                            className: "modal-dropdown",
+                            id: `link-tool-status-${block.id}`,
+                            onChange: (status) => setBlocks((current) =>
+                              current.map((item) => item.id === block.id ? { ...item, status: status as ManageStatus } : item)),
+                            options: [
+                              { label: "Active", value: "Active" },
+                              { label: "On a break", value: "On a Break" },
+                              { label: "Goodbye", value: "Goodbye" },
+                            ],
+                            value: block.status,
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="link-account-plan-specific-area">
                       {block.plan === "Trial" ? (
                         <label className="form-field link-account-trial-date">
                           <span>Trial end date</span>
@@ -244,9 +264,7 @@ export default function LinkAIToolModal({
                           />
                         </label>
                       ) : null}
-                    </div>
-                    {block.plan === "Active" ? (
-                      <>
+                      {block.plan === "Active" ? (
                         <label className="form-field link-account-paid-plan-name">
                           <span>Plan Name</span>
                           <input
@@ -259,8 +277,8 @@ export default function LinkAIToolModal({
                             value={block.planName}
                           />
                         </label>
-                      </>
-                    ) : null}
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               );
@@ -281,6 +299,7 @@ export default function LinkAIToolModal({
                   purchaseDate: "",
                   plan: defaultPlanForTool(),
                   planName: "",
+                  status: "Active",
                   trialExpiryDate: "",
                 },
               ])}

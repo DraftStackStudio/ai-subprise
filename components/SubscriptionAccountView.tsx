@@ -25,7 +25,7 @@ function componentDate(component: BillingAmount) {
   }
 }
 
-const lifecycleEvents = new Set(["Trial Started", "Trial Converted to Paid", "Plan Changed", "Paused", "Resumed", "Cancelled"]);
+const lifecycleEvents = new Set(["Trial Started", "Trial Converted to Paid", "Moved to Free Tier", "Stopped Using", "Plan Changed", "Paused", "Resumed", "Cancelled"]);
 
 export default function SubscriptionAccountView({ account, ...actions }: SubscriptionActions & { account: SubscriptionRow }) {
   const [statusDraft, setStatusDraft] = useState<ManageStatus | null>(null);
@@ -39,6 +39,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
   const [paymentComponentType, setPaymentComponentType] = useState<string | undefined>();
   const [firstTimeSetup, setFirstTimeSetup] = useState(false);
   const finishFirstTimeSetup = () => { setPaymentMode(null); setPaymentChoice(false); setFirstTimeSetup(false); actions.onPaymentsChanged?.(); };
+  const shouldUpdateCurrentBilling = firstTimeSetup || paymentMode === "period";
   const canAddPayment = Boolean(account.relationshipId && account.canManageBilling) && !editingBilling && statusDraft === null && !statusBusy;
   // Keep history relationship-scoped even if callers later pass a broader collection.
   const activity = account.activity.filter((entry) => entry.saved === true && lifecycleEvents.has(entry.event) && entry.date)
@@ -54,7 +55,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
     <section className="subscription-account-card" aria-label="Account">
       <div className="subscription-callout-identity">
         <span className="tool-logo" style={{ background: account.logoBackground }}>{account.logo}</span>
-        <div><div className="subscription-callout-title"><h2>{account.toolName}</h2></div><LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail || "Not available"} tagClass={account.accountTag} /></div>
+        <div><div className="subscription-callout-title"><h2>{account.toolName}</h2>{account.planName.trim() ? <span className="tool-status-chip current-plan-pill">{account.planName.trim()}</span> : null}</div><LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail || "Not available"} tagClass={account.accountTag} /></div>
       </div>
       <div className="subscription-callout-status">
         {account.canManageBilling ? <fieldset className="billing-current-fields" disabled={statusBusy || editingBilling}>
@@ -80,7 +81,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
           return <dl className="subscription-current-component" key={component.id || `${component.billingType}-${index}`}>
             <div><dt>Plan Name</dt><dd>{account.planName.trim() || "Not set"}</dd></div>
             <div><dt>Billing Type</dt><dd>{component.billingType === "Top-up" ? "Top-up credit" : component.billingType === "One-time" ? "One-time payment" : component.billingType}</dd></div>
-            <div><dt>Amount</dt><dd>{component.currency.trim() && component.amount.trim() ? displayAmount(component.currency, component.amount) : "Not set"}</dd></div>
+            <div><dt>Amount</dt><dd>{displayAmount(component.currency, component.amount)}</dd></div>
             <div><dt>{date.label}</dt><dd>{date.value ? billingHistoryDisplayDate(date.value) : "Not set"}</dd></div>
           </dl>;
         })}
@@ -88,7 +89,13 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
       {!account.canManageBilling ? <p className="subscription-detail-empty">This historical relationship is read-only.</p> : null}
     </section>
 
-    <SubscriptionPayments account={account} canAdd={canAddPayment} currencyOptions={actions.currencyOptions} onChanged={actions.onPaymentsChanged} />
+    <SubscriptionPayments account={account} canAdd={canAddPayment} currencyOptions={actions.currencyOptions} onChanged={actions.onPaymentsChanged} onUpdateCurrentBillingAmount={async (relationshipId, billingType, currency, amount) => {
+      if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed.");
+      const componentIndex = account.billingComponents.findIndex((component) => component.billingType === billingType);
+      if (componentIndex < 0) throw new Error("This payment no longer matches Current Billing.");
+      const components = account.billingComponents.map((component, index) => index === componentIndex ? { ...component, currency, amount } : component);
+      await actions.onSaveBilling(relationshipId, account.planName, components);
+    }} />
 
     <section className="subscription-account-section" aria-labelledby="subscription-account-activity">
       <h3 id="subscription-account-activity">Account Activity</h3>
@@ -106,7 +113,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
       <SubscriptionBillingEditor account={account} {...actions} onClose={() => setEditingBilling(false)} />
     </section></div> : null}
     {paymentChoice ? <BillingPastEntryModal relationships={[account]} initialRelationshipId={account.relationshipId} lockedRelationshipId={account.relationshipId} billingComponents={account.billingComponents} onCancel={() => { setPaymentChoice(false); setFirstTimeSetup(false); }} onContinue={(relationship, mode, billingType) => { if (relationship.relationshipId !== account.relationshipId) return; setPaymentChoice(false); setPaymentComponentType(billingType); setPaymentMode(mode); }} /> : null}
-    {paymentMode ? <BillingHistoryPanel prefillCurrentBilling selectedBillingType={paymentComponentType} onEstablishCurrentBilling={firstTimeSetup ? async (relationshipId, planName, components) => { if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed."); const merged = account.billingComponents.map((existing) => {
+    {paymentMode ? <BillingHistoryPanel prefillCurrentBilling selectedBillingType={paymentComponentType} onEstablishCurrentBilling={shouldUpdateCurrentBilling ? async (relationshipId, planName, components) => { if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed."); const merged = account.billingComponents.map((existing) => {
         const updated = components.find((component) => component.billingType === existing.billingType);
         return updated ? { ...updated, id: existing.id } : existing;
       });

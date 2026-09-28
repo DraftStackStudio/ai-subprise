@@ -39,19 +39,16 @@ export function subscriptionBillingPatch(planName: string, draft: BillingAmount[
 export function qualifiesForSubscriptions(relationship: {
   relationshipId: string;
   plan: string;
+  unlinkedAt?: string | null;
   trialResolved?: boolean;
   trialResolution?: string;
   trialResolutionHistory?: { outcome: string }[];
   billingHistoryEntries?: BillingHistoryEntry[];
 }, transactionRelationshipIds: ReadonlySet<string>) {
   if (!relationship.relationshipId) return false;
+  if (relationship.unlinkedAt) return false;
+  if (relationship.trialResolved) return relationship.trialResolution === "converted";
   if (relationship.plan === "Active" || relationship.plan === "Paid" || transactionRelationshipIds.has(relationship.relationshipId)) return true;
-  // Resolution history is append-only in the existing flow; a correction must
-  // supersede an earlier conversion rather than treating any old entry as proof.
-  const latestOutcome = relationship.trialResolutionHistory?.at(-1)?.outcome;
-  if (latestOutcome) return latestOutcome === "converted";
-  if (relationship.trialResolution === "ended") return false;
-  if (relationship.trialResolved && relationship.trialResolution === "converted") return true;
   return relationship.billingHistoryEntries?.some((entry) => entry.saved === true && entry.event === "Trial Converted to Paid") ?? false;
 }
 
@@ -74,7 +71,8 @@ export function subscriptionState(components: BillingAmount[]): SubscriptionStat
       : component.billingType === "Lifetime" || component.billingType === "One-time"
         ? component.purchaseDate
         : component.billingType === "Top-up" ? component.lastTopUpDate : undefined;
-    return Boolean(component.currency.trim() && component.amount.trim() && date?.trim());
+    // Unknown amounts can be saved, but do not complete Current Billing setup.
+    return Boolean(component.currency.trim() && component.amount?.trim() && date?.trim());
   }) ? "Complete" : "Incomplete";
 }
 

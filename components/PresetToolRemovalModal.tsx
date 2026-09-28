@@ -30,14 +30,14 @@ export default function PresetToolRemovalModal({
       <section
         aria-labelledby="preset-removal-confirmation-title"
         aria-modal="true"
-        className="welcome-modal delete-account-modal preset-removal-confirmation-modal"
+        className={`welcome-modal delete-account-modal preset-removal-confirmation-modal${isCombinedChange ? " preset-combined-change-modal" : ""}`}
         role="dialog"
       >
-        <div className="delete-account-icon" aria-hidden="true">
+        {!isCombinedChange ? <div className="delete-account-icon" aria-hidden="true">
           <svg fill="none" viewBox="0 0 24 24">
             <path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" />
           </svg>
-        </div>
+        </div> : null}
         <h2 id="preset-removal-confirmation-title">
           {isCombinedChange
             ? "Confirm changes?"
@@ -105,7 +105,7 @@ export default function PresetToolRemovalModal({
           <button className="btn-sm btn-sm-ghost" disabled={isSaving} onClick={onCancel} type="button">
             Cancel
           </button>
-          <button className="btn-sm btn-sm-danger" disabled={isSaving} onClick={onConfirm} type="button">
+          <button className={`btn-sm ${isCombinedChange ? "btn-sm-primary" : "btn-sm-danger"}`} disabled={isSaving} onClick={onConfirm} type="button">
             {isSaving ? "Saving..." : "Confirm"}
           </button>
         </div>

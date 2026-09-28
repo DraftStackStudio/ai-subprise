@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
-import type { BillingAmount, TrialResolutionHistoryEntry } from "@/types/toolDetail";
+import { isTrialResolution } from "@/lib/trialResolution";
+import type { BillingAmount, TrialResolution, TrialResolutionHistoryEntry } from "@/types/toolDetail";
 
 export type SupabaseToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 
@@ -222,7 +223,7 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
     const trialResolutionHistory = Array.isArray(rawLink.trial_resolution_history)
       ? rawLink.trial_resolution_history
           .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
-          .filter((entry) => entry.outcome === "converted" || entry.outcome === "ended")
+          .filter((entry) => isTrialResolution(entry.outcome))
           .map((entry): TrialResolutionHistoryEntry => ({
             billingType: typeof entry.billingType === "string" ? entry.billingType : "",
             convertedDate: typeof entry.convertedDate === "string" ? entry.convertedDate : "",
@@ -230,8 +231,11 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
             isCorrection: entry.isCorrection === true,
             nextChargeDate: typeof entry.nextChargeDate === "string" ? entry.nextChargeDate : "",
             purchaseDate: typeof entry.purchaseDate === "string" ? entry.purchaseDate : "",
-            outcome: entry.outcome as "converted" | "ended",
+            outcome: entry.outcome as TrialResolution,
             planName: typeof entry.planName === "string" ? entry.planName : "",
+            resolvedDate: typeof entry.resolvedDate === "string"
+              ? entry.resolvedDate
+              : typeof entry.convertedDate === "string" ? entry.convertedDate : "",
           }))
       : [];
 
@@ -253,11 +257,9 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
       status: typeof rawLink.status === "string" && rawLink.status ? rawLink.status : "Active",
       toolId: String(rawLink.tool_id ?? ""),
       trialExpiryDate: typeof rawLink.trial_expiry_date === "string" ? rawLink.trial_expiry_date : "",
-      trialResolution: (
-        rawLink.trial_resolution === "converted" || rawLink.trial_resolution === "ended"
-          ? rawLink.trial_resolution
-          : ""
-      ) as "" | "converted" | "ended",
+      trialResolution: isTrialResolution(rawLink.trial_resolution)
+        ? rawLink.trial_resolution as TrialResolution
+        : "" as const,
       trialResolutionHistory,
       trialResolved: rawLink.trial_resolved === true,
       unlinkedAt: typeof rawLink.unlinked_at === "string" ? rawLink.unlinked_at : "",
@@ -338,6 +340,28 @@ export async function permanentlyDeleteToolRecords(ids: string[]) {
   const supabase = createClient();
   const { error } = await supabase.from("ai_tools").delete().in("id", ids);
   if (error) throw error;
+}
+
+export type ResetAIToolsResult = {
+  aiToolsDeleted: number;
+  billingComponentsDeleted: number;
+  billingTransactionsDeleted: number;
+  toolEmailLinksDeleted: number;
+};
+
+export async function resetAIToolsCleanSlate(): Promise<ResetAIToolsResult> {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("reset_ai_tools_clean_slate");
+  if (error) throw error;
+
+  const result = Array.isArray(data) ? data[0] : data;
+  const record = (result ?? {}) as Record<string, unknown>;
+  return {
+    aiToolsDeleted: Number(record.ai_tools_deleted ?? 0),
+    billingComponentsDeleted: Number(record.billing_components_deleted ?? 0),
+    billingTransactionsDeleted: Number(record.billing_transactions_deleted ?? 0),
+    toolEmailLinksDeleted: Number(record.tool_email_links_deleted ?? 0),
+  };
 }
 
 export async function syncToolLinks(toolId: string, labels: string[], accounts: AccountRef[]) {
@@ -435,7 +459,7 @@ export async function updateToolLinkDetails(
     planName?: string;
     status?: string;
     trialExpiryDate?: string;
-    trialResolution?: "" | "converted" | "ended";
+    trialResolution?: "" | TrialResolution;
     trialResolutionHistory?: TrialResolutionHistoryEntry[];
     trialResolved?: boolean;
   },

@@ -12,7 +12,6 @@ import BillingPastEntryModal, { type BillingPastEntryRelationship } from "@/comp
 import BillingDetailsView, { type BillingDetailsAccount } from "@/components/BillingDetailsView";
 import BillingDirectory, { type BillingDirectoryGroup } from "@/components/BillingDirectory";
 import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
-import ActionNeededView, { type ActionNeededItem } from "@/components/ActionNeededView";
 import SubscriptionsView, { type SubscriptionRow } from "@/components/SubscriptionsView";
 import { qualifiesForSubscriptions, subscriptionComponents, subscriptionState, subscriptionBillingSummary, subscriptionBillingPatch } from "@/lib/subscriptions";
 import AccountsOverview from "@/components/AccountsOverview";
@@ -26,7 +25,7 @@ import CategorySetupModals, { type RoleOption } from "@/components/CategorySetup
 import DashboardConfirmationModals from "@/components/DashboardConfirmationModals";
 import DashboardPageHeader from "@/components/DashboardPageHeader";
 import DashboardSidebar from "@/components/DashboardSidebar";
-import DashboardSummaryView from "@/components/DashboardSummaryView";
+import DashboardSummaryView, { type ActionNeededItem } from "@/components/DashboardSummaryView";
 import DateFieldControl, { formatBillingDate } from "@/components/DateFieldControl";
 import DeleteAccountModal from "@/components/DeleteAccountModal";
 import {
@@ -88,6 +87,7 @@ import type {
 import type {
   BillingAmount,
   ManageStatus,
+  TrialResolution,
   TrialResolutionHistoryEntry,
   ToolDetailAccountDraft,
   ToolStatus,
@@ -95,6 +95,7 @@ import type {
 import type { LinkToolAccountBlock } from "@/types/linkTool";
 import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship } from "@/lib/supabase/billingTransactions";
 import { estimateCurrentPayment, hasCurrentPayment, localBillingToday, validBillingDate, type CurrentPaymentEstimate, type RecurringBillingSettings } from "@/lib/currentBilling";
+import { expiredTrialNeedsResolution, isTrialResolution, trialResolutionTransition } from "@/lib/trialResolution";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import {
   createToolRecord,
@@ -103,6 +104,7 @@ import {
   getToolRecords,
   patchToolRecord,
   permanentlyDeleteToolRecords,
+  resetAIToolsCleanSlate,
   syncToolLinks,
   restoreToolRecord,
   softDeleteToolRecords,
@@ -221,12 +223,13 @@ type ToolAccountDetail = {
   startDate?: string;
   status: ManageStatus;
   trialExpiryDate: string;
-  trialResolution: "" | "converted" | "ended";
+  trialResolution: "" | TrialResolution;
   trialResolutionHistory: TrialResolutionHistoryEntry[];
   trialResolved: boolean;
 };
 type TrialResolutionUndo = {
   accountLabel: string;
+  outcome: TrialResolution;
   previousDetail: ToolAccountDetail;
   previousPlan: ToolStatus;
   toolId: string;
@@ -921,7 +924,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const requestedView = searchParams.get("view");
   const initialView: Section = forcedSection ?? (requestedView === "account" || requestedView === "settings" ? requestedView : "dashboard");
   const [activeSection, setActiveSection] = useState<Section>(initialView);
-  const [isActionNeededViewOpen, setIsActionNeededViewOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState("");
   const [activeToolboxClusterId, setActiveToolboxClusterId] = useState("everyday");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -950,9 +952,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [showEditCategoryModal, setShowEditCategoryModal] = useState(false);
   const [showLinkToolModal, setShowLinkToolModal] = useState(false);
   const [showResetArchiveWarning, setShowResetArchiveWarning] = useState(false);
-  const [showResetTypeModal, setShowResetTypeModal] = useState(false);
   const [pendingResetMode, setPendingResetMode] = useState<"blank" | "template" | null>(null);
   const [showResetDangerModal, setShowResetDangerModal] = useState(false);
+  const [isResettingTools, setIsResettingTools] = useState(false);
+  const [resetToolsError, setResetToolsError] = useState("");
   const [showRestoreArchiveModal, setShowRestoreArchiveModal] = useState(false);
   const [showRecoveryPanel, setShowRecoveryPanel] = useState(false);
   const [accountToast, setAccountToast] = useState("");
@@ -1039,7 +1042,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [toolUrl, setToolUrl] = useState("");
   const [linkToolId, setLinkToolId] = useState("");
   const [linkToolAccountBlocks, setLinkToolAccountBlocks] = useState<LinkToolAccountBlock[]>([
-    { accountLabel: "", billingType: "", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: "Free Tier", planName: "", trialExpiryDate: "" },
+    { accountLabel: "", billingType: "", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: "Free Tier", planName: "", status: "Active", trialExpiryDate: "" },
   ]);
   const [linkToolSearchQuery, setLinkToolSearchQuery] = useState("");
   const [isLinkToolPickerOpen, setIsLinkToolPickerOpen] = useState(false);
@@ -1330,11 +1333,14 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                   startDate: detail.startDate ?? "",
                   status: normaliseManageStatus(detail.status ?? "Active"),
                   trialExpiryDate: detail.trialExpiryDate ?? "",
-                  trialResolution: detail.trialResolution === "converted" || detail.trialResolution === "ended"
-                    ? detail.trialResolution
-                    : "",
-                  trialResolutionHistory: detail.trialResolutionHistory ?? [],
-                  trialResolved: detail.trialResolved ?? false,
+                  trialResolution: isTrialResolution(detail.trialResolution) ? detail.trialResolution : "",
+                  trialResolutionHistory: (detail.trialResolutionHistory ?? [])
+                    .filter((entry) => isTrialResolution(entry.outcome))
+                    .map((entry) => ({
+                      ...entry,
+                      resolvedDate: entry.resolvedDate || entry.convertedDate || "",
+                    })),
+                  trialResolved: isTrialResolution(detail.trialResolution) ? detail.trialResolved ?? false : false,
                 },
               }),
               {},
@@ -1783,10 +1789,33 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const undoTrialResolution = async () => {
     if (!trialResolutionUndo) return;
     const undo = trialResolutionUndo;
+    const expectedRelationshipId = undo.previousDetail.relationshipId;
+    const currentRelationshipId = toolAccountDetails[undo.toolId]?.[undo.accountLabel]?.relationshipId;
+    if (!expectedRelationshipId || currentRelationshipId !== expectedRelationshipId) {
+      setToolDataError("Could not undo this trial outcome because the relationship changed.");
+      return;
+    }
 
     if (trialResolutionUndoTimeoutRef.current) {
       clearTimeout(trialResolutionUndoTimeoutRef.current);
       trialResolutionUndoTimeoutRef.current = null;
+    }
+    if (shouldUseSupabase) {
+      try {
+        await updateToolLinkDetails(undo.toolId, undo.accountLabel, accountList, {
+          billingHistoryEntries: undo.previousDetail.billingHistoryEntries,
+          convertedDate: undo.previousDetail.convertedDate,
+          startDate: undo.outcome === "converted" ? undo.previousDetail.startDate : undefined,
+          plan: undo.previousPlan,
+          status: undo.previousDetail.status,
+          trialResolution: undo.previousDetail.trialResolution,
+          trialResolutionHistory: undo.previousDetail.trialResolutionHistory,
+          trialResolved: undo.previousDetail.trialResolved,
+        }, { expectedRelationshipId });
+      } catch (error) {
+        setToolDataError(error instanceof Error ? error.message : "Could not undo trial status.");
+        return;
+      }
     }
     setTrialResolutionUndo(null);
     setTrialResolutionUndoMessage("");
@@ -1804,31 +1833,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         [undo.accountLabel]: undo.previousDetail,
       },
     }));
-    if (shouldUseSupabase) {
-      try {
-        await updateToolLinkDetails(undo.toolId, undo.accountLabel, accountList, {
-          amount: undo.previousDetail.amount,
-          billingAmounts: undo.previousDetail.billingAmounts,
-          billingHistoryEntries: undo.previousDetail.billingHistoryEntries,
-          billingType: undo.previousDetail.billingType,
-          convertedDate: undo.previousDetail.convertedDate,
-          currency: undo.previousDetail.currency,
-          lastTopUpDate: undo.previousDetail.lastTopUpDate,
-          nextChargeDate: undo.previousDetail.nextChargeDate,
-          purchaseDate: undo.previousDetail.purchaseDate,
-          startDate: undo.previousDetail.startDate,
-          plan: undo.previousPlan,
-          planName: undo.previousDetail.planName,
-          status: undo.previousDetail.status,
-          trialExpiryDate: undo.previousDetail.trialExpiryDate,
-          trialResolution: undo.previousDetail.trialResolution,
-          trialResolutionHistory: undo.previousDetail.trialResolutionHistory,
-          trialResolved: undo.previousDetail.trialResolved,
-        });
-      } catch (error) {
-        setToolDataError(error instanceof Error ? error.message : "Could not undo trial status.");
-      }
-    }
   };
 
   const copyAccountLogin = async (loginValue: string) => {
@@ -2236,12 +2240,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   };
 
   const openResetToolsFlow = () => {
-    setShowResetTypeModal(true);
+    requestResetConfirmation("blank");
   };
 
   const continueResetAfterArchiveWarning = () => {
     setShowResetArchiveWarning(false);
-    setShowResetTypeModal(true);
+    requestResetConfirmation("blank");
   };
 
   const applyReset = (mode: "blank" | "template") => {
@@ -2268,21 +2272,91 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       setShowRoleQuestionModal(true);
     }
 
-    setShowResetTypeModal(false);
+  };
+
+  const applyAuthenticatedResetState = (
+    mode: "blank" | "template",
+    records: Awaited<ReturnType<typeof getToolRecords>>,
+    deletedRecords: Awaited<ReturnType<typeof getDeletedToolRecords>>,
+    relationships: Awaited<ReturnType<typeof getToolLinkDetailRecords>>,
+    transactions: Awaited<ReturnType<typeof getBillingTransactions>>,
+  ) => {
+    setToolList(records.map(toolFromRecord));
+    setToolResetArchives(deletedToolRecordsToArchives(deletedRecords));
+    setExpandedRecoveryIds([]);
+    setSelectedRecoveryKeys([]);
+    setSelectedToolIds([]);
+    setRestoreToolIds([]);
+    setShowRecoveryPanel(false);
+    setToolAccountStatuses({});
+    setToolAccountPlanNames({});
+    setToolAccountDetails({});
+    setBillingRelationshipDetails(relationships);
+    setBillingTransactions(transactions);
+    setManualBillingHistory({});
+    setBillingSetupTarget(null);
+    setBillingDetailsTarget(null);
+    setBillingHistoryTarget(null);
+    setBillingPastEntryOpen(false);
+    setBillingPastInitialMode("");
+    setSelectedBillingView("All");
+    setBillingUpcomingFilter("All");
+    setBillingSearch("");
+    setWorkspaceCategories([]);
+    setActiveSection("tools");
+    setActiveCategory("");
+    setIsToolsNavOpen(true);
+    try {
+      window.localStorage.removeItem(resetArchiveStorageKey);
+      window.localStorage.setItem("ai-subprise-workspace-categories", JSON.stringify([]));
+      window.localStorage.setItem("ai-subprise-tools-nav-open", "true");
+    } catch {
+      // Local storage can be unavailable in private or embedded browser contexts.
+    }
+    if (mode === "template") {
+      setRoleQuestionChoice("");
+      setShowRoleQuestionModal(true);
+    }
   };
 
   const requestResetConfirmation = (mode: "blank" | "template") => {
     setPendingResetMode(mode);
-    setShowResetTypeModal(false);
+    setResetToolsError("");
     setShowResetDangerModal(true);
   };
 
-  const confirmPendingReset = () => {
+  const confirmPendingReset = async () => {
     if (!pendingResetMode) return;
+    const resetMode: "blank" = "blank";
 
-    applyReset(pendingResetMode);
-    setPendingResetMode(null);
-    setShowResetDangerModal(false);
+    if (!shouldUseSupabase) {
+      applyReset(resetMode);
+      setPendingResetMode(null);
+      setShowResetDangerModal(false);
+      return;
+    }
+
+    setIsResettingTools(true);
+    setResetToolsError("");
+    try {
+      const result = await resetAIToolsCleanSlate();
+      const [records, deletedRecords, relationships, transactions] = await Promise.all([
+        getToolRecords(),
+        getDeletedToolRecords(),
+        getToolLinkDetailRecords({ includeUnlinked: true }),
+        getBillingTransactions(),
+      ]);
+      applyAuthenticatedResetState(resetMode, records, deletedRecords, relationships, transactions);
+      setPendingResetMode(null);
+      setShowResetDangerModal(false);
+      showToast(`Reset complete · ${result.aiToolsDeleted} tools and ${result.billingTransactionsDeleted} payments removed.`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not reset AI Tools.";
+      setResetToolsError(message);
+      setToolDataError(message);
+    } finally {
+      setIsResettingTools(false);
+    }
   };
 
   const openRestoreArchiveModal = () => {
@@ -3328,7 +3402,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   };
 
   const resetLinkToolBlocks = (tool?: ToolItem) => {
-    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: defaultLinkPlanForTool(tool), planName: "", trialExpiryDate: "" }]);
+    setLinkToolAccountBlocks([{ accountLabel: "", billingType: "", id: "link-account-1", lastTopUpDate: "", nextChargeDate: "", purchaseDate: "", plan: defaultLinkPlanForTool(tool), planName: "", status: "Active", trialExpiryDate: "" }]);
     setHasSubmittedLinkToolForm(false);
   };
 
@@ -3982,7 +4056,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             purchaseDate: "",
             planName: block.plan === "Active" ? block.planName.trim() : "",
             startDate: "",
-            status: "Active",
+            status: block.status,
             trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
             trialResolution: "",
             trialResolutionHistory: [],
@@ -4010,7 +4084,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             updateToolLinkDetails(selectedTool.id, block.accountLabel, accountList, {
               plan: block.plan,
               planName: block.plan === "Active" ? block.planName.trim() || undefined : "",
-              status: undefined,
+              status: block.status,
               trialExpiryDate: block.plan === "Trial" ? block.trialExpiryDate : "",
             }, { expectedRelationshipId: relationshipIds[block.accountLabel] }),
           ),
@@ -5225,9 +5299,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     .filter((tool) => !tool.archived)
     .flatMap((tool) => tool.accounts.flatMap((accountLabel) => {
       const detail = toolAccountDetails[tool.id]?.[accountLabel];
-      const daysRemaining = detail?.trialExpiryDate ? daysUntilDate(detail.trialExpiryDate) : null;
-      if (relationStatus(tool, accountLabel) !== "Trial" || daysRemaining === null || daysRemaining >= 0) return [];
-      if (!detail?.relationshipId) return [];
+      if (!detail) return [];
+      const daysRemaining = detail.trialExpiryDate ? daysUntilDate(detail.trialExpiryDate) : null;
+      if (!expiredTrialNeedsResolution({
+        daysRemaining,
+        plan: relationStatus(tool, accountLabel),
+        relationshipId: detail.relationshipId,
+        trialResolved: detail.trialResolved,
+      })) return [];
+      if (!detail.relationshipId) return [];
       return [{ accountLabel, expiryDate: detail.trialExpiryDate, relationshipId: detail.relationshipId, tool }];
     })) : [];
   const actionNeededItems: ActionNeededItem[] = trialsNeedingConfirmation.map((trial) => ({
@@ -5823,16 +5903,18 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     className: "billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown",
     id: `${options.idPrefix ?? "linked"}-trial-status-${options.relationshipId ?? `${tool.id}-${accountLabel}`}`,
     onChange: (outcome) => {
+      if (!isTrialResolution(outcome)) return;
       if (options.relationshipId && toolAccountDetails[tool.id]?.[accountLabel]?.relationshipId !== options.relationshipId) {
         setToolDataError("Could not resolve this item because its relationship could not be identified.");
         return;
       }
-      void resolveExpiredTrialStatus(tool, accountLabel, outcome as "converted" | "ended");
+      void resolveExpiredTrialStatus(tool, accountLabel, outcome);
     },
     options: [
       { disabled: true, label: "Confirm status", value: "" },
-      { label: "Trial converted to paid", value: "converted" },
-      { label: "Trial ended / cancelled", value: "ended" },
+      { label: "Converted to paid", value: "converted" },
+      { label: "Moved to free tier", value: "moved_to_free" },
+      { label: "Stopped using", value: "stopped_using" },
     ],
     value: "",
   });
@@ -5899,7 +5981,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             return;
           }
           if (activeSection === "tools" && tool.status === "Considering") {
-            showToast("Can't link while on Watchlist. Remove it first.");
+            showToast("Can't link while on Watchlist. Turn off Watchlist first.");
             return;
           }
           activeSection === "watchlist"
@@ -6224,20 +6306,26 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const resolveExpiredTrialStatus = async (
     tool: ToolItem,
     accountLabel: string,
-    outcome: "converted" | "ended",
+    outcome: TrialResolution,
     isCorrection = false,
     detailOverride?: ToolAccountDetail,
   ) => {
     const storedDetail = toolAccountDetails[tool.id]?.[accountLabel];
     const detail = detailOverride ?? storedDetail;
-    if (!detail) return false;
+    if (!detail?.relationshipId) {
+      setToolDataError("Could not resolve this item because its relationship could not be identified.");
+      return false;
+    }
     const previousPlan = toolAccountStatuses[tool.id]?.[accountLabel] ?? tool.status;
     const previousDetail: ToolAccountDetail = {
       ...(storedDetail ?? detail),
       billingAmounts: (storedDetail ?? detail).billingAmounts?.map((entry) => ({ ...entry })),
+      billingHistoryEntries: (storedDetail ?? detail).billingHistoryEntries.map((entry) => ({ ...entry })),
+      trialResolutionHistory: (storedDetail ?? detail).trialResolutionHistory.map((entry) => ({ ...entry })),
     };
-    const convertedDate = outcome === "converted" ? todayInputValue() : "";
-    const nextPlan: ToolStatus = outcome === "converted" ? "Active" : "Trial";
+    const resolvedDate = todayInputValue();
+    const convertedDate = outcome === "converted" ? resolvedDate : "";
+    const transition = trialResolutionTransition(outcome);
     const resolutionHistoryEntry: TrialResolutionHistoryEntry = {
       billingType: normaliseBillingType(detail.billingType ?? ""),
       convertedDate,
@@ -6247,43 +6335,30 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       purchaseDate: outcome === "converted" ? detail.purchaseDate : "",
       outcome,
       planName: detail.planName || toolAccountPlanNames[tool.id]?.[accountLabel] || "",
+      resolvedDate,
     };
-    const trialOutcomeEntry: BillingHistoryEntry | null = outcome === "converted" ? {
-      amount: detail.amount,
-      billingType: normaliseBillingType(detail.billingType ?? ""),
-      currency: normaliseCurrency(detail.currency),
-      date: todayInputValue(),
-      event: "Trial Converted to Paid",
+    const trialOutcomeEntry: BillingHistoryEntry = {
+      date: resolvedDate,
+      event: transition.activityEvent,
       id: resolutionHistoryEntry.id,
       isCorrection,
-      isTrialOutcomeNote: outcome === "converted",
-      nextChargeDate: detail.nextChargeDate,
-      note: isCorrection
-        ? `Corrected: converted to ${detail.planName || "Paid"}`
-        : "Trial status confirmed",
+      isTrialOutcomeNote: true,
+      note: isCorrection ? `Corrected: ${transition.label.toLowerCase()}` : "Trial outcome confirmed",
       planName: detail.planName,
       saved: true,
       source: "manual",
-    } : null;
+    };
     const nextDetail: ToolAccountDetail = {
-      amount: detail?.amount ?? "",
-      billingAmounts: detail?.billingAmounts,
-      billingHistoryEntries: trialOutcomeEntry
-        ? [...detail.billingHistoryEntries, trialOutcomeEntry]
-        : detail.billingHistoryEntries,
-      billingType: normaliseBillingType(detail?.billingType ?? ""),
+      ...detail,
+      billingAmounts: detail.billingAmounts?.map((entry) => ({ ...entry })),
+      billingHistoryEntries: [...detail.billingHistoryEntries, trialOutcomeEntry],
       convertedDate,
-      currency: normaliseCurrency(detail?.currency),
-      lastTopUpDate: detail?.lastTopUpDate ?? "",
-      nextChargeDate: outcome === "converted" ? detail.nextChargeDate : "",
-      purchaseDate: outcome === "converted" ? detail.purchaseDate : "",
-      planName: detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
+      relationshipId: detail.relationshipId,
       startDate:
         outcome === "converted" && recurringBillingType(detail.billingType)
           ? immutableStartDate(detail, detail.nextChargeDate)
           : detail.startDate ?? "",
-      status: outcome === "converted" ? "Active" : "Goodbye",
-      trialExpiryDate: detail?.trialExpiryDate ?? "",
+      status: transition.status,
       trialResolution: outcome,
       trialResolutionHistory: [
         ...(detail.trialResolutionHistory ?? []),
@@ -6294,7 +6369,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
     setToolAccountStatuses((current) => ({
       ...current,
-      [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: nextPlan },
+      [tool.id]: { ...(current[tool.id] ?? {}), [accountLabel]: transition.plan },
     }));
     setToolAccountDetails((current) => ({
       ...current,
@@ -6304,24 +6379,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (shouldUseSupabase) {
       try {
         await updateToolLinkDetails(tool.id, accountLabel, accountList, {
-          amount: nextDetail.amount,
-          billingAmounts: nextDetail.billingAmounts,
           billingHistoryEntries: nextDetail.billingHistoryEntries,
-          billingType: nextDetail.billingType,
           convertedDate: nextDetail.convertedDate,
-          currency: nextDetail.currency,
-          lastTopUpDate: nextDetail.lastTopUpDate,
-          nextChargeDate: nextDetail.nextChargeDate,
-          purchaseDate: nextDetail.purchaseDate,
-          startDate: nextDetail.startDate,
-          plan: nextPlan,
-          planName: nextDetail.planName,
+          startDate: outcome === "converted" ? nextDetail.startDate : undefined,
+          plan: transition.plan,
           status: nextDetail.status,
-          trialExpiryDate: nextDetail.trialExpiryDate,
           trialResolution: nextDetail.trialResolution,
           trialResolutionHistory: nextDetail.trialResolutionHistory,
           trialResolved: nextDetail.trialResolved,
-        });
+        }, { expectedRelationshipId: detail.relationshipId });
       } catch (error) {
         setToolAccountStatuses((current) => ({
           ...current,
@@ -6338,11 +6404,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
     if (!isCorrection) {
       showTrialResolutionUndo(
-        outcome === "converted"
-          ? `Converted to ${nextDetail.planName || "Paid"}`
-          : "Trial ended / cancelled",
+        outcome === "converted" && nextDetail.planName
+          ? `Converted to ${nextDetail.planName}`
+          : transition.label,
         {
           accountLabel,
+          outcome,
           previousDetail,
           previousPlan,
           toolId: tool.id,
@@ -6390,7 +6457,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           onCloseMobile={() => setIsSidebarOpen(false)}
           viewAllAccountsHref={isDemoMode ? "/accounts?demo=1" : "/accounts"}
           onSelectCategory={(category) => {
-            setIsActionNeededViewOpen(false);
             setActiveSection("tools");
             setActiveCategory(category);
             setSelectedToolSort("All");
@@ -6402,7 +6468,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               setBillingDetailsTarget(null);
               setBillingUpcomingFilter("All");
             }
-            setIsActionNeededViewOpen(false);
             setActiveSection(section);
             setActiveCategory("");
             setShowRecoveryPanel(false);
@@ -6489,14 +6554,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             onAddTool={handleAddToolClick}
             onBackToLogins={() => setActiveSection("account")}
             onBackToBilling={activeSection === "billing" && billingDetailsTarget ? () => setBillingDetailsTarget(null) : undefined}
-            onBackToDashboard={activeSection === "dashboard" && isActionNeededViewOpen ? () => setIsActionNeededViewOpen(false) : undefined}
             onEditCategories={openEditCategoryModal}
             onEditProviders={() => setActiveSection("providers")}
             onOpenPresets={openPresetToolPicker}
-            onResetTools={openResetToolsFlow}
             onTogglePendingActions={() => setIsPendingActionsExpanded((isExpanded) => !isExpanded)}
             pendingActionCount={pendingBillingActions.length}
-            subtitle={activeSection === "dashboard" && isActionNeededViewOpen ? "All unresolved items requiring your confirmation." : activeSection === "account" ? (
+            subtitle={activeSection === "account" ? (
               <>
                 Add your logins with nicknames once, use them everywhere. See all accounts and tools in{" "}
                 <a className="inline-text-link" href={isDemoMode ? "/accounts?demo=1" : "/accounts"}>
@@ -6505,7 +6568,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 .
               </>
             ) : subtitle}
-            title={activeSection === "dashboard" && isActionNeededViewOpen ? "Action needed" : title}
+            title={title}
           />
 
           {activeSection === "billing" && isPendingActionsExpanded && pendingBillingActions.length > 0 ? (
@@ -6580,6 +6643,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 window.localStorage.setItem("ai-subprise-reminders-enabled", String(nextValue));
               }}
               onReseedDemo={reseedDemoWorkspace}
+              onResetWorkspace={openResetToolsFlow}
               onSavePassword={saveNewPassword}
               onSaveProfile={saveProfile}
               onSettingsTabChange={setSettingsTab}
@@ -6613,7 +6677,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               if (shouldUseSupabase) void getBillingTransactions().then(setBillingTransactions).catch((error: unknown) => setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions."));
             }} />
           ) : activeSection === "dashboard" ? (
-            isActionNeededViewOpen ? <ActionNeededView items={actionNeededItems} renderAction={renderActionNeededResolutionControl} /> : <DashboardSummaryView
+            <DashboardSummaryView
               actionNeededItems={actionNeededItems}
               connectedToolCount={totalLinkedToolCount}
               onSeeUpcoming={(filter) => {
@@ -6622,8 +6686,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 setSelectedBillingView("Upcoming");
                 setActiveSection("billing");
               }}
-              onViewAllActionNeeded={() => setIsActionNeededViewOpen(true)}
               paidToolCount={paidToolCount}
+              renderActionNeeded={renderActionNeededResolutionControl}
               toolCount={toolsWithValidAccountLinks.filter((tool) => !tool.archived).length}
               trialToolCount={trialToolCount}
               upcomingRenewals={dashboardUpcomingRenewals}
@@ -6933,18 +6997,18 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         archiveToolCount={archiveToolCount(toolResetArchives)}
         onCancelArchiveWarning={() => setShowResetArchiveWarning(false)}
         onCancelDanger={() => {
+          if (isResettingTools) return;
           setPendingResetMode(null);
+          setResetToolsError("");
           setShowResetDangerModal(false);
         }}
-        onCloseTypeModal={() => setShowResetTypeModal(false)}
         onConfirmDanger={confirmPendingReset}
         onContinueArchiveWarning={continueResetAfterArchiveWarning}
-        onRequestReset={requestResetConfirmation}
         pendingResetMode={pendingResetMode}
+        isResetting={isResettingTools}
+        resetError={resetToolsError}
         showArchiveWarning={showResetArchiveWarning}
         showDangerModal={showResetDangerModal}
-        showTypeModal={showResetTypeModal}
-        trashIcon={<TrashIconPaths />}
       />
 
       <DashboardConfirmationModals
@@ -7314,13 +7378,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             className: "modal-dropdown field-dropdown trial-outcome-dropdown",
             id: `detail-trial-outcome-${managedTool.id}-${draft.draftId ?? draft.accountLabel}`,
             onChange: (outcome) => {
+              if (!isTrialResolution(outcome)) return;
               updateToolDetailDraft(draft.draftId ?? draft.accountLabel, {
-                pendingTrialOutcome: outcome as "converted" | "ended",
+                pendingTrialOutcome: outcome,
               });
             },
             options: [
               { label: "Converted to paid", value: "converted" },
-              { label: "Ended/ Cancelled", value: "ended" },
+              { label: "Moved to free tier", value: "moved_to_free" },
+              { label: "Stopped using", value: "stopped_using" },
             ],
             placeholder,
             value: draft.pendingTrialOutcome,
@@ -7336,14 +7402,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             ) {
               return { state: "pending" };
             }
-            if (
-              detail.trialResolved &&
-              detail.trialResolution === "converted" &&
-              detail.convertedDate
-            ) {
+            if (detail.trialResolved && detail.trialResolution) {
+              const latestResolution = detail.trialResolutionHistory.findLast(
+                (entry) => entry.outcome === detail.trialResolution,
+              );
               return {
-                conversionDate: formatBillingDate(detail.convertedDate),
-                state: "converted",
+                resolutionDate: latestResolution?.resolvedDate
+                  ? formatBillingDate(latestResolution.resolvedDate)
+                  : undefined,
+                state: detail.trialResolution,
               };
             }
             return null;

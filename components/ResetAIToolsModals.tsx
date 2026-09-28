@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
 
 export type ResetMode = "blank" | "template";
 
@@ -9,14 +9,12 @@ type ResetAIToolsModalsProps = {
   pendingResetMode: ResetMode | null;
   showArchiveWarning: boolean;
   showDangerModal: boolean;
-  showTypeModal: boolean;
-  trashIcon: ReactNode;
+  isResetting: boolean;
+  resetError: string;
   onCancelArchiveWarning: () => void;
   onCancelDanger: () => void;
-  onCloseTypeModal: () => void;
   onConfirmDanger: () => void;
   onContinueArchiveWarning: () => void;
-  onRequestReset: (mode: ResetMode) => void;
 };
 
 export default function ResetAIToolsModals({
@@ -24,15 +22,21 @@ export default function ResetAIToolsModals({
   pendingResetMode,
   showArchiveWarning,
   showDangerModal,
-  showTypeModal,
-  trashIcon,
+  isResetting,
+  resetError,
   onCancelArchiveWarning,
   onCancelDanger,
-  onCloseTypeModal,
   onConfirmDanger,
   onContinueArchiveWarning,
-  onRequestReset,
 }: ResetAIToolsModalsProps) {
+  const [confirmation, setConfirmation] = useState("");
+
+  useEffect(() => {
+    if (!showDangerModal) setConfirmation("");
+  }, [showDangerModal]);
+
+  const isConfirmed = confirmation.trim().toUpperCase() === "RESET";
+
   return (
     <>
       {showArchiveWarning && archiveToolCount > 0 ? (
@@ -55,57 +59,53 @@ export default function ResetAIToolsModals({
         </div>
       ) : null}
 
-      {showTypeModal ? (
-        <div className="welcome-modal-overlay" role="presentation">
-          <section
-            aria-labelledby="reset-type-modal-title"
-            aria-modal="true"
-            className="welcome-modal compact-copy-modal"
-            role="dialog"
-          >
-            <button aria-label="Close reset modal" className="modal-close-button" onClick={onCloseTypeModal} type="button">
-              x
-            </button>
-            <h2 id="reset-type-modal-title">Reset AI Tools</h2>
-            <p>Choose how to rebuild your AI tool directory.</p>
-            <div className="reset-choice-list">
-              <button className="reset-choice-card" onClick={() => onRequestReset("blank")} type="button">
-                <strong>Start from scratch</strong>
-                <span>Clear active tools and categories so you can rebuild manually.</span>
-              </button>
-              <button className="reset-choice-card" onClick={() => onRequestReset("template")} type="button">
-                <strong>Choose a new template</strong>
-                <span>Clear active tools, then reopen the role template selection flow.</span>
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
       {showDangerModal && pendingResetMode ? (
         <div className="welcome-modal-overlay" role="presentation">
           <section
             aria-labelledby="reset-danger-modal-title"
             aria-modal="true"
-            className="welcome-modal delete-account-modal"
+            className="welcome-modal reset-overview-modal reset-confirmation-modal"
             role="dialog"
           >
-            <div className="delete-account-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">{trashIcon}</svg>
+            <h2 id="reset-danger-modal-title">Reset AI Subprise?</h2>
+            <p>Start fresh while keeping your saved Logins.</p>
+            <div className="reset-overview-list">
+              <div className="reset-overview-group is-removed">
+                <strong>This will be removed:</strong>
+                <ul>
+                  <li><span aria-hidden="true">×</span>AI tools</li>
+                  <li><span aria-hidden="true">×</span>Linked accounts</li>
+                  <li><span aria-hidden="true">×</span>Subscriptions</li>
+                  <li><span aria-hidden="true">×</span>Billing settings and payments</li>
+                  <li><span aria-hidden="true">×</span>Account activity and history</li>
+                  <li><span aria-hidden="true">×</span>Watchlist, Favourites, Archived and Recently Deleted tool records</li>
+                </ul>
+              </div>
+              <div className="reset-overview-group is-kept">
+                <strong>This will be kept:</strong>
+                <ul><li><span aria-hidden="true">✓</span>Your saved Logins</li></ul>
+              </div>
             </div>
-            <h2 id="reset-danger-modal-title">Reset AI Tools?</h2>
-            <p className="reset-danger-copy">
-              <span>These tools will be removed from AI Subprise on all your devices.</span>
-              <span>
-                They&apos;ll be in <strong>Recently Deleted</strong> for 30 days.
-              </span>
-            </p>
+            <div className="reset-overview-final-warning">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 10v5M12 7h.01" /></svg>
+              <span>This cannot be undone.</span>
+            </div>
+            <label className="reset-confirmation-field">
+              <span>Type <strong>reset</strong> to confirm</span>
+              <input
+                autoComplete="off"
+                disabled={isResetting}
+                onChange={(event) => setConfirmation(event.target.value)}
+                value={confirmation}
+              />
+            </label>
+            <div aria-live="polite" className="reset-confirmation-error">{resetError}</div>
             <div className="welcome-modal-actions">
-              <button className="btn-sm btn-sm-ghost" onClick={onCancelDanger} type="button">
+              <button className="btn-sm btn-sm-ghost" disabled={isResetting} onClick={onCancelDanger} type="button">
                 Cancel
               </button>
-              <button className="btn-sm btn-sm-danger" onClick={onConfirmDanger} type="button">
-                Reset AI Tools
+              <button className="btn-sm btn-sm-danger" disabled={!isConfirmed || isResetting} onClick={onConfirmDanger} type="button">
+                {isResetting ? "Resetting..." : "Reset AI Subprise"}
               </button>
             </div>
           </section>

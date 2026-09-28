@@ -2,6 +2,8 @@ export type BillingHistoryEvent =
   | "Charged"
   | "Trial Started"
   | "Trial Converted to Paid"
+  | "Moved to Free Tier"
+  | "Stopped Using"
   | "Plan Changed"
   | "Refunded"
   | "Double Charged"

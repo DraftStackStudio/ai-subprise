@@ -4,6 +4,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type React
 import type {
   ToolDetailAccountDraft,
   ToolStatus,
+  TrialResolution,
 } from "@/types/toolDetail";
 
 type ToolDetailModalProps = {
@@ -34,8 +35,8 @@ type ToolDetailModalProps = {
     placeholder: "Select outcome" | "Change trial outcome",
   ) => ReactNode;
   trialOutcomeState: (draft: ToolDetailAccountDraft) => {
-    conversionDate?: string;
-    state: "pending" | "converted";
+    resolutionDate?: string;
+    state: "pending" | TrialResolution;
   } | null;
   tool: {
     id: string;
@@ -296,7 +297,11 @@ export default function ToolDetailModal({
             <span className="tool-detail-trial-outcome-label">
               {outcomeState.state === "pending"
                 ? "What happened to this trial?"
-                : `Converted from trial · ${outcomeState.conversionDate ?? ""}`}
+                : `${outcomeState.state === "converted"
+                  ? "Converted to paid"
+                  : outcomeState.state === "moved_to_free"
+                    ? "Moved to free tier"
+                    : "Stopped using"}${outcomeState.resolutionDate ? ` · ${outcomeState.resolutionDate}` : ""}`}
             </span>
             {renderTrialOutcomeSelector(
               draft,
@@ -346,7 +351,10 @@ export default function ToolDetailModal({
             role="dialog"
           >
             <h2 id="tool-detail-discard-modal-title">Discard changes?</h2>
-            <p>You have unsaved changes. Closing now will discard them.</p>
+            <p>
+              You have unsaved changes.<br />
+              Closing now will discard them.
+            </p>
             <div className="welcome-modal-actions">
               <button
                 className="btn-sm btn-sm-ghost"

@@ -137,7 +137,7 @@ export default function EditCategoryModal({
             ? "welcome-modal compact-copy-modal delete-account-modal category-delete-danger-modal"
             : categoryDiscardWarning
               ? "welcome-modal compact-copy-modal delete-account-modal category-discard-warning-modal"
-              : "welcome-modal compact-copy-modal"
+              : "welcome-modal compact-copy-modal category-edit-modal"
         }
         role="dialog"
       >
@@ -191,7 +191,10 @@ export default function EditCategoryModal({
         ) : (
           <>
             <h2 id="edit-category-modal-title">Edit Category</h2>
-            <p>Hold and drag the handle to reorder. Rename or delete categories to fit your workflow</p>
+            <p className="category-edit-helper">
+              <span>Hold and drag the handle to reorder.</span>
+              <span>Rename or delete categories to fit your workflow.</span>
+            </p>
             <form className="modal-form" onSubmit={handleSubmit}>
               <div className="category-edit-list">
                 {categoryDrafts.map((category, index) => (

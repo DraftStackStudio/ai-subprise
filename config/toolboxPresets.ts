@@ -10,6 +10,28 @@ const toolboxPresets = {
     { "id": "business", "label": "Business", "categories": ["website-funnels"] },
     { "id": "other", "label": "Other", "categories": ["niche"] }
   ],
+  "toolMetadata": {
+    "Leonardo AI": {
+      "mainUrl": "https://leonardo.ai/",
+      "pricingUrl": "https://leonardo.ai/pricing",
+      "paidPlans": ["Essential", "Premium", "Ultimate"]
+    },
+    "PixVerse": {
+      "mainUrl": "https://app.pixverse.ai/",
+      "pricingUrl": "https://app.pixverse.ai/subscribe",
+      "paidPlans": ["Standard", "Pro", "Premium", "Ultra"]
+    },
+    "Floot": {
+      "mainUrl": "https://floot.com/en",
+      "pricingUrl": "https://floot.com/en/pricing",
+      "paidPlans": ["Pro", "Power"]
+    },
+    "Netlify": {
+      "mainUrl": "https://www.netlify.com/",
+      "pricingUrl": "https://www.netlify.com/pricing/",
+      "paidPlans": ["Personal", "Pro", "Enterprise"]
+    }
+  },
   "categories": [
     {
       "id": "ai-assistant",
@@ -23,7 +45,7 @@ const toolboxPresets = {
       "description": "Image, video & audio creation",
       "subgroups": [
         { "label": "Image", "tools": ["Flux.2", "Ideogram", "Krea", "Midjourney"] },
-        { "label": "Hybrid", "tools": ["Dreamina", "ElevenLabs", "Hailuo AI", "HeyGen", "Higgsfield AI", "Kling AI", "Lovart", "Magnific", "Qwen", "Runway", "Wan AI"] },
+        { "label": "Hybrid", "tools": ["Dreamina", "ElevenLabs", "Hailuo AI", "HeyGen", "Higgsfield AI", "Kling AI", "Leonardo AI", "Lovart", "Magnific", "PixVerse", "Qwen", "Runway", "Wan AI"] },
         { "label": "Video", "tools": ["Pika", "Veo 3"] },
         { "label": "Music", "tools": ["Soundraw", "Suno", "Udio"] }
       ]
@@ -38,7 +60,7 @@ const toolboxPresets = {
       "id": "research",
       "label": "Research",
       "description": "Search & knowledge tools",
-      "tools": ["Ithy", "Notebook LM", "Perplexity"]
+      "tools": ["Gemini Notebook", "Ithy", "Perplexity"]
     },
     {
       "id": "productivity",
@@ -68,13 +90,13 @@ const toolboxPresets = {
       "id": "vibe-coding",
       "label": "Vibe Coding",
       "description": "Build apps from a prompt",
-      "tools": ["Base44", "Bolt", "Lovable", "Replit", "v0"]
+      "tools": ["Base44", "Bolt", "Floot", "Lovable", "Replit", "v0"]
     },
     {
       "id": "coding-dev",
       "label": "Coding & Dev",
       "description": "Dev & coding assistants",
-      "tools": ["Cloudflare", "Cursor", "Firebase", "Github", "Google AI Studio", "Hostinger", "OpenRouter", "Pinecone", "PostHog", "Resend", "Supabase", "Vercel", "Windsurf"],
+      "tools": ["Cloudflare", "Cursor", "Firebase", "GitHub", "Google AI Studio", "Hostinger", "Netlify", "OpenRouter", "Pinecone", "PostHog", "Resend", "Supabase", "Vercel", "Windsurf"],
       "pendingTools": ["Warp", "Cline", "Aider", "Zed", "Amazon Q Developer"],
       "_note": "pendingTools are proposed but not yet confirmed — move into 'tools' once approved"
     },

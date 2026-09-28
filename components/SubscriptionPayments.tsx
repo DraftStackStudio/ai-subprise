@@ -7,12 +7,14 @@ import { createBillingTransaction, updateBillingTransaction } from "@/lib/supaba
 import { subscriptionPaymentPrefill } from "@/lib/subscriptionPaymentPrefill";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { validBillingDate } from "@/lib/currentBilling";
+import DateFieldControl from "@/components/DateFieldControl";
 
 const types: BillingTransactionType[] = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"];
-type Draft = Pick<BillingTransaction, "paymentDate" | "planNameSnapshot" | "billingTypeSnapshot" | "currency" | "amount" | "status"> & { id?: string; sourceKey: string; relationshipId: string; syncCurrency: boolean };
+type Draft = Pick<BillingTransaction, "paymentDate" | "planNameSnapshot" | "billingTypeSnapshot" | "currency" | "amount" | "status"> & { id?: string; sourceKey: string; relationshipId: string; syncCurrency: boolean; syncCurrentBillingAmount: boolean };
 
-export default function SubscriptionPayments({ account, canAdd, currencyOptions, onChanged }: {
+export default function SubscriptionPayments({ account, canAdd, currencyOptions, onChanged, onUpdateCurrentBillingAmount }: {
   account: SubscriptionRow; canAdd: boolean; currencyOptions: DropdownOption[]; onChanged?: () => void;
+  onUpdateCurrentBillingAmount?: (relationshipId: string, billingType: string, currency: string, amount: string) => Promise<void>;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -37,7 +39,7 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     const prefill = subscriptionPaymentPrefill(account.billingComponents, "single");
     setDrafts((current) => ({ ...current, new: { relationshipId: account.relationshipId, sourceKey: `single-payment:${account.relationshipId}:${crypto.randomUUID()}`,
       planNameSnapshot: account.planName, billingTypeSnapshot: prefill?.billingType ?? "", currency: entryCurrency || prefill?.currency || "",
-      amount: prefill?.amount ?? "", paymentDate: prefill?.paymentDate ?? "", status: "Paid", syncCurrency: true } }));
+      amount: prefill?.amount ?? "", paymentDate: prefill?.paymentDate ?? "", status: "Paid", syncCurrency: true, syncCurrentBillingAmount: false } }));
   };
   const save = async (key: string) => {
     const draft = drafts[key];
@@ -48,14 +50,19 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
       setError("This payment is no longer editable for this account."); return;
     }
     if (!validBillingDate(draft.paymentDate) || !types.includes(draft.billingTypeSnapshot as BillingTransactionType)
-      || !/^[A-Z]{3}$/.test(draft.currency.trim()) || !/^\d+(\.\d+)?$/.test(draft.amount.trim())) {
+      || !/^[A-Z]{3}$/.test(draft.currency.trim()) || (draft.amount.trim() && !/^\d+(\.\d+)?$/.test(draft.amount.trim()))) {
       setError("Enter a valid payment date, billing type, three-letter currency and non-negative amount."); return;
     }
     saving.current.add(key); setBusyRows((current) => ({ ...current, [key]: true }));
     try {
-      const { id, sourceKey, relationshipId, paymentDate, planNameSnapshot, billingTypeSnapshot, currency, amount, status } = draft;
+      const { id, sourceKey, relationshipId, paymentDate, planNameSnapshot, billingTypeSnapshot, currency, amount, status, syncCurrentBillingAmount } = draft;
       const values = { paymentDate, planNameSnapshot, billingTypeSnapshot, currency, amount, status };
       const result = id ? await updateBillingTransaction(id, values) : await createBillingTransaction({ ...values, relationshipId, sourceKey });
+      const originalPayment = id ? rows.find((row) => row.id === id) : undefined;
+      const hasMatchingCurrentComponent = account.billingComponents.some((component) => component.billingType === billingTypeSnapshot);
+      if (id && syncCurrentBillingAmount && originalPayment && amount !== originalPayment.amount && hasMatchingCurrentComponent) {
+        await onUpdateCurrentBillingAmount?.(relationshipId, billingTypeSnapshot, currency, amount);
+      }
       setSaved((current) => [...current.filter((row) => row.id !== result.id), result]);
       clearDraft(key);
       onChanged?.();
@@ -65,6 +72,9 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
   const editor = (value: Draft) => {
     const key = value.id ?? "new";
     const busy = Boolean(busyRows[key]);
+    const originalPayment = value.id ? rows.find((row) => row.id === value.id) : undefined;
+    const matchingCurrentComponent = value.id ? account.billingComponents.find((component) => component.billingType === value.billingTypeSnapshot) : undefined;
+    const canSyncCurrentBillingAmount = Boolean(onUpdateCurrentBillingAmount && matchingCurrentComponent && originalPayment && value.amount !== originalPayment.amount);
     const patch = (updates: Partial<Draft>) => {
       if (updates.currency) setEntryCurrency(updates.currency);
       setDrafts((current) => {
@@ -77,7 +87,7 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
       });
     };
     return <Fragment key={key}><tr className="subscription-payment-edit-row" data-transaction-id={value.id} data-draft-key={key}>
-    <td><input aria-label="Payment Date" className="field-input" type="date" disabled={busy} value={value.paymentDate} onChange={(event) => patch({ paymentDate: event.target.value })} /></td>
+    <td><DateFieldControl ariaLabel="Payment Date" className="field-input" disabled={busy} value={value.paymentDate} onChange={(paymentDate) => patch({ paymentDate })} /></td>
     <td><input aria-label="Plan Name" className="field-input" disabled={busy} value={value.planNameSnapshot} onChange={(event) => patch({ planNameSnapshot: event.target.value })} /></td>
     <td><fieldset className="subscription-payment-dropdown" disabled={busy}><DropdownControl ariaLabel="Billing Type" id={`payment-type-${key}`} isOpen={!busy && openDropdown === `payment-type-${key}`} onOpenChange={setOpenDropdown} value={value.billingTypeSnapshot} placeholder="Select billing type" options={types.map((type) => ({ value: type, label: type === "Top-up" ? "Top-up credit" : type === "One-time" ? "One-time payment" : type }))} onChange={(selected) => {
       const type = selected as BillingTransactionType;
@@ -87,11 +97,13 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     <td><div className="subscription-payment-amount-inputs"><fieldset className="subscription-payment-dropdown" disabled={busy}><DropdownControl ariaLabel="Currency" id={`payment-currency-${key}`} isOpen={!busy && openDropdown === `payment-currency-${key}`} onOpenChange={setOpenDropdown} value={value.currency} placeholder="Currency" options={currencyOptions} onChange={(currency) => patch({ currency })} /></fieldset><input aria-label="Amount" className="field-input" inputMode="decimal" disabled={busy} value={value.amount} onChange={(event) => patch({ amount: event.target.value })} /></div></td>
     <td><fieldset className="subscription-payment-dropdown" disabled={busy}><DropdownControl ariaLabel="Payment Status" id={`payment-status-${key}`} isOpen={!busy && openDropdown === `payment-status-${key}`} onOpenChange={setOpenDropdown} value={value.status} options={["Paid", "Pending", "Failed", "Refunded"].map((status) => ({ value: status, label: status }))} onChange={(status) => patch({ status: status as BillingTransactionStatus })} /></fieldset></td>
     <td><div className="subscription-payment-row-actions"><button className="btn-sm" disabled={busy} type="button" onClick={() => { if (!saving.current.has(key)) clearDraft(key); }}>Cancel</button><button className="btn-sm" disabled={busy} type="button" onClick={() => save(key)}>Save</button></div></td>
-  </tr>{errors[key] ? <tr className="subscription-payment-feedback-row" data-error-key={key}><td colSpan={6}><small className="field-feedback error" role="alert">{errors[key]}</small></td></tr> : null}</Fragment>;
+  </tr>{canSyncCurrentBillingAmount ? <tr className="subscription-payment-sync-row"><td colSpan={6}><label className="subscription-payment-sync-option"><input aria-label={`Update Current Billing amount to ${value.currency.trim() && value.amount.trim() ? `${value.currency.trim()} ${value.amount.trim()}` : "—"} too?`} checked={value.syncCurrentBillingAmount} disabled={busy} type="checkbox" onChange={(event) => patch({ syncCurrentBillingAmount: event.target.checked })}/><span>Update Current Billing amount to {value.currency.trim() && value.amount.trim() ? `${value.currency.trim()} ${value.amount.trim()}` : "—"} too?</span></label></td></tr> : null}{errors[key] ? <tr className="subscription-payment-feedback-row" data-error-key={key}><td colSpan={6}><small className="field-feedback error" role="alert">{errors[key]}</small></td></tr> : null}</Fragment>;
   };
-  const cell = (payment: BillingTransaction, label: string, text: string) => <td>{payment.source === "manual" && canAdd
-    ? <button className="subscription-payment-cell" type="button" aria-label={`Edit ${label}`} onClick={() => setDrafts((current) => current[payment.id] ? current : { ...current, [payment.id]: { ...payment, currency: payment.currency.trim() || entryCurrency, syncCurrency: !payment.currency.trim() } })}>{text}</button>
-    : text}</td>;
+  const beginEdit = (payment: BillingTransaction) => {
+    if (!canAdd || payment.source !== "manual") return;
+    setDrafts((current) => current[payment.id] ? current : { ...current, [payment.id]: { ...payment, currency: payment.currency.trim() || entryCurrency, syncCurrency: !payment.currency.trim(), syncCurrentBillingAmount: false } });
+  };
+  const cell = (text: string) => <td>{text}</td>;
   return <section className="subscription-account-section" aria-labelledby="subscription-payments">
     <div className="subscription-section-heading"><h3 id="subscription-payments">Payments</h3>{rows.length || drafts.new ? <div className="subscription-payment-add-area">
       <button className="btn-primary" disabled={!canAdd || Boolean(drafts.new)} type="button" onClick={add}>+ Add Payment</button>
@@ -100,9 +112,9 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     {rows.length || drafts.new ? <div className="subscription-payment-database"><table className="subscription-payment-table">
       <thead><tr>{["Date", "Plan", "Type", "Amount", "Status", "Action"].map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
       <tbody>{drafts.new ? editor(drafts.new) : null}{rows.map((payment) => drafts[payment.id] ? editor(drafts[payment.id]) : <tr key={payment.id} data-transaction-id={payment.id}>
-        {cell(payment, "Date", billingHistoryDisplayDate(payment.paymentDate))}{cell(payment, "Plan", payment.planNameSnapshot.trim() || "Not set")}{cell(payment, "Type", payment.billingTypeSnapshot || "Not set")}
-        {cell(payment, "Currency/Amount", payment.currency.trim() && payment.amount.trim() ? `${payment.currency} ${payment.amount}` : "—")}{cell(payment, "Status", payment.status)}
-        <td><span title={payment.source !== "manual" ? "Historical imported payments are read-only" : undefined}>—</span></td>
+        {cell(billingHistoryDisplayDate(payment.paymentDate))}{cell(payment.planNameSnapshot.trim() || "Not set")}{cell(payment.billingTypeSnapshot || "Not set")}
+        {cell(payment.currency.trim() && payment.amount.trim() ? `${payment.currency} ${payment.amount}` : "—")}{cell(payment.status)}
+        <td>{payment.source === "manual" && canAdd ? <button aria-label={`Edit ${billingHistoryDisplayDate(payment.paymentDate)} payment`} className="subscription-payment-edit-button" onClick={() => beginEdit(payment)} title="Edit payment" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m4 20 4.25-1 10.4-10.4a2.1 2.1 0 0 0-3-3L5.25 16 4 20Z"/><path d="m14.5 7.5 3 3"/></svg></button> : <span title={payment.source !== "manual" ? "Historical imported payments are read-only" : undefined}>—</span>}</td>
       </tr>)}</tbody>
     </table></div> : <div className="subscription-detail-empty subscription-setup-helper"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7v1" /></svg><div><strong>No payments recorded yet.</strong><p>Add a payment to start building this account's payment history.</p></div><button className="btn-primary" disabled={!canAdd} type="button" onClick={add}>+ Add Payment</button></div>}
   </section>;

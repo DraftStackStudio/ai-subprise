@@ -10,6 +10,8 @@ export type ToolStatus =
 
 export type ManageStatus = "Active" | "On a Break" | "Goodbye";
 
+export type TrialResolution = "converted" | "moved_to_free" | "stopped_using";
+
 export type TrialResolutionHistoryEntry = {
   billingType: string;
   convertedDate: string;
@@ -17,8 +19,9 @@ export type TrialResolutionHistoryEntry = {
   isCorrection: boolean;
   nextChargeDate: string;
   purchaseDate: string;
-  outcome: "converted" | "ended";
+  outcome: TrialResolution;
   planName: string;
+  resolvedDate: string;
 };
 
 export type BillingAmount = {
@@ -37,7 +40,7 @@ export type ToolDetailAccountDraft = {
   billingType: string;
   lastTopUpDate: string;
   nextChargeDate: string;
-  pendingTrialOutcome: "" | "converted" | "ended";
+  pendingTrialOutcome: "" | TrialResolution;
   purchaseDate: string;
   draftId?: string;
   plan: ToolStatus | "";

@@ -14,17 +14,20 @@ export function formatBillingDate(value: string) {
 export default function DateFieldControl({
   ariaLabel,
   className = "",
+  disabled = false,
   onChange,
   value,
 }: {
   ariaLabel: string;
   className?: string;
+  disabled?: boolean;
   onChange: (value: string) => void;
   value: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   function openDatePicker() {
+    if (disabled) return;
     const input = inputRef.current;
     if (!input) return;
 
@@ -43,6 +46,7 @@ export default function DateFieldControl({
   return (
     <span
       aria-label={ariaLabel}
+      aria-disabled={disabled}
       className={`modal-date-display-control${className ? ` ${className}` : ""}`}
       onClick={openDatePicker}
       onKeyDown={(event) => {
@@ -52,7 +56,7 @@ export default function DateFieldControl({
         }
       }}
       role="button"
-      tabIndex={0}
+      tabIndex={disabled ? -1 : 0}
     >
       <span>{formatBillingDate(value)}</span>
       <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -61,6 +65,7 @@ export default function DateFieldControl({
       </svg>
       <input
         aria-hidden="true"
+        disabled={disabled}
         onInput={(event) => onChange(event.currentTarget.value)}
         ref={inputRef}
         tabIndex={-1}

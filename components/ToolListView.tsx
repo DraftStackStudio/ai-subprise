@@ -92,7 +92,7 @@ export default function ToolListView<Tool extends ToolListItem>({
             <span>Category</span>
             <span>Account Used</span>
             <span>URL</span>
-            <span>Action</span>
+            <span>Status</span>
           </>
         ) : section === "archive" ? (
           <>

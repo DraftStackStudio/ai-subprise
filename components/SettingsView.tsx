@@ -19,6 +19,7 @@ type SettingsViewProps = {
   onRenewalAlertsEnabledChange: (value: boolean) => void;
   onRemindersEnabledChange: (value: boolean) => void;
   onReseedDemo: () => void;
+  onResetWorkspace: () => void;
   onSavePassword: (event: FormEvent<HTMLFormElement>) => void;
   onSaveProfile: (event: FormEvent<HTMLFormElement>) => void;
   onSettingsTabChange: (tab: SettingsTab) => void;
@@ -48,6 +49,7 @@ export default function SettingsView({
   onRenewalAlertsEnabledChange,
   onRemindersEnabledChange,
   onReseedDemo,
+  onResetWorkspace,
   onSavePassword,
   onSaveProfile,
   onSettingsTabChange,
@@ -137,6 +139,23 @@ export default function SettingsView({
                 </div>
               </section>
             ) : null}
+
+            <section aria-label="Data management" className="settings-workspace-data-section">
+              <header>
+                <h2>Workspace Data</h2>
+              </header>
+              <div className="settings-workspace-data-row">
+                <div>
+                  <h3>Reset AI Subprise</h3>
+                  <p>
+                    Start fresh by permanently removing your AI tools, linked accounts, subscriptions, billing data and history.
+                    <br />
+                    Your saved Logins will be kept.
+                  </p>
+                </div>
+                <button className="btn-sm btn-sm-danger" onClick={onResetWorkspace} type="button">Reset AI Subprise</button>
+              </div>
+            </section>
           </div>
         )}
       </div>
