@@ -56,3 +56,10 @@ export function nextRenewalAfterResolution(anchorDate: string, cadence: RenewalC
   if (latestIndex === null) throw new Error("A renewal period does not match its cadence anchor.");
   return renewalDateFromAnchor(anchorDate, cadence, latestIndex + 1);
 }
+
+export function unresolvedOverdueRenewalPeriods<T extends RenewalPeriodState>(periods: T[], asOfDate: string) {
+  if (!validDate(asOfDate)) throw new Error("Invalid renewal cutoff date.");
+  return periods
+    .filter((period) => period.resolution === null && validDate(period.scheduledRenewalDate) && period.scheduledRenewalDate < asOfDate)
+    .sort((left, right) => left.scheduledRenewalDate.localeCompare(right.scheduledRenewalDate));
+}

@@ -25,6 +25,7 @@ const {
   nextRenewalAfterResolution,
   renewalDateFromAnchor,
   renewalSequenceIndex,
+  unresolvedOverdueRenewalPeriods,
 } = loadTypeScript('lib/renewalPeriods.ts');
 
 assert.equal(renewalDateFromAnchor('2026-01-31', 'Monthly', 0), '2026-01-31');
@@ -57,9 +58,32 @@ assert.equal(nextRenewalAfterResolution('2024-02-29', 'Yearly', [
   { scheduledRenewalDate: '2025-02-28', resolution: 'not_charged' },
 ]), '2026-02-28');
 
+assert.deepEqual(
+  unresolvedOverdueRenewalPeriods([
+    { id: 'future', scheduledRenewalDate: '2026-10-01', resolution: null },
+    { id: 'today', scheduledRenewalDate: '2026-09-29', resolution: null },
+    { id: 'resolved', scheduledRenewalDate: '2026-07-01', resolution: 'paid' },
+    { id: 'older', scheduledRenewalDate: '2026-07-29', resolution: null },
+    { id: 'newer', scheduledRenewalDate: '2026-08-29', resolution: null },
+  ], '2026-09-29').map((period) => period.id),
+  ['older', 'newer'],
+);
+
 const migration = read('supabase/migrations/0027_add_billing_renewal_periods.sql');
 const sql = migration.toLowerCase();
 const between = (start, end) => sql.slice(sql.indexOf(start), sql.indexOf(end));
+const dashboardPage = read('app/dashboard/page.tsx');
+const dashboardSummary = read('components/DashboardSummaryView.tsx');
+
+assert.match(dashboardPage, /syncDueBillingRenewalPeriods\([\s\S]*?today,/);
+assert.match(dashboardPage, /getBillingRenewalPeriodsByRelationship/);
+assert.match(dashboardPage, /periodId: period\.id/);
+assert.match(dashboardPage, /if \(item\.kind === "renewal"\) return <span className="linked-status-readonly">\{item\.statusLabel\}<\/span>/);
+assert.doesNotMatch(dashboardPage, /import \{[^}]*confirmBillingRenewalPaid/);
+assert.doesNotMatch(dashboardPage, /import \{[^}]*markBillingRenewalNotCharged/);
+assert.doesNotMatch(dashboardPage, /import \{[^}]*undoBillingRenewalResolution/);
+assert.match(dashboardSummary, /key=\{item\.periodId \?\? item\.itemId\}/);
+assert.doesNotMatch(dashboardSummary, /actionNeededItems\.slice/);
 
 assert(sql.includes('create table if not exists public.billing_renewal_periods'));
 assert(sql.includes('unique (tool_email_link_id, billing_component_id, scheduled_renewal_date)'));

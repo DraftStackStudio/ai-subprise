@@ -96,7 +96,10 @@ import type {
 import type { LinkToolAccountBlock } from "@/types/linkTool";
 import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship } from "@/lib/supabase/billingTransactions";
 import { estimateCurrentPayment, hasCurrentPayment, localBillingToday, validBillingDate, type CurrentPaymentEstimate, type RecurringBillingSettings } from "@/lib/currentBilling";
+import { unresolvedOverdueRenewalPeriods } from "@/lib/renewalPeriods";
+import { getBillingRenewalPeriodsByRelationship, syncDueBillingRenewalPeriods } from "@/lib/supabase/billingRenewalPeriods";
 import { expiredTrialNeedsResolution, isTrialResolution, trialResolutionTransition } from "@/lib/trialResolution";
+import type { BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import {
   createToolRecord,
@@ -993,6 +996,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [toolAccountPlanNames, setToolAccountPlanNames] = useState<Record<string, Record<string, string>>>({});
   const [toolAccountDetails, setToolAccountDetails] = useState<Record<string, Record<string, ToolAccountDetail>>>({});
   const [billingRelationshipDetails, setBillingRelationshipDetails] = useState<Awaited<ReturnType<typeof getToolLinkDetailRecords>>>([]);
+  const [billingRenewalPeriods, setBillingRenewalPeriods] = useState<BillingRenewalPeriod[]>([]);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [deletingProvider, setDeletingProvider] = useState<string | null>(null);
@@ -1487,6 +1491,64 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       isCancelled = true;
     };
   }, [shouldUseSupabase]);
+
+  useEffect(() => {
+    if (!shouldUseSupabase || isLoadingTools) return;
+
+    const today = localBillingToday();
+    const availableTools = new Map(toolsWithValidAccountLinks.filter((tool) => !tool.archived).map((tool) => [tool.id, tool]));
+    const eligibleComponents = billingRelationshipDetails.flatMap((detail) => {
+      if (
+        !availableTools.has(detail.toolId)
+        || detail.unlinkedAt
+        || detail.status !== "Active"
+        || (detail.plan !== "Active" && detail.plan !== "Paid")
+      ) return [];
+
+      return detail.billingAmounts.flatMap((component) => {
+        const billingType = normaliseBillingType(component.billingType);
+        if (
+          (billingType !== "Monthly" && billingType !== "Yearly")
+          || !component.id
+          || !validBillingDate(component.nextRenewalDate ?? "")
+          || component.nextRenewalDate! >= today
+        ) return [];
+        return [{ billingComponentId: component.id, relationshipId: detail.relationshipId }];
+      });
+    });
+
+    if (eligibleComponents.length === 0) {
+      setBillingRenewalPeriods([]);
+      return;
+    }
+
+    let isCancelled = false;
+    const eligibleComponentKeys = new Set(eligibleComponents.map((component) => `${component.relationshipId}:${component.billingComponentId}`));
+    const relationshipIds = [...new Set(eligibleComponents.map((component) => component.relationshipId))];
+
+    Promise.all(eligibleComponents.map((component) => syncDueBillingRenewalPeriods(
+      component.relationshipId,
+      component.billingComponentId,
+      today,
+    )))
+      .then(() => Promise.all(relationshipIds.map((relationshipId) => getBillingRenewalPeriodsByRelationship(relationshipId))))
+      .then((periodGroups) => {
+        if (isCancelled) return;
+        const eligiblePeriods = periodGroups.flat().filter((period) => (
+          eligibleComponentKeys.has(`${period.relationshipId}:${period.billingComponentId}`)
+        ));
+        setBillingRenewalPeriods(unresolvedOverdueRenewalPeriods(eligiblePeriods, today));
+      })
+      .catch((error: unknown) => {
+        if (isCancelled) return;
+        setBillingRenewalPeriods([]);
+        setToolDataError(error instanceof Error ? error.message : "Could not detect overdue renewals.");
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [billingRelationshipDetails, isLoadingTools, shouldUseSupabase, toolsWithValidAccountLinks]);
 
   useEffect(() => {
     if (!shouldUseSupabase) return;
@@ -5311,13 +5373,14 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       if (!detail.relationshipId) return [];
       return [{ accountLabel, expiryDate: detail.trialExpiryDate, relationshipId: detail.relationshipId, tool }];
     })) : [];
-  const actionNeededItems: ActionNeededItem[] = trialsNeedingConfirmation.map((trial) => ({
+  const trialActionNeededItems: ActionNeededItem[] = trialsNeedingConfirmation.map((trial) => ({
     accountLabel: trial.accountLabel,
     accountLogin: accountList.find((account) => account.label === trial.accountLabel)?.login,
     accountTag: accountTag(trial.accountLabel, accountList),
     detail: "Trial ended · Confirm current status",
     issue: "Trial ended",
     issueDate: trial.expiryDate,
+    itemId: trial.relationshipId,
     kind: "confirmation",
     logo: trial.tool.logo,
     logoBackground: trial.tool.logoBg,
@@ -5326,6 +5389,30 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     toolId: trial.tool.id,
     toolName: trial.tool.name,
   }));
+  const renewalActionNeededItems: ActionNeededItem[] = billingRenewalPeriods.flatMap((period) => {
+    const relationship = billingRelationshipDetails.find((detail) => detail.relationshipId === period.relationshipId);
+    const tool = toolsWithValidAccountLinks.find((candidate) => candidate.id === relationship?.toolId && !candidate.archived);
+    if (!relationship || !tool) return [];
+    const account = accountList.find((candidate) => candidate.label === relationship.accountLabel);
+    return [{
+      accountLabel: relationship.accountLabel,
+      accountLogin: account?.login,
+      accountTag: accountTag(relationship.accountLabel, accountList),
+      detail: "Renewal due · Needs review",
+      issue: "Renewal due",
+      issueDate: period.scheduledRenewalDate,
+      itemId: period.id,
+      kind: "renewal" as const,
+      logo: tool.logo,
+      logoBackground: tool.logoBg,
+      periodId: period.id,
+      relationshipId: period.relationshipId,
+      statusLabel: "Needs review",
+      toolId: tool.id,
+      toolName: tool.name,
+    }];
+  });
+  const actionNeededItems: ActionNeededItem[] = [...trialActionNeededItems, ...renewalActionNeededItems];
   const renderCategoryCell = (tool: ToolItem) => (
     renderDropdown({
       ariaLabel: `Change ${tool.name} category`,
@@ -5932,6 +6019,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   });
 
   const renderActionNeededResolutionControl = (item: ActionNeededItem) => {
+    if (item.kind === "renewal") return <span className="linked-status-readonly">{item.statusLabel}</span>;
     const tool = toolsWithValidAccountLinks.find((candidate) => candidate.id === item.toolId);
     if (!tool) return null;
     return renderExpiredTrialResolutionControl(tool, item.accountLabel, {

@@ -8,9 +8,11 @@ export type ActionNeededItem = {
   detail: string;
   issue: string;
   issueDate: string;
-  kind: "confirmation";
+  itemId: string;
+  kind: "confirmation" | "renewal";
   logo: string;
   logoBackground: string;
+  periodId?: string;
   relationshipId: string;
   statusLabel: string;
   toolId: string;
@@ -90,7 +92,7 @@ export default function DashboardSummaryView({ actionNeededItems, connectedToolC
 
       <section className="dashboard-panel dashboard-attention-panel" aria-labelledby="dashboard-attention-title">
         <header className="dashboard-panel-header"><div className="dashboard-panel-title"><span className="dashboard-attention-mark" aria-hidden="true">!</span><h3 id="dashboard-attention-title">Action needed</h3>{actionNeededItems.length > 0 ? <span className="dashboard-count-badge">{actionNeededItems.length}</span> : null}</div></header>
-        {actionNeededItems.length > 0 ? <div className="dashboard-compact-list">{actionNeededItems.slice(0, 4).map((item) => <div className="dashboard-compact-row dashboard-action-needed-row" key={item.relationshipId}><DashboardActionTool item={item} /><LinkedAccountCell accountLabel={item.accountLabel} login={item.accountLogin} tagClass={item.accountTag} /><span className="dashboard-row-detail">{item.issue} on {formatShortDate(item.issueDate)}</span><span className="dashboard-action-control">{renderActionNeeded(item)}</span></div>)}</div> : <div className="dashboard-empty-copy"><strong>Nothing needs your attention.</strong><span>Trial reminders and confirmations will appear here.</span></div>}
+        {actionNeededItems.length > 0 ? <div className="dashboard-compact-list">{actionNeededItems.map((item) => <div className="dashboard-compact-row dashboard-action-needed-row" key={item.periodId ?? item.itemId}><DashboardActionTool item={item} /><LinkedAccountCell accountLabel={item.accountLabel} login={item.accountLogin} tagClass={item.accountTag} /><span className="dashboard-row-detail">{item.issue} on {formatShortDate(item.issueDate)}</span><span className="dashboard-action-control">{renderActionNeeded(item)}</span></div>)}</div> : <div className="dashboard-empty-copy"><strong>Nothing needs your attention.</strong><span>Trial reminders and confirmations will appear here.</span></div>}
       </section>
 
       <div className="dashboard-bottom-grid">
