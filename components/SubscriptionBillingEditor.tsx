@@ -17,7 +17,7 @@ export type SubscriptionActions = {
 const types = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"];
 const label = (type: string) => type === "One-time" ? "One-time payment" : type === "Top-up" ? "Top-up credit" : type;
 
-export default function SubscriptionBillingEditor({ account, currencyOptions, onSaveBilling, onClose }: SubscriptionActions & { account: SubscriptionRow; onClose: () => void }) {
+export default function SubscriptionBillingEditor({ account, currencyOptions, onSaveBilling, onClose, onSaved }: SubscriptionActions & { account: SubscriptionRow; onClose: () => void; onSaved?: (planName: string, components: BillingAmount[]) => void }) {
   const [planName, setPlanName] = useState(account.planName);
   const [draft, setDraft] = useState<BillingAmount[]>(account.billingComponents.map((item) => ({ ...item, currency: item.currency.trim() ? item.currency : account.billingComponents.find((component) => component.currency.trim())?.currency ?? "" })));
   const [open, setOpen] = useState<string | null>(null);
@@ -38,7 +38,12 @@ export default function SubscriptionBillingEditor({ account, currencyOptions, on
   const save = async () => {
     if (saving.current || !draft) return;
     saving.current = true; setBusy(true); setError(""); setOpen(null);
-    try { await onSaveBilling(account.relationshipId, planName.trim(), draft); onClose(); }
+    try {
+      const savedPlanName = planName.trim();
+      await onSaveBilling(account.relationshipId, savedPlanName, draft);
+      if (onSaved) onSaved(savedPlanName, draft);
+      else onClose();
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : "Could not save Current Billing."); }
     finally { saving.current = false; setBusy(false); }
   };

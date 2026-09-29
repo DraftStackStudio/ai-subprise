@@ -38,7 +38,10 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
   const [paymentMode, setPaymentMode] = useState<"single" | "period" | null>(null);
   const [paymentComponentType, setPaymentComponentType] = useState<string | undefined>();
   const [firstTimeSetup, setFirstTimeSetup] = useState(false);
-  const finishFirstTimeSetup = () => { setPaymentMode(null); setPaymentChoice(false); setFirstTimeSetup(false); actions.onPaymentsChanged?.(); };
+  const [continueToPaymentAfterBilling, setContinueToPaymentAfterBilling] = useState(false);
+  const [paymentPrefill, setPaymentPrefill] = useState<{ planName: string; billingComponents: BillingAmount[] } | null>(null);
+  const paymentAccount = paymentPrefill ? { ...account, planName: paymentPrefill.planName, billingComponents: paymentPrefill.billingComponents } : account;
+  const finishPaymentFlow = () => { setPaymentMode(null); setPaymentChoice(false); setFirstTimeSetup(false); setPaymentPrefill(null); actions.onPaymentsChanged?.(); };
   const shouldUpdateCurrentBilling = firstTimeSetup || paymentMode === "period";
   const canAddPayment = Boolean(account.relationshipId && account.canManageBilling) && !editingBilling && statusDraft === null && !statusBusy;
   // Keep history relationship-scoped even if callers later pass a broader collection.
@@ -69,13 +72,13 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
     </section>
 
     <section className="subscription-account-section" aria-labelledby="subscription-current-billing">
-      <div className="subscription-section-heading"><h3 id="subscription-current-billing">Current Billing</h3></div>
-      {account.state !== "Complete" || !account.billingComponents.length ? <div className="subscription-detail-empty subscription-setup-helper">
+      <div className="subscription-section-heading"><h3 id="subscription-current-billing">Current Billing</h3>{account.state === "Incomplete" && account.billingComponents.length && account.canManageBilling ? <button className="btn-primary" disabled={statusDraft !== null || statusBusy} type="button" onClick={() => { setContinueToPaymentAfterBilling(true); setEditingBilling(true); }}>Complete setup</button> : null}</div>
+      {!account.billingComponents.length ? <div className="subscription-detail-empty subscription-setup-helper">
         <svg aria-hidden="true" className="subscription-warning-icon" viewBox="0 0 24 24"><path d="M12 3 22 21H2L12 3Z" /><path d="M12 9v5M12 17v1" /></svg>
         <div><strong>Your billing information is incomplete.</strong><p>Please complete the setup to keep track of your subscription.</p></div>
-        <button className="btn-primary" disabled={!account.canManageBilling || statusDraft !== null || statusBusy} type="button" onClick={() => { if (account.state === "Not started" || account.state === "Incomplete") { setFirstTimeSetup(true); setPaymentChoice(true); } else setEditingBilling(true); }}>{account.state === "Incomplete" ? "Complete setup" : "Set up billing"}</button>
+        <button className="btn-primary" disabled={!account.canManageBilling || statusDraft !== null || statusBusy} type="button" onClick={() => { setFirstTimeSetup(true); setPaymentChoice(true); }}>Set up billing</button>
       </div> : <div className="subscription-current-components">
-        {account.canManageBilling && !editingBilling ? <button aria-label="Edit Current Billing" className="subscription-current-edit" disabled={statusDraft !== null || statusBusy} type="button" onClick={() => setEditingBilling(true)}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m4 20 4.25-1 10.4-10.4a2.1 2.1 0 0 0-3-3L5.25 16 4 20Z" /><path d="m14.5 7.5 3 3" /></svg></button> : null}
+        {account.state === "Complete" && account.canManageBilling && !editingBilling ? <button aria-label="Edit Current Billing" className="subscription-current-edit" disabled={statusDraft !== null || statusBusy} type="button" onClick={() => { setContinueToPaymentAfterBilling(false); setEditingBilling(true); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m4 20 4.25-1 10.4-10.4a2.1 2.1 0 0 0-3-3L5.25 16 4 20Z" /><path d="m14.5 7.5 3 3" /></svg></button> : null}
         {account.billingComponents.map((component, index) => {
           const date = componentDate(component);
           return <dl className="subscription-current-component" key={component.id || `${component.billingType}-${index}`}>
@@ -110,16 +113,23 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
     </section></div> : null}
     {editingBilling ? <div className="welcome-modal-overlay" role="presentation"><section className="welcome-modal subscription-current-billing-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-current-billing-modal-title">
       <h2 id="subscription-current-billing-modal-title">Edit Current Billing</h2>
-      <SubscriptionBillingEditor account={account} {...actions} onClose={() => setEditingBilling(false)} />
+      <SubscriptionBillingEditor account={account} {...actions} onClose={() => { setEditingBilling(false); setContinueToPaymentAfterBilling(false); }} onSaved={(planName, billingComponents) => {
+        setEditingBilling(false);
+        if (continueToPaymentAfterBilling) {
+          setPaymentPrefill({ planName, billingComponents });
+          setPaymentChoice(true);
+        }
+        setContinueToPaymentAfterBilling(false);
+      }} />
     </section></div> : null}
-    {paymentChoice ? <BillingPastEntryModal relationships={[account]} initialRelationshipId={account.relationshipId} lockedRelationshipId={account.relationshipId} billingComponents={account.billingComponents} onCancel={() => { setPaymentChoice(false); setFirstTimeSetup(false); }} onContinue={(relationship, mode, billingType) => { if (relationship.relationshipId !== account.relationshipId) return; setPaymentChoice(false); setPaymentComponentType(billingType); setPaymentMode(mode); }} /> : null}
-    {paymentMode ? <BillingHistoryPanel prefillCurrentBilling selectedBillingType={paymentComponentType} onEstablishCurrentBilling={shouldUpdateCurrentBilling ? async (relationshipId, planName, components) => { if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed."); const merged = account.billingComponents.map((existing) => {
+    {paymentChoice ? <BillingPastEntryModal relationships={[paymentAccount]} initialRelationshipId={account.relationshipId} lockedRelationshipId={account.relationshipId} billingComponents={paymentAccount.billingComponents} onCancel={() => { setPaymentChoice(false); setFirstTimeSetup(false); setPaymentPrefill(null); }} onContinue={(relationship, mode, billingType) => { if (relationship.relationshipId !== account.relationshipId) return; setPaymentChoice(false); setPaymentComponentType(billingType); setPaymentMode(mode); }} /> : null}
+    {paymentMode ? <BillingHistoryPanel prefillCurrentBilling selectedBillingType={paymentComponentType} onEstablishCurrentBilling={shouldUpdateCurrentBilling ? async (relationshipId, planName, components) => { if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed."); const merged = paymentAccount.billingComponents.map((existing) => {
         const updated = components.find((component) => component.billingType === existing.billingType);
         return updated ? { ...updated, id: existing.id } : existing;
       });
-      merged.push(...components.filter((component) => !account.billingComponents.some((existing) => existing.billingType === component.billingType)));
-      await actions.onSaveBilling(relationshipId, planName, merged); } : undefined} onSetupComplete={firstTimeSetup ? finishFirstTimeSetup : undefined} accounts={[{ accountActivity: account.activity, accountEmail: account.accountEmail, accountLabel: account.accountLabel, accountTag: account.accountTag, billingAmounts: account.billingComponents, planName: account.planName, relationshipId: account.relationshipId }]} initialRelationshipId={account.relationshipId} initialEntryMode={paymentMode} toolName={account.toolName} toolLogo={account.logo} toolLogoBackground={account.logoBackground}
-      onClose={finishFirstTimeSetup}
+      merged.push(...components.filter((component) => !paymentAccount.billingComponents.some((existing) => existing.billingType === component.billingType)));
+      await actions.onSaveBilling(relationshipId, planName, merged); } : undefined} onSetupComplete={firstTimeSetup ? finishPaymentFlow : undefined} accounts={[{ accountActivity: paymentAccount.activity, accountEmail: paymentAccount.accountEmail, accountLabel: paymentAccount.accountLabel, accountTag: paymentAccount.accountTag, billingAmounts: paymentAccount.billingComponents, planName: paymentAccount.planName, relationshipId: paymentAccount.relationshipId }]} initialRelationshipId={account.relationshipId} initialEntryMode={paymentMode} toolName={account.toolName} toolLogo={account.logo} toolLogoBackground={account.logoBackground}
+      onClose={finishPaymentFlow}
       onChangeRelationship={() => { setPaymentMode(null); setPaymentChoice(true); }} /> : null}
   </div>;
 }
