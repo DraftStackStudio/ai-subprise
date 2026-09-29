@@ -72,6 +72,13 @@ assert.deepEqual(
 const migration = read('supabase/migrations/0027_add_billing_renewal_periods.sql');
 const sql = migration.toLowerCase();
 const between = (start, end) => sql.slice(sql.indexOf(start), sql.indexOf(end));
+const decisionMigration = read('supabase/migrations/0028_add_billing_renewal_decision_contracts.sql');
+const decisionSql = decisionMigration.toLowerCase();
+const decisionBetween = (start, end) => decisionSql.slice(decisionSql.indexOf(start), decisionSql.indexOf(end));
+const decisionDatabaseTest = read('scripts/test-billing-renewal-decision-contracts.sql').toLowerCase();
+const decisionRepair = read('scripts/repair-0028-update-billing-renewal-payment.sql').toLowerCase();
+const renewalClient = read('lib/supabase/billingRenewalPeriods.ts');
+const renewalTypes = read('types/billingRenewalPeriod.ts');
 const dashboardPage = read('app/dashboard/page.tsx');
 const dashboardSummary = read('components/DashboardSummaryView.tsx');
 
@@ -138,4 +145,123 @@ const reset = between(
 assert(reset.indexOf('delete from public.billing_renewal_periods') < reset.indexOf('delete from public.billing_transactions'));
 assert(reset.indexOf('delete from public.billing_transactions') < reset.indexOf('delete from public.ai_tools'));
 
-console.log('PASS: renewal cadence, overdue generation, contiguous advancement, SQL uniqueness, exact relationship guards, atomic resolution contracts, and Undo isolation.');
+assert(decisionSql.includes('add column if not exists not_charged_reason_code text'));
+assert(decisionSql.includes('\nbegin;'));
+assert(decisionSql.trimEnd().endsWith('commit;'));
+assert(decisionSql.includes('add column if not exists not_charged_reason_text text'));
+assert(decisionSql.includes('add column if not exists not_charged_note text'));
+for (const reason of ['cancelled_subscription', 'payment_failed', 'paused', 'free_or_waived', 'other']) {
+  assert(decisionSql.includes(`'${reason}'`));
+  assert(renewalTypes.includes(`"${reason}"`));
+}
+assert(decisionSql.includes("not_charged_reason_code = 'other'"));
+assert(decisionSql.includes("nullif(btrim(not_charged_reason_text), '') is not null"));
+assert(decisionSql.includes("not_charged_reason_code <> 'other'"));
+assert(decisionSql.includes('not_charged_reason_text is null'));
+
+const confirmPaid = decisionBetween(
+  'create or replace function public.confirm_billing_renewal_paid',
+  'drop function if exists public.mark_billing_renewal_not_charged',
+);
+assert(confirmPaid.includes('set actual_payment_date = v_scheduled_date'));
+assert(confirmPaid.includes('v_user_id, p_relationship_id, v_tool_id, v_login_id, v_scheduled_date'));
+assert(!confirmPaid.includes('p_actual_payment_date'));
+assert(confirmPaid.includes('v_amount, v_currency'));
+assert(confirmPaid.includes("'renewal-period:' || p_period_id::text"));
+assert(decisionSql.includes('drop function if exists public.confirm_billing_renewal_paid(uuid, uuid, date)'));
+const confirmPaidClient = renewalClient.slice(
+  renewalClient.indexOf('export async function confirmBillingRenewalPaid'),
+  renewalClient.indexOf('export async function markBillingRenewalNotCharged'),
+);
+assert.doesNotMatch(confirmPaidClient, /p_actual_payment_date|actualPaymentDate/);
+
+const guardedNotCharged = decisionBetween(
+  'create or replace function public.mark_billing_renewal_not_charged',
+  'create or replace function public.update_billing_renewal_period_snapshot',
+);
+assert(guardedNotCharged.includes("raise exception 'select a valid not charged reason.'"));
+assert(guardedNotCharged.includes("raise exception 'enter a reason when other is selected.'"));
+assert(guardedNotCharged.includes('not_charged_note = v_note'));
+assert(!guardedNotCharged.includes('insert into public.billing_transactions'));
+assert(decisionSql.includes('drop function if exists public.mark_billing_renewal_not_charged(uuid, uuid)'));
+
+const snapshotUpdate = decisionBetween(
+  'create or replace function public.update_billing_renewal_period_snapshot',
+  'create or replace function public.update_billing_renewal_payment',
+);
+assert(snapshotUpdate.includes('period.id = p_period_id'));
+assert(snapshotUpdate.includes('period.tool_email_link_id = p_relationship_id'));
+assert(snapshotUpdate.includes('period.resolution is null'));
+assert(snapshotUpdate.includes('set plan_name_snapshot ='));
+assert(snapshotUpdate.includes('currency_snapshot = v_currency'));
+assert(snapshotUpdate.includes('amount_snapshot = p_amount'));
+assert(!snapshotUpdate.includes('p_billing_type'));
+assert(!snapshotUpdate.includes('p_scheduled_renewal_date'));
+assert(!snapshotUpdate.includes('set billing_type_snapshot'));
+assert(!snapshotUpdate.includes('set scheduled_renewal_date'));
+
+const paymentUpdate = decisionBetween(
+  'create or replace function public.update_billing_renewal_payment',
+  'create or replace function public.undo_billing_renewal_resolution',
+);
+assert(paymentUpdate.includes('period.payment_transaction_id = p_payment_transaction_id'));
+assert(paymentUpdate.includes('transaction.tool_email_link_id = p_relationship_id'));
+assert(paymentUpdate.includes("transaction.source = 'renewal'"));
+assert(paymentUpdate.includes("transaction.source_key = 'renewal-period:' || p_period_id::text"));
+assert(paymentUpdate.includes("raise exception 'payment date cannot be in the future.'"));
+assert(paymentUpdate.includes('set actual_payment_date = p_payment_date'));
+assert(paymentUpdate.includes('set payment_date = p_payment_date'));
+assert(paymentUpdate.includes('update public.billing_renewal_periods as period'));
+assert(paymentUpdate.includes('and period.payment_transaction_id = p_payment_transaction_id;'));
+assert(paymentUpdate.includes('update public.billing_transactions as transaction'));
+assert.doesNotMatch(paymentUpdate, /\band payment_transaction_id = p_payment_transaction_id;/);
+assert(paymentUpdate.includes('if v_period_rows <> 1 or v_transaction_rows <> 1'));
+assert(!paymentUpdate.includes('plan_name_snapshot ='));
+assert(!paymentUpdate.includes('billing_type_snapshot ='));
+assert(decisionRepair.includes('create or replace function public.update_billing_renewal_payment'));
+assert(decisionRepair.includes('update public.billing_renewal_periods as period'));
+assert(decisionRepair.includes('and period.payment_transaction_id = p_payment_transaction_id;'));
+assert(decisionRepair.includes('update public.billing_transactions as transaction'));
+assert.doesNotMatch(decisionRepair, /\band payment_transaction_id = p_payment_transaction_id;/);
+assert.doesNotMatch(decisionRepair, /\b(insert|delete|alter|drop|truncate)\b/);
+
+const guardedUndo = decisionBetween(
+  'create or replace function public.undo_billing_renewal_resolution',
+  '-- keep direct mutation protection',
+);
+assert(guardedUndo.includes('not_charged_reason_code = null'));
+assert(guardedUndo.includes('not_charged_reason_text = null'));
+assert(guardedUndo.includes('not_charged_note = null'));
+assert(guardedUndo.includes('transaction.id = v_payment_id'));
+assert(guardedUndo.includes('transaction.tool_email_link_id = p_relationship_id'));
+assert(guardedUndo.includes("transaction.source_key = 'renewal-period:' || p_period_id::text"));
+assert(guardedUndo.includes('if v_deleted <> 1 then raise exception'));
+
+assert(decisionSql.includes('revoke insert, update, delete on table public.billing_renewal_periods from authenticated'));
+assert(decisionSql.includes('grant execute on function public.update_billing_renewal_period_snapshot'));
+assert(decisionSql.includes('grant execute on function public.update_billing_renewal_payment'));
+assert(renewalClient.includes('p_amount: input.amount.trim() || null'));
+assert(renewalClient.includes('p_local_date: localCalendarDate()'));
+for (const contractCheck of [
+  'other unexpectedly accepted a blank custom reason',
+  'confirm paid substituted a value for an unknown amount',
+  'out-of-order resolution skipped the earliest unresolved period',
+  'a future payment date was unexpectedly accepted',
+  'a relationship/period mismatch was unexpectedly accepted',
+  'a period/transaction mismatch was unexpectedly accepted',
+  'paid undo deleted another period',
+  'retained test - renewal monthly fixture changed',
+]) {
+  assert(decisionDatabaseTest.includes(contractCheck));
+}
+for (const retainedDate of [
+  '2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30',
+  '2026-05-31', '2026-06-30', '2026-07-31', '2026-08-31',
+]) {
+  assert(decisionDatabaseTest.includes(`date '${retainedDate}'`));
+}
+assert(decisionDatabaseTest.includes('eight expected unresolved periods from january through august 2026'));
+assert(decisionDatabaseTest.includes('must still have zero renewal-generated payments'));
+assert(decisionDatabaseTest.trimEnd().endsWith('rollback;'));
+
+console.log('PASS: renewal cadence, overdue generation, 0028 reason contracts, scheduled-date confirmation, null amounts, exact snapshot/payment corrections, future-date rejection, and Undo isolation.');

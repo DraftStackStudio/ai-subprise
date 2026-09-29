@@ -1,12 +1,30 @@
 import { createClient } from "@/lib/supabase/client";
-import type { BillingRenewalMutationResult, BillingRenewalPeriod, BillingRenewalResolution } from "@/types/billingRenewalPeriod";
+import type {
+  BillingRenewalExactMutationResult,
+  BillingRenewalMutationResult,
+  BillingRenewalNotChargedReasonCode,
+  BillingRenewalPeriod,
+  BillingRenewalResolution,
+  MarkBillingRenewalNotChargedInput,
+  UpdateBillingRenewalPaymentInput,
+  UpdateBillingRenewalPeriodSnapshotInput,
+} from "@/types/billingRenewalPeriod";
 
 function text(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function localCalendarDate() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function asPeriod(record: Record<string, unknown>): BillingRenewalPeriod {
   const resolution = text(record.resolution);
+  const notChargedReasonCode = text(record.not_charged_reason_code);
   return {
     actualPaymentDate: text(record.actual_payment_date),
     amountSnapshot: record.amount_snapshot === null || record.amount_snapshot === undefined ? "" : String(record.amount_snapshot),
@@ -15,6 +33,11 @@ function asPeriod(record: Record<string, unknown>): BillingRenewalPeriod {
     createdAt: text(record.created_at),
     currencySnapshot: text(record.currency_snapshot),
     id: text(record.id),
+    notChargedNote: text(record.not_charged_note),
+    notChargedReasonCode: notChargedReasonCode
+      ? notChargedReasonCode as BillingRenewalNotChargedReasonCode
+      : null,
+    notChargedReasonText: text(record.not_charged_reason_text),
     paymentTransactionId: text(record.payment_transaction_id),
     planNameSnapshot: text(record.plan_name_snapshot),
     relationshipId: text(record.tool_email_link_id),
@@ -23,6 +46,15 @@ function asPeriod(record: Record<string, unknown>): BillingRenewalPeriod {
     scheduledRenewalDate: text(record.scheduled_renewal_date),
     updatedAt: text(record.updated_at),
     userId: text(record.user_id),
+  };
+}
+
+function exactMutationResult(data: unknown): BillingRenewalExactMutationResult {
+  const record = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | undefined;
+  if (!record) throw new Error("The renewal operation did not return a result.");
+  return {
+    paymentTransactionId: text(record.payment_transaction_id),
+    periodId: text(record.period_id),
   };
 }
 
@@ -58,10 +90,9 @@ export async function syncDueBillingRenewalPeriods(relationshipId: string, billi
   return Number(data ?? 0);
 }
 
-export async function confirmBillingRenewalPaid(relationshipId: string, periodId: string, actualPaymentDate?: string) {
+export async function confirmBillingRenewalPaid(relationshipId: string, periodId: string) {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("confirm_billing_renewal_paid", {
-    p_actual_payment_date: actualPaymentDate,
     p_period_id: periodId,
     p_relationship_id: relationshipId,
   });
@@ -69,14 +100,58 @@ export async function confirmBillingRenewalPaid(relationshipId: string, periodId
   return mutationResult(data);
 }
 
-export async function markBillingRenewalNotCharged(relationshipId: string, periodId: string) {
+export async function markBillingRenewalNotCharged(
+  relationshipId: string,
+  periodId: string,
+  input: MarkBillingRenewalNotChargedInput,
+) {
   const supabase = createClient();
   const { data, error } = await supabase.rpc("mark_billing_renewal_not_charged", {
+    p_note: input.note?.trim() || null,
     p_period_id: periodId,
+    p_reason_code: input.reasonCode,
+    p_reason_text: input.reasonText?.trim() || null,
     p_relationship_id: relationshipId,
   });
   if (error) throw error;
   return mutationResult(data);
+}
+
+export async function updateBillingRenewalPeriodSnapshot(
+  relationshipId: string,
+  periodId: string,
+  input: UpdateBillingRenewalPeriodSnapshotInput,
+) {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("update_billing_renewal_period_snapshot", {
+    p_amount: input.amount.trim() || null,
+    p_currency: input.currency.trim() || null,
+    p_period_id: periodId,
+    p_plan_name: input.planName.trim() || null,
+    p_relationship_id: relationshipId,
+  });
+  if (error) throw error;
+  return exactMutationResult(data).periodId;
+}
+
+export async function updateBillingRenewalPayment(
+  relationshipId: string,
+  periodId: string,
+  paymentTransactionId: string,
+  input: UpdateBillingRenewalPaymentInput,
+) {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("update_billing_renewal_payment", {
+    p_amount: input.amount.trim() || null,
+    p_currency: input.currency.trim() || null,
+    p_local_date: localCalendarDate(),
+    p_payment_date: input.paymentDate,
+    p_payment_transaction_id: paymentTransactionId,
+    p_period_id: periodId,
+    p_relationship_id: relationshipId,
+  });
+  if (error) throw error;
+  return exactMutationResult(data);
 }
 
 export async function undoBillingRenewalResolution(relationshipId: string, periodId: string) {
