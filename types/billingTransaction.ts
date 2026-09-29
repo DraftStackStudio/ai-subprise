@@ -1,6 +1,6 @@
 export type BillingTransactionStatus = "Paid" | "Refunded" | "Failed" | "Pending";
 
-export type BillingTransactionSource = "manual" | "legacy_json" | "api";
+export type BillingTransactionSource = "manual" | "renewal" | "legacy_json" | "api";
 
 export type BillingTransactionType = "Monthly" | "Yearly" | "Lifetime" | "One-time" | "Top-up";
 
