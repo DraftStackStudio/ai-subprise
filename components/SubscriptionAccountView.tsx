@@ -9,6 +9,7 @@ import SubscriptionBillingEditor, { type SubscriptionActions } from "@/component
 import BillingPastEntryModal from "@/components/BillingPastEntryModal";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
 import SubscriptionPayments from "@/components/SubscriptionPayments";
+import UnconfirmedBillingSection from "@/components/UnconfirmedBillingSection";
 
 function displayAmount(currency: string, amount: string) {
   return currency.trim() && amount.trim() ? `${currency.trim()} ${amount.trim()}` : "—";
@@ -58,11 +59,11 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
     <section className="subscription-account-card" aria-label="Account">
       <div className="subscription-callout-identity">
         <span className="tool-logo" style={{ background: account.logoBackground }}>{account.logo}</span>
-        <div><div className="subscription-callout-title"><h2>{account.toolName}</h2>{account.planName.trim() ? <span className="tool-status-chip current-plan-pill">{account.planName.trim()}</span> : null}</div><LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail || "Not available"} tagClass={account.accountTag} /></div>
+        <div><div className="subscription-callout-title"><h2>{account.toolName}</h2></div><LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail || "Not available"} tagClass={account.accountTag} /></div>
       </div>
       <div className="subscription-callout-status">
         {account.canManageBilling ? <fieldset className="billing-current-fields" disabled={statusBusy || editingBilling}>
-          <DropdownControl ariaLabel="Account Status" id="subscription-status" isOpen={statusOpen} onOpenChange={(id) => setStatusOpen(Boolean(id))} onChange={(value) => { setStatusDraft(value as ManageStatus); setStatusOpen(false); setStatusError(""); }} value={statusDraft ?? account.status} options={["Active", "On a Break", "Goodbye"].map((value) => ({ value, label: value === "On a Break" ? "On a break" : value }))} />
+          <DropdownControl ariaLabel="Account Status" className="subscription-lifecycle-dropdown" id="subscription-status" isOpen={statusOpen} onOpenChange={(id) => setStatusOpen(Boolean(id))} onChange={(value) => { setStatusDraft(value as ManageStatus); setStatusOpen(false); setStatusError(""); }} value={statusDraft ?? account.status} options={["Active", "On a Break", "Goodbye"].map((value) => ({ value, label: value === "On a Break" ? "On a break" : value }))} />
           {statusDraft !== null ?
           <div className="welcome-modal-actions"><button className="btn-sm" type="button" onClick={() => { setStatusDraft(null); setStatusOpen(false); }}>Cancel</button><button className="btn-sm" type="button" onClick={async () => { setStatusBusy(true); setStatusError(""); try { await actions.onSaveStatus(account.relationshipId, statusDraft); setStatusDraft(null); } catch (error) { setStatusError(error instanceof Error ? error.message : "Could not save status."); } finally { setStatusBusy(false); } }}>Save changes</button></div>
           : null}
@@ -82,7 +83,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
         {account.billingComponents.map((component, index) => {
           const date = componentDate(component);
           return <dl className="subscription-current-component" key={component.id || `${component.billingType}-${index}`}>
-            <div><dt>Plan Name</dt><dd>{account.planName.trim() || "Not set"}</dd></div>
+            <div><dt>Plan Name</dt><dd>{account.planName.trim() ? <span className={`tool-status-chip subscription-current-plan-pill ${account.planTone}`}>{account.planName.trim()}</span> : "Not set"}</dd></div>
             <div><dt>Billing Type</dt><dd>{component.billingType === "Top-up" ? "Top-up credit" : component.billingType === "One-time" ? "One-time payment" : component.billingType}</dd></div>
             <div><dt>Amount</dt><dd>{displayAmount(component.currency, component.amount)}</dd></div>
             <div><dt>{date.label}</dt><dd>{date.value ? billingHistoryDisplayDate(date.value) : "Not set"}</dd></div>
@@ -91,6 +92,17 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
       </div>}
       {!account.canManageBilling ? <p className="subscription-detail-empty">This historical relationship is read-only.</p> : null}
     </section>
+
+    <UnconfirmedBillingSection
+      canManage={account.canManageBilling}
+      currencyOptions={actions.currencyOptions}
+      onConfirmPaid={actions.onConfirmRenewalPaid}
+      onEdit={actions.onUpdateRenewalPeriodSnapshot}
+      onNotCharged={actions.onMarkRenewalNotCharged}
+      onUndo={actions.onUndoRenewalResolution}
+      periods={account.renewalPeriods}
+      relationshipId={account.relationshipId}
+    />
 
     <SubscriptionPayments account={account} canAdd={canAddPayment} currencyOptions={actions.currencyOptions} onChanged={actions.onPaymentsChanged} onUpdateCurrentBillingAmount={async (relationshipId, billingType, currency, amount) => {
       if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed.");

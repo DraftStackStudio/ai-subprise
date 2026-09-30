@@ -119,7 +119,12 @@ async function main() {
   assert(panelSource.includes('planName={entryMode === "period" ? draft.planName : planName}'));
   assert(panelSource.includes('className="field-feedback error billing-past-field-error" role="alert">{singleCurrencyError}</small>'));
   const billingDetailsSource = read('components/BillingDetailsView.tsx');
-  assert(billingDetailsSource.includes('nameSuffix={accountPlan ? <span className="tool-status-chip current-plan-pill">{accountPlan}</span> : null}'));
+  assert(billingDetailsSource.includes('className={`tool-status-chip current-plan-pill ${planPillTone(account.plan)}`}'));
+  assert(billingDetailsSource.includes('billing-details-stat-row billing-details-current-row'));
+  assert(billingDetailsSource.includes('billing-details-stat-row billing-details-upcoming-row'));
+  assert(billingDetailsSource.includes('tool-status-chip status-muted billing-details-status-pill'));
+  assert(!billingDetailsSource.includes('<small>Event</small>'));
+  assert.equal((billingDetailsSource.match(/: "—"/g) ?? []).length, 3);
   assert(!billingDetailsSource.includes('billing-details-account-separator'));
   assert(billingDetailsSource.includes('billingRelationshipSelectorLabel(account.accountLabel, account.planName, account.isHistorical)'));
   const datesSource = panelSource.slice(panelSource.indexOf('function periodDates('), panelSource.indexOf('function displayAmount('));
@@ -355,7 +360,7 @@ async function main() {
     '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
   }).default;
   assert(read('components/SubscriptionAccountView.tsx').includes('const shouldUpdateCurrentBilling = firstTimeSetup || paymentMode === "period";'));
-  const account = { ...props.account, planName: '', canManageBilling: true, toolName: 'Test Tool', status: 'Active', payments: [
+  const account = { ...props.account, plan: 'Paid', planTone: 'status-running', planName: '', canManageBilling: true, toolName: 'Test Tool', status: 'Active', payments: [
     { id: 'p1', relationshipId: 'r1', paymentDate: '2026-08-10', planNameSnapshot: 'Historical', billingTypeSnapshot: 'Monthly', currency: 'SGD', amount: '20', status: 'Paid' },
     { id: 'p2', relationshipId: 'r2', paymentDate: '2026-08-11' },
   ], activity: [{ id: 'a1', saved: true, event: 'Paused', date: '2026-08-01', note: 'First' }, { id: 'a2', saved: false, event: 'Resumed', date: '2026-08-02' }, { id: 'a3', saved: true, event: 'Cancelled', date: '2026-08-01', note: 'Second' }, { id: 'a4', saved: true, event: 'Trial Started', date: '2026-07-31' }] };
@@ -379,7 +384,9 @@ async function main() {
   let syncedCurrentBilling;
   props.onSaveBilling = async (...args) => { syncedCurrentBilling = args; };
   tree = renderAccount();
-  assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip current-plan-pill' && node.props.children === 'Max'));
+  assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip subscription-current-plan-pill status-running' && node.props.children === 'Max'));
+  assert(!read('components/SubscriptionAccountView.tsx').includes('tool-status-chip current-plan-pill'));
+  assert(read('components/SubscriptionAccountView.tsx').includes('className="subscription-lifecycle-dropdown"'));
   const paymentProps = nodes(tree).find((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.onUpdateCurrentBillingAmount === 'function').props;
   await assert.rejects(paymentProps.onUpdateCurrentBillingAmount('r2', 'Monthly', 'SGD', '30.84'));
   await assert.rejects(paymentProps.onUpdateCurrentBillingAmount('r1', 'Weekly', 'SGD', '30.84'));

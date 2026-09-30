@@ -63,3 +63,17 @@ export function unresolvedOverdueRenewalPeriods<T extends RenewalPeriodState>(pe
     .filter((period) => period.resolution === null && validDate(period.scheduledRenewalDate) && period.scheduledRenewalDate < asOfDate)
     .sort((left, right) => left.scheduledRenewalDate.localeCompare(right.scheduledRenewalDate));
 }
+
+export function newestFirstUnresolvedRenewalPeriods<T extends RenewalPeriodState>(periods: T[]) {
+  return periods
+    .filter((period) => period.resolution === null && validDate(period.scheduledRenewalDate))
+    .sort((left, right) => right.scheduledRenewalDate.localeCompare(left.scheduledRenewalDate));
+}
+
+export function unresolvedRenewalReviewGroups<T extends RenewalPeriodState & { relationshipId: string }>(periods: T[]) {
+  const groups = new Map<string, T[]>();
+  newestFirstUnresolvedRenewalPeriods(periods).forEach((period) => {
+    groups.set(period.relationshipId, [...(groups.get(period.relationshipId) ?? []), period]);
+  });
+  return [...groups.entries()].map(([relationshipId, groupedPeriods]) => ({ relationshipId, periods: groupedPeriods }));
+}

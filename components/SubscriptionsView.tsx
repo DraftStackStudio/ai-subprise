@@ -9,6 +9,7 @@ import type { BillingAmount } from "@/types/toolDetail";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { SubscriptionActions } from "@/components/SubscriptionBillingEditor";
+import type { BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
 
 export type SubscriptionRow = {
   relationshipId: string;
@@ -21,23 +22,29 @@ export type SubscriptionRow = {
   accountEmail: string;
   accountTag: string;
   plan: string;
+  planTone: string;
   status: string;
   billing: string[];
   state: SubscriptionState;
   planName: string;
   billingComponents: BillingAmount[];
   payments: BillingTransaction[];
+  renewalPeriods: BillingRenewalPeriod[];
   activity: BillingHistoryEntry[];
 };
 
 const statuses = ["Active", "On a Break", "Goodbye"];
 const states = ["All", "Not started", "Incomplete", "Complete"] as const;
 
-export default function SubscriptionsView({ rows, isLoading, ...actions }: SubscriptionActions & { rows: SubscriptionRow[]; isLoading: boolean }) {
+export default function SubscriptionsView({ rows, isLoading, onSelectRelationship, selectedRelationshipId, ...actions }: SubscriptionActions & {
+  rows: SubscriptionRow[];
+  isLoading: boolean;
+  onSelectRelationship: (relationshipId: string | null) => void;
+  selectedRelationshipId: string | null;
+}) {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState<(typeof states)[number]>("All");
   const [filterOpen, setFilterOpen] = useState(false);
-  const [selectedRelationshipId, setSelectedRelationshipId] = useState<string | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const toggleGroup = (key: string) => setExpandedGroups((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
   const selected = rows.find((row) => row.relationshipId === selectedRelationshipId);
@@ -46,7 +53,7 @@ export default function SubscriptionsView({ rows, isLoading, ...actions }: Subsc
     .sort((a, b) => a.toolName.localeCompare(b.toolName) || a.accountLabel.localeCompare(b.accountLabel));
 
   if (selectedRelationshipId) return <section className="table-section" data-relationship-id={selectedRelationshipId}>
-    <button aria-label="Back to Subscriptions" className="btn-sm btn-sm-ghost" onClick={() => setSelectedRelationshipId(null)} type="button">← Back</button>
+    <button aria-label="Back to Subscriptions" className="btn-sm btn-sm-ghost" onClick={() => onSelectRelationship(null)} type="button">← Back</button>
     {selected ? <SubscriptionAccountView key={selected.relationshipId} account={selected} {...actions} />
       : <div className="empty-state"><strong>This linked account is no longer available.</strong></div>}
   </section>;
@@ -82,7 +89,7 @@ export default function SubscriptionsView({ rows, isLoading, ...actions }: Subsc
             <span title={row.plan}><span className="tool-status-chip">{row.plan}</span></span>
             <span className="subscriptions-billing" title={row.billing.join(" + ") || "Not set"}><span>{row.billing[0] || "Not set"}</span>{row.billing.length > 1 ? <small>+ {row.billing.slice(1).join(" + ")}</small> : null}</span>
             <span><span className={`subscription-state-label state-${row.state.toLowerCase().replace(" ", "-")}`}>{row.state}</span></span>
-            <span><button className="linked-text-action" onClick={() => setSelectedRelationshipId(row.relationshipId)} type="button">View</button></span>
+            <span><button className="linked-text-action" onClick={() => onSelectRelationship(row.relationshipId)} type="button">View</button></span>
           </div>) : null}
             </Fragment>;
           })}

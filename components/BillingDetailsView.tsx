@@ -6,6 +6,7 @@ import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
 import type { BillingCurrentActions } from "@/components/BillingCurrentEditor";
 import { billingRelationshipSelectorLabel } from "@/lib/billingRelationshipPresentation";
+import { planPillTone } from "@/lib/planPresentation";
 
 export type BillingDetailsAccount = {
   accountActivity: BillingHistoryEntry[];
@@ -15,6 +16,7 @@ export type BillingDetailsAccount = {
   billingAmounts: BillingAmount[];
   canEditCurrentBilling: boolean;
   isHistorical: boolean;
+  plan: string;
   planName: string;
   relationshipId: string;
   status: string;
@@ -52,24 +54,23 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
   const upcoming = account.billingAmounts.filter((component) => {
     if (component.billingType !== "Monthly" && component.billingType !== "Yearly") return false;
     return Boolean(component.nextRenewalDate && component.nextRenewalDate >= new Date().toISOString().slice(0, 10));
-  }).map((component) => ({ id: component.id, event: "Renewal", date: component.nextRenewalDate!, billingType: componentType(component.billingType), amount: component.amount ? [component.currency, component.amount].filter(Boolean).join(" ") : "Amount not recorded" }));
+  }).map((component) => ({ id: component.id, date: component.nextRenewalDate!, billingType: componentType(component.billingType), amount: component.amount ? [component.currency, component.amount].filter(Boolean).join(" ") : "—" }));
   const activity = [...account.accountActivity].sort((first, second) => second.date.localeCompare(first.date));
 
   return <article className="billing-history-account-card billing-details-account">
     <header className="billing-details-account-header">
-      <LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail} nameSuffix={accountPlan ? <span className="tool-status-chip current-plan-pill">{accountPlan}</span> : null} tagClass={account.accountTag} />
-      <span className="billing-details-status">{account.isHistorical ? "Historical" : account.status}</span>
+      <LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail} nameSuffix={accountPlan ? <span className={`tool-status-chip current-plan-pill ${planPillTone(account.plan)}`}>{accountPlan}</span> : null} tagClass={account.accountTag} />
+      {account.isHistorical ? <span className="billing-details-status">Historical</span> : <span className="tool-status-chip status-muted billing-details-status-pill">{account.status === "On a Break" ? "On a break" : account.status}</span>}
     </header>
 
     <div className="billing-details-account-body">
     <DetailsSection className="billing-details-current-section" title={account.isHistorical ? "Last Billing Setup" : "Current Billing"}>
-      {account.billingAmounts.length ? <div className="billing-details-components">{account.billingAmounts.map((component) => { const date = componentDate(component, account.isHistorical); return <div className="billing-details-stat-row" key={component.id}><span className="billing-details-stat"><span><small>Billing type</small><strong>{componentType(component.billingType)}</strong></span></span><span className="billing-details-stat"><span><small>Amount</small><strong>{component.amount ? [component.currency, component.amount].filter(Boolean).join(" ") : "Not recorded"}</strong></span></span><span className="billing-details-stat"><span><small>{date.label}</small><strong>{date.value ? billingHistoryDisplayDate(date.value) : "Not recorded"}</strong></span></span></div>; })}</div>
+      {account.billingAmounts.length ? <div className="billing-details-components">{account.billingAmounts.map((component) => { const date = componentDate(component, account.isHistorical); return <div className="billing-details-stat-row billing-details-current-row" key={component.id}><span className="billing-details-stat"><span><small>{date.label}</small><strong>{date.value ? billingHistoryDisplayDate(date.value) : "Not recorded"}</strong></span></span><span className="billing-details-stat"><span><small>Billing type</small><strong>{componentType(component.billingType)}</strong></span></span><span className="billing-details-stat"><span><small>Amount</small><strong>{component.amount ? [component.currency, component.amount].filter(Boolean).join(" ") : "—"}</strong></span></span></div>; })}</div>
         : <div className="billing-details-empty billing-details-setup-empty"><strong>{account.isHistorical ? "No billing setup was recorded." : "No billing set up yet."}</strong><span>{account.isHistorical ? "No saved billing setup is available for this historical relationship." : "Current billing details for this account will appear here."}</span></div>}
     </DetailsSection>
 
     {!account.isHistorical ? <DetailsSection title="Upcoming">
-      {upcoming.length ? <div className="billing-details-upcoming-list">{upcoming.map((event) => <div className="billing-details-stat-row" key={event.id}>
-        <span className="billing-details-stat"><span><small>Event</small><strong>{event.event}</strong></span></span>
+      {upcoming.length ? <div className="billing-details-upcoming-list">{upcoming.map((event) => <div className="billing-details-stat-row billing-details-upcoming-row" key={event.id}>
         <span className="billing-details-stat"><span><small>Date</small><strong>{billingHistoryDisplayDate(event.date)}</strong></span></span>
         <span className="billing-details-stat"><span><small>Billing type</small><strong>{event.billingType}</strong></span></span>
         <span className="billing-details-stat"><span><small>Amount</small><strong>{event.amount}</strong></span></span>
@@ -79,7 +80,7 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
     <DetailsSection action={<button className="billing-details-primary-action" onClick={() => onOpenBillingHistory(account.relationshipId)} type="button">Open Billing History</button>} title="Payments">
       {account.transactions.length ? <div className="billing-details-payment-list"><table className="subscription-payment-table">
         <thead><tr>{["Date", "Plan", "Type", "Amount", "Status"].map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead><tbody>
-        {account.transactions.map((transaction) => <tr key={transaction.id}><td>{billingHistoryDisplayDate(transaction.paymentDate)}</td><td>{transaction.planNameSnapshot || "Not recorded"}</td><td>{transaction.billingTypeSnapshot || "Not recorded"}</td><td>{transaction.amount ? [transaction.currency, transaction.amount].filter(Boolean).join(" ") : "Not recorded"}</td><td>{transaction.status}</td></tr>)}
+        {account.transactions.map((transaction) => <tr key={transaction.id}><td>{billingHistoryDisplayDate(transaction.paymentDate)}</td><td>{transaction.planNameSnapshot || "Not recorded"}</td><td>{transaction.billingTypeSnapshot || "Not recorded"}</td><td>{transaction.amount ? [transaction.currency, transaction.amount].filter(Boolean).join(" ") : "—"}</td><td>{transaction.status}</td></tr>)}
       </tbody></table></div> : <div className="billing-details-empty"><strong>No payments recorded yet.</strong><span>Historical payments for this account will appear here.</span></div>}
     </DetailsSection>
 

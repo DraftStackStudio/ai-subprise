@@ -11884,14 +11884,20 @@ select:focus-visible {
 .subscription-account-view { display: grid; gap: 28px; margin-top: 20px; color: var(--table-secondary-text); font-size: 13px; }
 .subscription-account-card,
 .subscription-current-components,
+.subscription-unconfirmed-database,
 .subscription-payment-database,
 .subscription-activity-list { border: 1px solid var(--border); border-radius: var(--r-md); }
-.subscription-account-card { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; padding: 13px 18px; background: var(--surface); }
+.subscription-account-card { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; padding: 10px 14px; background: transparent; }
 .subscription-account-card h2 { color: var(--text-1); font-size: 14px; margin: 0; }
 .subscription-callout-identity { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
-.subscription-callout-title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; height: 28px; margin-bottom: 0; }
-.current-plan-pill { background: var(--surface-raised); border-color: var(--border-strong); color: var(--text-2); }
-.subscription-callout-status { margin-left: auto; min-width: 150px; }
+.subscription-callout-title { display: flex; align-items: center; min-height: 24px; margin-bottom: 0; }
+.subscription-callout-status { margin-left: auto; min-width: 132px; }
+.subscription-lifecycle-dropdown { min-width: 132px; }
+.subscription-lifecycle-dropdown .custom-select-trigger { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--r-md); box-sizing: border-box; color: var(--text-1); font: inherit; font-size: 12px; gap: 10px; height: 34px; line-height: 20px; min-height: 34px; min-width: 132px; padding: 6px 8px; }
+.subscription-lifecycle-dropdown .custom-select-trigger:hover,
+.subscription-lifecycle-dropdown .custom-select-trigger:focus-visible,
+.subscription-lifecycle-dropdown.is-open .custom-select-trigger { background: var(--sidebar-hover); border-color: var(--border-strong); }
+.subscription-current-plan-pill { font-size: 12px; line-height: 1; min-height: 24px; padding: 0 9px; }
 .subscription-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
 .subscription-account-section .subscription-section-heading h3 { margin: 0; }
 .subscription-account-view .btn-primary { width: auto; margin-top: 0; padding: 8px 14px; font-size: 12px; }
@@ -11910,6 +11916,26 @@ select:focus-visible {
 .subscription-current-edit:disabled { cursor: default; opacity: .5; }
 .subscription-current-edit:focus-visible { outline: 1px solid var(--text-2); outline-offset: 2px; }
 .subscription-current-edit svg { fill: none; height: 14px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.7; width: 14px; }
+.subscription-unconfirmed-heading { align-items: flex-start; }
+.subscription-unconfirmed-heading h3 { margin-bottom: 5px; }
+.subscription-unconfirmed-heading p { color: var(--text-3); margin: 0; }
+.subscription-unconfirmed-database { overflow: visible; }
+.subscription-unconfirmed-table col:nth-child(1) { width: 20%; }
+.subscription-unconfirmed-table col:nth-child(2) { width: 19%; }
+.subscription-unconfirmed-table col:nth-child(3) { width: 21%; }
+.subscription-unconfirmed-table col:nth-child(4) { width: 40%; }
+.subscription-unconfirmed-table tbody tr { background: transparent; }
+.subscription-unconfirmed-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; justify-content: flex-start; }
+.subscription-unconfirmed-actions button { appearance: none; background: transparent; border: 0; color: var(--gold); cursor: pointer; font: inherit; font-weight: 600; padding: 4px 0; }
+.subscription-unconfirmed-actions button:hover { color: var(--text-1); }
+.subscription-unconfirmed-actions button:disabled { color: var(--text-3); cursor: default; opacity: .55; }
+.subscription-unconfirmed-actions button:focus-visible { outline: 1px solid var(--text-2); outline-offset: 3px; }
+.subscription-unconfirmed-error { display: block; margin-top: 10px; }
+.subscription-renewal-modal { max-height: 90vh; max-width: 560px; overflow-y: auto; }
+.subscription-renewal-modal > p { color: var(--text-2); margin: -6px 0 18px; }
+.subscription-renewal-modal .tool-detail-field-row { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.subscription-renewal-modal input:disabled { color: var(--text-3); cursor: default; opacity: .8; }
+.subscription-renewal-note { box-sizing: border-box; min-height: 76px; padding: 10px 12px; resize: vertical; width: 100%; }
 .subscription-payment-database { overflow: visible; }
 .subscription-payment-table th:first-child { border-top-left-radius: var(--r-md); }
 .subscription-payment-table th:last-child { border-top-right-radius: var(--r-md); }
@@ -11978,6 +12004,8 @@ select:focus-visible {
 @media (max-width: 700px) {
   .subscription-account-identity,
   .subscription-current-component { grid-template-columns: 1fr; }
+  .subscription-unconfirmed-actions { gap: 8px; justify-content: flex-start; }
+  .subscription-renewal-modal .tool-detail-field-row { grid-template-columns: 1fr; }
 }
 
 .billing-upcoming-database {
@@ -12167,11 +12195,12 @@ select:focus-visible {
 .billing-details-account-selector { flex-wrap: wrap; }
 .billing-details-account-list { display: grid; gap: 16px; }
 .billing-details-account { background: #1d1d20; }
-.billing-details-account-header { align-items: flex-start; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; min-height: 48px; padding: 12px 14px; }
+.billing-details-account-header { align-items: center; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; min-height: 48px; padding: 12px 14px; }
 .billing-details-account-header > .linked-account-cell { width: auto; }
 .billing-details-account-header .linked-account-address { margin-left: 13px; }
 .billing-details-account-header .current-plan-pill { margin-left: 9px; }
 .billing-details-status { color: var(--text-3); font-size: 11px; line-height: 20px; }
+.billing-details-status-pill { cursor: default; min-height: 24px; min-width: 72px; justify-content: center; }
 .billing-details-account-body { display: grid; gap: 14px; padding: 13px 14px 16px; }
 .billing-details-section { display: grid; gap: 18px; padding: 0; }
 .billing-current-editor { display: grid; gap: 10px; min-width: 0; }
@@ -12207,17 +12236,19 @@ select:focus-visible {
 .billing-details-activity-list p { color: var(--text-3); font-size: 10px; margin: 0; }
 /* Per-tool Billing Details uses one account surface and read-only sections. */
 .billing-details-account-header { border-bottom: .5px solid var(--border); }
-.billing-details-account-header .current-plan-pill { background: transparent; border: .5px solid var(--text-3); padding: 0 7px; min-height: 0; height: auto; line-height: 17px; }
+.billing-details-account-header .current-plan-pill { padding: 0 8px; min-height: 22px; line-height: 1; }
 .billing-details-account-body { gap: 0; padding: 0 14px; }
 .billing-details-account-body > .billing-details-section { padding: 18px 0; }
 .billing-details-account-body > .billing-details-section + .billing-details-section { border-top: .5px solid var(--border); }
 .billing-details-account .billing-details-empty { background: transparent; border: 0; border-radius: 0; padding: 0; }
-.billing-details-account .billing-details-payment-list,
 .billing-details-account .billing-details-activity-list,
 .billing-details-account .billing-details-upcoming-list { background: transparent; border: 0; border-radius: 0; }
+.billing-details-account .billing-details-payment-list { background: transparent; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
 .billing-details-account .subscription-payment-table { color: var(--table-secondary-text); font-size: 14px; }
-.billing-details-account .subscription-payment-table td { border-top-width: .5px; }
-.billing-details-account .billing-details-stat-row { display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start; gap: 20px 40px; padding: 0; min-height: 0; border: 0; }
+.billing-details-account .subscription-payment-table tbody td { height: 54px; overflow: hidden; overflow-wrap: normal; text-overflow: ellipsis; white-space: nowrap; }
+.billing-details-account .billing-details-stat-row { align-items: flex-start; display: grid; gap: 20px; padding: 0; min-height: 0; border: 0; width: 100%; }
+.billing-details-account .billing-details-current-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.billing-details-account .billing-details-upcoming-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .billing-details-account .billing-details-stat-row + .billing-details-stat-row { border-top: .5px solid var(--border); margin-top: 16px; padding-top: 16px; }
 .billing-details-stat > span { display: grid; gap: 8px; }
 .billing-details-account .billing-details-stat small { color: var(--text-3); font-size: 12px; }
@@ -12244,6 +12275,8 @@ select:focus-visible {
   .billing-directory { --billing-directory-columns: 0 0 30% 31% 21% 18%; }
   .billing-directory-head > span:nth-child(-n + 2) { display: none; }
   .billing-directory-account-row { grid-template-columns: 44.3% 30% 25.7%; }
+  .billing-details-account .billing-details-current-row,
+  .billing-details-account .billing-details-upcoming-row { grid-template-columns: 1fr; }
   .billing-details-component { grid-template-columns: 1fr; }
   .billing-details-component > span { border-bottom: 1px solid var(--border); border-right: 0; }
   .billing-details-component > span:last-child { border-bottom: 0; }

@@ -40,6 +40,10 @@ assert(details.includes('{!account.isHistorical ? <DetailsSection title="Upcomin
 assert(details.includes('title="Payments"'));
 assert(details.includes('title="Account Activity"'));
 assert(details.includes('billingRelationshipSelectorLabel(account.accountLabel, account.planName, account.isHistorical)'));
+assert(details.includes('billing-details-stat-row billing-details-current-row'));
+assert(details.includes('billing-details-stat-row billing-details-upcoming-row'));
+assert(details.includes('tool-status-chip status-muted billing-details-status-pill'));
+assert(!details.includes('<small>Event</small>'));
 
 const page = read('app/dashboard/page.tsx');
 assert(page.includes('currentRelationshipId: toolAccountDetails[tool.id]?.[relationship.accountLabel]?.relationshipId'));

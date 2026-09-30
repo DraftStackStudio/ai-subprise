@@ -25,7 +25,9 @@ const {
   nextRenewalAfterResolution,
   renewalDateFromAnchor,
   renewalSequenceIndex,
+  newestFirstUnresolvedRenewalPeriods,
   unresolvedOverdueRenewalPeriods,
+  unresolvedRenewalReviewGroups,
 } = loadTypeScript('lib/renewalPeriods.ts');
 
 assert.equal(renewalDateFromAnchor('2026-01-31', 'Monthly', 0), '2026-01-31');
@@ -41,6 +43,25 @@ assert.throws(() => renewalDateFromAnchor('2026-99-99', 'Monthly', 1));
 assert.deepEqual(
   dueRenewalDates('2026-07-06', '2026-07-06', 'Monthly', '2026-09-29'),
   ['2026-07-06', '2026-08-06', '2026-09-06'],
+);
+assert.deepEqual(
+  newestFirstUnresolvedRenewalPeriods([
+    { id: 'oldest', scheduledRenewalDate: '2026-01-31', resolution: null },
+    { id: 'resolved', scheduledRenewalDate: '2026-07-31', resolution: 'paid' },
+    { id: 'newest', scheduledRenewalDate: '2026-08-31', resolution: null },
+  ]).map((period) => period.id),
+  ['newest', 'oldest'],
+);
+assert.deepEqual(
+  unresolvedRenewalReviewGroups([
+    { id: 'one-older', relationshipId: 'one', scheduledRenewalDate: '2026-07-31', resolution: null },
+    { id: 'two', relationshipId: 'two', scheduledRenewalDate: '2026-06-30', resolution: null },
+    { id: 'one-newer', relationshipId: 'one', scheduledRenewalDate: '2026-08-31', resolution: null },
+  ]).map((group) => ({ relationshipId: group.relationshipId, ids: group.periods.map((period) => period.id) })),
+  [
+    { relationshipId: 'one', ids: ['one-newer', 'one-older'] },
+    { relationshipId: 'two', ids: ['two'] },
+  ],
 );
 assert.deepEqual(dueRenewalDates('2026-09-29', '2026-09-29', 'Monthly', '2026-09-29'), []);
 assert.deepEqual(dueRenewalDates('2027-02-28', '2027-02-28', 'Yearly', '2029-02-28'), ['2027-02-28', '2028-02-28']);
@@ -81,15 +102,41 @@ const renewalClient = read('lib/supabase/billingRenewalPeriods.ts');
 const renewalTypes = read('types/billingRenewalPeriod.ts');
 const dashboardPage = read('app/dashboard/page.tsx');
 const dashboardSummary = read('components/DashboardSummaryView.tsx');
+const subscriptionAccount = read('components/SubscriptionAccountView.tsx');
+const subscriptionUnconfirmed = read('components/UnconfirmedBillingSection.tsx');
+const subscriptionsView = read('components/SubscriptionsView.tsx');
 
 assert.match(dashboardPage, /syncDueBillingRenewalPeriods\([\s\S]*?today,/);
 assert.match(dashboardPage, /getBillingRenewalPeriodsByRelationship/);
-assert.match(dashboardPage, /periodId: period\.id/);
-assert.match(dashboardPage, /if \(item\.kind === "renewal"\) return <span className="linked-status-readonly">\{item\.statusLabel\}<\/span>/);
-assert.doesNotMatch(dashboardPage, /import \{[^}]*confirmBillingRenewalPaid/);
-assert.doesNotMatch(dashboardPage, /import \{[^}]*markBillingRenewalNotCharged/);
-assert.doesNotMatch(dashboardPage, /import \{[^}]*undoBillingRenewalResolution/);
-assert.match(dashboardSummary, /key=\{item\.periodId \?\? item\.itemId\}/);
+assert.match(dashboardPage, /unresolvedRenewalReviewGroups\(billingRenewalPeriods\)/);
+assert.match(dashboardPage, /"periods need"/);
+assert.match(dashboardPage, /review`/);
+assert.match(dashboardPage, /setSubscriptionDetailsTarget\(item\.relationshipId\)/);
+assert.match(dashboardPage, /`Good to see you, \$\{currentUserName\}!`/);
+assert.match(dashboardPage, /Review billing periods for \$\{item\.toolName\} \$\{item\.accountLabel\}/);
+assert.match(dashboardPage, /custom-select billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown/);
+assert.match(dashboardPage, /confirmBillingRenewalPaid\(relationshipId, periodId\)/);
+assert.match(dashboardPage, /markBillingRenewalNotCharged\(relationshipId, periodId, input\)/);
+assert.match(dashboardPage, /undoBillingRenewalResolution\(relationshipId, periodId\)/);
+assert.match(dashboardPage, /updateBillingRenewalPeriodSnapshot\(relationshipId, periodId, input\)/);
+assert.match(dashboardPage, /getBillingTransactionsByRelationship\(relationshipId\)/);
+assert.match(subscriptionsView, /selectedRelationshipId: string \| null/);
+assert.match(subscriptionAccount, /<UnconfirmedBillingSection/);
+assert.match(subscriptionUnconfirmed, />Unconfirmed Billing</);
+assert.match(subscriptionUnconfirmed, /These billing periods have passed but haven&apos;t been confirmed yet\./);
+assert.match(subscriptionUnconfirmed, /<table className="subscription-payment-table subscription-unconfirmed-table">/);
+for (const column of ['Date', 'Billing Type', 'Amount', 'Action']) assert(subscriptionUnconfirmed.includes(`"${column}"`));
+assert.doesNotMatch(subscriptionUnconfirmed, /\["Date", "Plan"|\["Date", "Status"/);
+for (const action of ['Confirm paid', 'Not charged', 'Edit']) assert(subscriptionUnconfirmed.includes(`>${action}<`));
+for (const reason of ['Cancelled subscription', 'Payment failed', 'Paused / on a break', 'Free / waived', 'Other']) assert(subscriptionUnconfirmed.includes(reason));
+assert.match(subscriptionUnconfirmed, /reasonCode === "other" && !reasonText\.trim\(\)/);
+assert.match(subscriptionUnconfirmed, /billingTypeSnapshot/);
+assert.match(subscriptionUnconfirmed, /scheduledRenewalDate/);
+assert.match(subscriptionUnconfirmed, /displayAmount\(period\.currencySnapshot, period\.amountSnapshot\)/);
+assert.match(subscriptionUnconfirmed, /onUndo\(relationshipId, state\.periodId\)/);
+assert.match(subscriptionUnconfirmed, /if \(!unresolved\.length\) return undoToast/);
+assert.match(dashboardSummary, /key=\{item\.itemId\}/);
+assert.match(dashboardSummary, /item\.kind === "renewal" \? item\.detail/);
 assert.doesNotMatch(dashboardSummary, /actionNeededItems\.slice/);
 
 assert(sql.includes('create table if not exists public.billing_renewal_periods'));
