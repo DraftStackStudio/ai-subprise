@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 import type {
   BillingRenewalExactMutationResult,
+  BillingRenewalActivity,
   BillingRenewalMutationResult,
   BillingRenewalNotChargedReasonCode,
   BillingRenewalPeriod,
@@ -29,6 +30,7 @@ function asPeriod(record: Record<string, unknown>): BillingRenewalPeriod {
     actualPaymentDate: text(record.actual_payment_date),
     amountSnapshot: record.amount_snapshot === null || record.amount_snapshot === undefined ? "" : String(record.amount_snapshot),
     billingComponentId: text(record.billing_component_id),
+    billingDate: text(record.billing_date) || text(record.scheduled_renewal_date),
     billingTypeSnapshot: text(record.billing_type_snapshot) as "Monthly" | "Yearly",
     createdAt: text(record.created_at),
     currencySnapshot: text(record.currency_snapshot),
@@ -46,6 +48,24 @@ function asPeriod(record: Record<string, unknown>): BillingRenewalPeriod {
     scheduledRenewalDate: text(record.scheduled_renewal_date),
     updatedAt: text(record.updated_at),
     userId: text(record.user_id),
+  };
+}
+
+function asActivity(record: Record<string, unknown>): BillingRenewalActivity {
+  return {
+    activityDate: text(record.activity_date),
+    amountSnapshot: record.amount_snapshot === null || record.amount_snapshot === undefined ? "" : String(record.amount_snapshot),
+    billingDate: text(record.billing_date),
+    billingTypeSnapshot: text(record.billing_type_snapshot) as "Monthly" | "Yearly",
+    createdAt: text(record.created_at),
+    currencySnapshot: text(record.currency_snapshot),
+    id: text(record.id),
+    kind: text(record.kind) as BillingRenewalActivity["kind"],
+    note: text(record.note),
+    periodId: text(record.billing_renewal_period_id),
+    planNameSnapshot: text(record.plan_name_snapshot),
+    previousBillingDate: text(record.previous_billing_date),
+    relationshipId: text(record.tool_email_link_id),
   };
 }
 
@@ -77,6 +97,18 @@ export async function getBillingRenewalPeriodsByRelationship(relationshipId: str
     .order("scheduled_renewal_date", { ascending: true });
   if (error) throw error;
   return (data ?? []).map((record) => asPeriod(record as Record<string, unknown>));
+}
+
+export async function getBillingRenewalActivitiesByRelationship(relationshipId: string) {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("billing_renewal_activity")
+    .select("*")
+    .eq("tool_email_link_id", relationshipId)
+    .order("activity_date", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((record) => asActivity(record as Record<string, unknown>));
 }
 
 export async function syncDueBillingRenewalPeriods(relationshipId: string, billingComponentId: string, asOfDate?: string) {
@@ -125,7 +157,10 @@ export async function updateBillingRenewalPeriodSnapshot(
   const supabase = createClient();
   const { data, error } = await supabase.rpc("update_billing_renewal_period_snapshot", {
     p_amount: input.amount.trim() || null,
+    p_billing_date: input.billingDate,
     p_currency: input.currency.trim() || null,
+    p_date_scope: input.dateScope,
+    p_local_date: localCalendarDate(),
     p_period_id: periodId,
     p_plan_name: input.planName.trim() || null,
     p_relationship_id: relationshipId,

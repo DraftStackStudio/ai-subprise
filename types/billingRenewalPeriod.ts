@@ -12,6 +12,7 @@ export type BillingRenewalPeriod = {
   amountSnapshot: string;
   billingComponentId: string;
   billingTypeSnapshot: "Monthly" | "Yearly";
+  billingDate: string;
   createdAt: string;
   currencySnapshot: string;
   id: string;
@@ -28,6 +29,24 @@ export type BillingRenewalPeriod = {
   userId: string;
 };
 
+export type BillingRenewalActivityKind = "billing_period_corrected" | "billing_schedule_changed";
+
+export type BillingRenewalActivity = {
+  activityDate: string;
+  amountSnapshot: string;
+  billingDate: string;
+  billingTypeSnapshot: "Monthly" | "Yearly";
+  createdAt: string;
+  currencySnapshot: string;
+  id: string;
+  kind: BillingRenewalActivityKind;
+  note: string;
+  periodId: string;
+  planNameSnapshot: string;
+  previousBillingDate: string;
+  relationshipId: string;
+};
+
 export type BillingRenewalMutationResult = {
   nextRenewalDate: string;
   paymentTransactionId: string;
@@ -36,7 +55,9 @@ export type BillingRenewalMutationResult = {
 
 export type UpdateBillingRenewalPeriodSnapshotInput = {
   amount: string;
+  billingDate: string;
   currency: string;
+  dateScope: "period_only" | "this_and_future";
   planName: string;
 };
 

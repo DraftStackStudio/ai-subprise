@@ -9,7 +9,9 @@ import type { BillingAmount } from "@/types/toolDetail";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { SubscriptionActions } from "@/components/SubscriptionBillingEditor";
-import type { BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
+import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
+import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
+import { newestFirstUnresolvedRenewalPeriods } from "@/lib/renewalPeriods";
 
 export type SubscriptionRow = {
   relationshipId: string;
@@ -30,17 +32,23 @@ export type SubscriptionRow = {
   billingComponents: BillingAmount[];
   payments: BillingTransaction[];
   renewalPeriods: BillingRenewalPeriod[];
+  renewalActivities?: BillingRenewalActivity[];
   activity: BillingHistoryEntry[];
 };
 
 const statuses = ["Active", "On a Break", "Goodbye"];
 const states = ["All", "Not started", "Incomplete", "Complete"] as const;
 
-export default function SubscriptionsView({ rows, isLoading, onSelectRelationship, selectedRelationshipId, ...actions }: SubscriptionActions & {
+export default function SubscriptionsView({ rows, isLoading, onSelectRelationship, selectedRelationshipId, selectedView, onViewChange, upcomingFilter, onUpcomingFilterChange, upcomingItems, ...actions }: SubscriptionActions & {
   rows: SubscriptionRow[];
   isLoading: boolean;
   onSelectRelationship: (relationshipId: string | null) => void;
   selectedRelationshipId: string | null;
+  selectedView: "Subscriptions" | "Renewal Decision" | "Upcoming";
+  onViewChange: (view: "Subscriptions" | "Renewal Decision" | "Upcoming") => void;
+  upcomingFilter: BillingUpcomingFilter;
+  onUpcomingFilterChange: (filter: BillingUpcomingFilter) => void;
+  upcomingItems: BillingUpcomingItem[];
 }) {
   const [query, setQuery] = useState("");
   const [stateFilter, setStateFilter] = useState<(typeof states)[number]>("All");
@@ -58,7 +66,16 @@ export default function SubscriptionsView({ rows, isLoading, onSelectRelationshi
       : <div className="empty-state"><strong>This linked account is no longer available.</strong></div>}
   </section>;
 
+  const reviewRows = rows.filter((row) => newestFirstUnresolvedRenewalPeriods(row.renewalPeriods).length > 0);
+
   return <section className="table-section">
+    <div className="category-view-tabs subscriptions-view-tabs" aria-label="Subscription views"><span className="category-view-helper">Manage recurring subscriptions.</span><div className="category-view-action-row"><div className="category-view-tab-list">
+      {(["Subscriptions", "Renewal Decision", "Upcoming"] as const).map((view) => <button className={selectedView === view ? "category-view-tab active" : "category-view-tab"} key={view} onClick={() => onViewChange(view)} type="button">{view}</button>)}
+    </div>{selectedView === "Upcoming" ? <DropdownControl ariaLabel="Filter upcoming subscription events" className="linked-plan-filter" id="subscriptions-upcoming-event-filter" isOpen={filterOpen} onOpenChange={(id) => setFilterOpen(Boolean(id))} onChange={(value) => onUpcomingFilterChange(value as BillingUpcomingFilter)} options={(["All", "Renewals", "Trials"] as BillingUpcomingFilter[]).map((value) => ({ label: `Event: ${value}`, value }))} value={upcomingFilter} /> : null}</div></div>
+    {selectedView === "Upcoming" ? <BillingUpcomingView eventFilter={upcomingFilter} items={upcomingItems} /> : selectedView === "Renewal Decision" ? <div className="account-table tool-database tool-database-linked tool-database-flat subscriptions-renewal-decision-database">
+      <div className="account-table-head subscriptions-renewal-decision-head"><span /><span /><span>Tool Name</span><span>Account</span><span>Needs review</span><span>Action</span></div>
+      {reviewRows.length ? reviewRows.map((row) => { const count = newestFirstUnresolvedRenewalPeriods(row.renewalPeriods).length; return <div className="subscriptions-renewal-decision-row" data-relationship-id={row.relationshipId} key={row.relationshipId}><span aria-hidden="true" /><span aria-hidden="true" /><span className="linked-tool-name-cell"><span className="tool-logo" style={{ background: row.logoBackground }}>{row.logo}</span><strong>{row.toolName}</strong></span><span><LinkedAccountCell accountLabel={row.accountLabel} login={row.accountEmail} tagClass={row.accountTag} /></span><span>{count} billing {count === 1 ? "period" : "periods"}</span><span><button className="linked-text-action" onClick={() => onSelectRelationship(row.relationshipId)} type="button">Review</button></span></div>; }) : <div className="empty-state"><strong>No renewal decisions need review.</strong></div>}
+    </div> : <>
     <div className="category-view-action-row subscriptions-toolbar">
       <DropdownControl ariaLabel="Filter subscriptions by state" className="linked-plan-filter" id="subscriptions-state" isOpen={filterOpen} onOpenChange={(id) => setFilterOpen(Boolean(id))} onChange={(value) => setStateFilter(value as typeof stateFilter)} options={states.map((value) => ({ label: `State: ${value}`, value }))} value={stateFilter} />
       <label className="search-box"><span className="search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="6" /><path d="m16 16 4 4" /></svg></span><input aria-label="Search subscriptions" onChange={(event) => setQuery(event.target.value)} placeholder="search tool" type="search" value={query} /></label>
@@ -95,6 +112,6 @@ export default function SubscriptionsView({ rows, isLoading, onSelectRelationshi
           })}
         </Fragment> : null;
       }) : <div className="empty-state subscriptions-empty-state"><strong>{rows.length ? "No subscriptions match your filters." : "No linked accounts yet."}</strong></div>}
-    </div>
+    </div></>}
   </section>;
 }

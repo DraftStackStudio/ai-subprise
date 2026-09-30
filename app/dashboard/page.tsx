@@ -11,7 +11,7 @@ import BillingHistoryPanel, { type BillingHistoryAccount } from "@/components/Bi
 import BillingPastEntryModal, { type BillingPastEntryRelationship } from "@/components/BillingPastEntryModal";
 import BillingDetailsView, { type BillingDetailsAccount } from "@/components/BillingDetailsView";
 import BillingDirectory, { type BillingDirectoryGroup } from "@/components/BillingDirectory";
-import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
+import type { BillingUpcomingFilter, BillingUpcomingItem } from "@/components/BillingUpcomingView";
 import SubscriptionsView, { type SubscriptionRow } from "@/components/SubscriptionsView";
 import { qualifiesForSubscriptions, subscriptionComponents, subscriptionState, subscriptionBillingSummary, subscriptionBillingPatch } from "@/lib/subscriptions";
 import { isHistoricalBillingRelationship } from "@/lib/billingRelationshipPresentation";
@@ -97,9 +97,10 @@ import type {
 import type { LinkToolAccountBlock } from "@/types/linkTool";
 import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship } from "@/lib/supabase/billingTransactions";
 import { estimateCurrentPayment, hasCurrentPayment, localBillingToday, validBillingDate, type CurrentPaymentEstimate, type RecurringBillingSettings } from "@/lib/currentBilling";
-import { newestFirstUnresolvedRenewalPeriods, unresolvedOverdueRenewalPeriods, unresolvedRenewalReviewGroups } from "@/lib/renewalPeriods";
+import { unresolvedRenewalReviewGroups } from "@/lib/renewalPeriods";
 import {
   confirmBillingRenewalPaid,
+  getBillingRenewalActivitiesByRelationship,
   getBillingRenewalPeriodsByRelationship,
   markBillingRenewalNotCharged,
   syncDueBillingRenewalPeriods,
@@ -107,7 +108,7 @@ import {
   updateBillingRenewalPeriodSnapshot,
 } from "@/lib/supabase/billingRenewalPeriods";
 import { expiredTrialNeedsResolution, isTrialResolution, trialResolutionTransition } from "@/lib/trialResolution";
-import type { BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
+import type { BillingRenewalActivity, BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import {
   createToolRecord,
@@ -637,6 +638,8 @@ function statusLedgerEntry(
       ? { event: "Paused" as const, note: "On a break, no charge" }
       : previousStatus === "On a Break" && nextStatus === "Active"
         ? { event: "Resumed" as const, note: "Resumed" }
+        : previousStatus === "Goodbye" && nextStatus === "Active"
+          ? { event: "Restarted" as const, note: "Explicitly restarted" }
         : previousStatus !== "Goodbye" && nextStatus === "Goodbye"
           ? { event: "Cancelled" as const, note: "Cancelled" }
           : null;
@@ -1092,10 +1095,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [selectedToolSort, setSelectedToolSort] = useState<ToolSortRange>("Category");
   const [linkedPlanFilter, setLinkedPlanFilter] = useState<LinkedPlanFilter>("All");
-  const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Upcoming" | "Month">("All");
+  const [selectedBillingView, setSelectedBillingView] = useState<"All" | "Month">("All");
+  const [selectedSubscriptionView, setSelectedSubscriptionView] = useState<"Subscriptions" | "Renewal Decision" | "Upcoming">("Subscriptions");
   const [billingUpcomingFilter, setBillingUpcomingFilter] = useState<BillingUpcomingFilter>("All");
   const [billingDetailsTarget, setBillingDetailsTarget] = useState<{ relationshipId: string | null; toolId: string } | null>(null);
   const [subscriptionDetailsTarget, setSubscriptionDetailsTarget] = useState<string | null>(null);
+  const [billingRenewalActivities, setBillingRenewalActivities] = useState<BillingRenewalActivity[]>([]);
   const [billingTransactions, setBillingTransactions] = useState<BillingTransaction[]>([]);
   const [billingHistoryTarget, setBillingHistoryTarget] = useState<BillingHistoryTarget | null>(null);
   const [billingPastEntryOpen, setBillingPastEntryOpen] = useState(false);
@@ -1506,7 +1511,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
     const today = localBillingToday();
     const availableTools = new Map(toolsWithValidAccountLinks.filter((tool) => !tool.archived).map((tool) => [tool.id, tool]));
-    const eligibleComponents = billingRelationshipDetails.flatMap((detail) => {
+    const recurringComponents = billingRelationshipDetails.flatMap((detail) => {
       if (
         !availableTools.has(detail.toolId)
         || detail.unlinkedAt
@@ -1520,37 +1525,65 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           (billingType !== "Monthly" && billingType !== "Yearly")
           || !component.id
           || !validBillingDate(component.nextRenewalDate ?? "")
-          || component.nextRenewalDate! >= today
         ) return [];
-        return [{ billingComponentId: component.id, relationshipId: detail.relationshipId }];
+        return [{ billingComponentId: component.id, nextRenewalDate: component.nextRenewalDate!, relationshipId: detail.relationshipId }];
       });
     });
 
-    if (eligibleComponents.length === 0) {
+    if (recurringComponents.length === 0) {
       setBillingRenewalPeriods([]);
+      setBillingRenewalActivities([]);
       return;
     }
 
     let isCancelled = false;
-    const eligibleComponentKeys = new Set(eligibleComponents.map((component) => `${component.relationshipId}:${component.billingComponentId}`));
-    const relationshipIds = [...new Set(eligibleComponents.map((component) => component.relationshipId))];
+    const eligibleComponentKeys = new Set(recurringComponents.map((component) => `${component.relationshipId}:${component.billingComponentId}`));
+    const relationshipIds = [...new Set(recurringComponents.map((component) => component.relationshipId))];
+    const dueComponents = recurringComponents.filter((component) => component.nextRenewalDate < today);
 
-    Promise.all(eligibleComponents.map((component) => syncDueBillingRenewalPeriods(
+    Promise.all(dueComponents.map((component) => syncDueBillingRenewalPeriods(
       component.relationshipId,
       component.billingComponentId,
       today,
     )))
-      .then(() => Promise.all(relationshipIds.map((relationshipId) => getBillingRenewalPeriodsByRelationship(relationshipId))))
-      .then((periodGroups) => {
+      .then(async () => ({
+        refreshedRelationships: dueComponents.length ? await getToolLinkDetailRecords({ includeUnlinked: true }) : null,
+        relationshipGroups: await Promise.all(relationshipIds.map(async (relationshipId) => ({
+          activities: await getBillingRenewalActivitiesByRelationship(relationshipId),
+          periods: await getBillingRenewalPeriodsByRelationship(relationshipId),
+        }))),
+      }))
+      .then(({ refreshedRelationships, relationshipGroups }) => {
         if (isCancelled) return;
-        const eligiblePeriods = periodGroups.flat().filter((period) => (
+        const eligiblePeriods = relationshipGroups.flatMap((group) => group.periods).filter((period) => (
           eligibleComponentKeys.has(`${period.relationshipId}:${period.billingComponentId}`)
         ));
-        setBillingRenewalPeriods(unresolvedOverdueRenewalPeriods(eligiblePeriods, today));
+        setBillingRenewalPeriods(eligiblePeriods);
+        setBillingRenewalActivities(relationshipGroups.flatMap((group) => group.activities));
+        if (refreshedRelationships) {
+          setBillingRelationshipDetails(refreshedRelationships);
+          setToolAccountDetails((current) => {
+            const next = { ...current };
+            refreshedRelationships.filter((detail) => !detail.unlinkedAt).forEach((detail) => {
+              const existing = next[detail.toolId]?.[detail.accountLabel];
+              if (!existing || existing.relationshipId !== detail.relationshipId) return;
+              next[detail.toolId] = {
+                ...next[detail.toolId],
+                [detail.accountLabel]: {
+                  ...existing,
+                  billingAmounts: detail.billingAmounts.map((component) => ({ ...component, id: billingAmountId(component.id) })),
+                  nextChargeDate: detail.nextChargeDate,
+                },
+              };
+            });
+            return next;
+          });
+        }
       })
       .catch((error: unknown) => {
         if (isCancelled) return;
         setBillingRenewalPeriods([]);
+        setBillingRenewalActivities([]);
         setToolDataError(error instanceof Error ? error.message : "Could not detect overdue renewals.");
       });
 
@@ -2372,6 +2405,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     setBillingPastEntryOpen(false);
     setBillingPastInitialMode("");
     setSelectedBillingView("All");
+    setSelectedSubscriptionView("Subscriptions");
     setBillingUpcomingFilter("All");
     setBillingSearch("");
     setWorkspaceCategories([]);
@@ -5334,7 +5368,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         planName: detail.planName,
         billingComponents: components,
         payments: billingTransactions.filter((transaction) => transaction.relationshipId === detail.relationshipId),
-        renewalPeriods: newestFirstUnresolvedRenewalPeriods(billingRenewalPeriods.filter((period) => period.relationshipId === detail.relationshipId)),
+        renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === detail.relationshipId),
+        renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === detail.relationshipId),
         activity: detail.billingHistoryEntries ?? [],
       }];
     });
@@ -5413,7 +5448,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       accountTag: accountTag(relationship.accountLabel, accountList),
       detail: `${count} billing ${count === 1 ? "period needs" : "periods need"} review`,
       issue: "Billing review",
-      issueDate: newestPeriod.scheduledRenewalDate,
+      issueDate: newestPeriod.billingDate,
       itemId: group.relationshipId,
       kind: "renewal" as const,
       logo: tool.logo,
@@ -5594,7 +5629,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         const date = billingAmount.nextRenewalDate || detail.nextChargeDate;
         if (!date || (daysUntilDate(date) ?? 0) <= 0) return [];
         const currency = normaliseOptionalCurrency(billingAmount.currency);
-        return [{ ...identity, amount: [currency, billingAmount.amount].filter(Boolean).join(" "), date, event: "Renewal" as const }];
+        return [{ ...identity, amount: currency && billingAmount.amount ? `${currency} ${billingAmount.amount}` : "—", date, event: "Renewal" as const }];
       });
     }));
   const billingUpcomingItems = [...futureRenewalItems, ...futureTrialItems];
@@ -5779,17 +5814,21 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const refreshSubscriptionRenewalData = async (relationshipId: string) => {
     if (!shouldUseSupabase) throw new Error("Sign in to review renewal periods.");
     const { row } = subscriptionTarget(relationshipId);
-    const [periods, transactions, allLinkDetails] = await Promise.all([
+    const [periods, activities, transactions, allLinkDetails] = await Promise.all([
       getBillingRenewalPeriodsByRelationship(relationshipId),
+      getBillingRenewalActivitiesByRelationship(relationshipId),
       getBillingTransactionsByRelationship(relationshipId),
       getToolLinkDetailRecords({ includeUnlinked: true }),
     ]);
     const refreshedDetail = allLinkDetails.find((detail) => detail.relationshipId === relationshipId);
     if (!refreshedDetail || refreshedDetail.unlinkedAt) throw new Error("This relationship is no longer linked.");
-    const overduePeriods = unresolvedOverdueRenewalPeriods(periods, localBillingToday());
     setBillingRenewalPeriods((current) => [
       ...current.filter((period) => period.relationshipId !== relationshipId),
-      ...overduePeriods,
+      ...periods,
+    ]);
+    setBillingRenewalActivities((current) => [
+      ...current.filter((activity) => activity.relationshipId !== relationshipId),
+      ...activities,
     ]);
     setBillingTransactions((current) => [
       ...current.filter((transaction) => transaction.relationshipId !== relationshipId),
@@ -6106,6 +6145,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (item.kind === "renewal") return <div className="custom-select billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown">
       <button aria-label={`Review billing periods for ${item.toolName} ${item.accountLabel}`} className="custom-select-trigger is-placeholder" onClick={() => {
         setSubscriptionDetailsTarget(item.relationshipId);
+        setSelectedSubscriptionView("Renewal Decision");
         setActiveSection("subscriptions");
         setActiveCategory("");
         setShowRecoveryPanel(false);
@@ -6742,7 +6782,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             hasConfirmedCategories={hasConfirmedCategories}
             isPendingActionsExpanded={isPendingActionsExpanded}
             onAddAccount={openAddAccountModal}
-            onAddPastBilling={activeSection === "billing" ? () => setBillingPastEntryOpen(true) : undefined}
+            onAddPastBilling={undefined}
             onAddTool={handleAddToolClick}
             onBackToLogins={() => setActiveSection("account")}
             onBackToBilling={activeSection === "billing" && billingDetailsTarget ? () => setBillingDetailsTarget(null) : undefined}
@@ -6866,6 +6906,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             />
           ) : activeSection === "subscriptions" ? (
             <SubscriptionsView rows={subscriptionRows} isLoading={isLoadingTools} currencyOptions={currencyOptions}
+              selectedView={selectedSubscriptionView}
+              onViewChange={(view) => { setSelectedSubscriptionView(view); setSubscriptionDetailsTarget(null); }}
+              upcomingFilter={billingUpcomingFilter}
+              onUpcomingFilterChange={setBillingUpcomingFilter}
+              upcomingItems={billingUpcomingItems}
               selectedRelationshipId={subscriptionDetailsTarget}
               onSelectRelationship={setSubscriptionDetailsTarget}
               onConfirmRenewalPaid={confirmSubscriptionRenewalPaid}
@@ -6880,10 +6925,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               actionNeededItems={actionNeededItems}
               connectedToolCount={totalLinkedToolCount}
               onSeeUpcoming={(filter) => {
-                setBillingDetailsTarget(null);
+                setSubscriptionDetailsTarget(null);
                 setBillingUpcomingFilter(filter);
-                setSelectedBillingView("Upcoming");
-                setActiveSection("billing");
+                setSelectedSubscriptionView("Upcoming");
+                setActiveSection("subscriptions");
               }}
               paidToolCount={paidToolCount}
               renderActionNeeded={renderActionNeededResolutionControl}
@@ -6903,17 +6948,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                     activeCategory={Boolean(activeCategory)}
                     activeSection={activeSection}
                     billingView={selectedBillingView}
-                    billingUpcomingFilter={renderDropdown({
-                      ariaLabel: "Filter upcoming billing events",
-                      className: "linked-plan-filter",
-                      id: "billing-upcoming-event-filter",
-                      onChange: (filter) => setBillingUpcomingFilter(filter as BillingUpcomingFilter),
-                      options: (["All", "Renewals", "Trials"] as BillingUpcomingFilter[]).map((filter) => ({
-                        label: `Event: ${filter}`,
-                        value: filter,
-                      })),
-                      value: billingUpcomingFilter,
-                    })}
                     planFilter={renderDropdown({
                       ariaLabel: activeSection === "accounts" ? "Filter account tools by plan" : "Filter linked tools by plan",
                       className: "linked-plan-filter",
@@ -6932,10 +6966,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                       value: activeSection === "accounts" ? accountsPlanFilter : linkedPlanFilter,
                     })}
                     onAccountFilterChange={setAccountsFilter}
-                    onBillingViewChange={(view) => {
-                      if (view === "Upcoming") setBillingUpcomingFilter("All");
-                      setSelectedBillingView(view);
-                    }}
+                    onBillingViewChange={setSelectedBillingView}
                     onSearchQueryChange={setActiveToolSearchQuery}
                     onToolSortChange={setSelectedToolSort}
                     searchQuery={activeToolSearchQuery}
@@ -7006,8 +7037,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                       onOpenTool={(toolId) => setBillingDetailsTarget({ relationshipId: null, toolId })}
                       searchTerm={billingSearchTerm}
                     />
-                  ) : selectedBillingView === "Upcoming" ? (
-                    <BillingUpcomingView eventFilter={billingUpcomingFilter} items={billingUpcomingItems} />
                   ) : (
                     <div className="account-table tool-database tool-database-billing tool-database-flat billing-month-database">
                       <BillingView

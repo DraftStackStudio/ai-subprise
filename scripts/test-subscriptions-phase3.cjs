@@ -403,10 +403,10 @@ async function main() {
   assert(!nodes(tree).some((node) => node.props?.className === 'tool-status-chip' && node.props.children === 'Not set'));
   assert(nodes(tree).some((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.canAdd === 'boolean'));
   assert(nodes(tree).some((node) => node.type === 'h3' && node.props.children === 'Account Activity'));
-  assert.equal(nodes(tree).filter((node) => node.type === 'li').length, 2);
+  assert.equal(nodes(tree).filter((node) => node.type === 'li').length, 3);
   assert.equal(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-event').length, 3);
-  assert.equal(nodes(tree).filter((node) => node.type === 'span' && node.props.children === '2026-08-01').length, 1);
-  assert.deepEqual(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-event').map((node) => nodes(node).find((child) => child.type === 'strong').props.children[0]), ['Paused', 'Cancelled', 'Trial Started']);
+  assert.equal(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-date' && node.props.children === '2026-08-01').length, 2);
+  assert.deepEqual(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-event').map((node) => nodes(node).find((child) => child.type === 'strong').props.children), ['Subscription cancelled', 'Paused', 'Trial Started']);
   nodes(tree).find((node) => node.props?.id === 'subscription-status').props.onChange('Goodbye');
   await button(renderAccount(), 'Save changes').props.onClick();
   assert.deepEqual(statusCalls, [['r1', 'Goodbye']]);

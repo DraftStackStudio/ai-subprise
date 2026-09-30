@@ -7,11 +7,10 @@ type ListPageToolbarProps = {
   accountLabels: string[];
   activeCategory: boolean;
   activeSection: "tools" | "linked" | "accounts" | "watchlist" | "billing" | "favorites" | "archive";
-  billingView: "All" | "Upcoming" | "Month";
-  billingUpcomingFilter: ReactNode;
+  billingView: "All" | "Month";
   planFilter: ReactNode;
   onAccountFilterChange: (value: string) => void;
-  onBillingViewChange: (value: "All" | "Upcoming" | "Month") => void;
+  onBillingViewChange: (value: "All" | "Month") => void;
   onSearchQueryChange: (value: string) => void;
   onToolSortChange: (value: ToolSortRange) => void;
   searchQuery: string;
@@ -26,7 +25,6 @@ export default function ListPageToolbar({
   activeCategory,
   activeSection,
   billingView,
-  billingUpcomingFilter,
   planFilter,
   onAccountFilterChange,
   onBillingViewChange,
@@ -81,7 +79,6 @@ export default function ListPageToolbar({
               {[
                 { label: "Overview", value: "All" as const },
                 { label: "By Month", value: "Month" as const },
-                { label: "Upcoming", value: "Upcoming" as const },
               ].map((option) => (
                 <button
                   className={billingView === option.value ? "category-view-tab active" : "category-view-tab"}
@@ -128,9 +125,7 @@ export default function ListPageToolbar({
             </div>
           )}
           <div className="table-search-filter-group">
-            {activeSection === "billing" && billingView === "Upcoming"
-              ? billingUpcomingFilter
-              : activeSection === "linked" || (activeSection === "accounts" && accountFilter !== "All")
+            {activeSection === "linked" || (activeSection === "accounts" && accountFilter !== "All")
                 ? planFilter
                 : null}
             {activeSection === "accounts" && accountFilter === "All" ? null : <label className="search-box">

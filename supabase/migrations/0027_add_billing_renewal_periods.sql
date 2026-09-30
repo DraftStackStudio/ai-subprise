@@ -639,8 +639,8 @@ end;
 $$;
 
 revoke all on function public.set_billing_renewal_period_updated_at() from public, anon, authenticated;
-revoke all on function public.billing_renewal_date_from_anchor(date, text, integer) from public, anon;
-revoke all on function public.billing_renewal_sequence_index(date, text, date) from public, anon;
+revoke all on function public.billing_renewal_date_from_anchor(date, text, integer) from public, anon, authenticated;
+revoke all on function public.billing_renewal_sequence_index(date, text, date) from public, anon, authenticated;
 revoke all on function public.billing_renewal_snapshot_amount(text) from public, anon;
 revoke all on function public.recalculate_billing_next_renewal(uuid, uuid) from public, anon, authenticated;
 revoke all on function public.sync_due_billing_renewal_periods(uuid, uuid, date) from public, anon;

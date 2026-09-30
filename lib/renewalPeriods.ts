@@ -1,6 +1,7 @@
 export type RenewalCadence = "Monthly" | "Yearly";
 
 export type RenewalPeriodState = {
+  billingDate?: string;
   resolution: "paid" | "not_charged" | null;
   scheduledRenewalDate: string;
 };
@@ -60,14 +61,26 @@ export function nextRenewalAfterResolution(anchorDate: string, cadence: RenewalC
 export function unresolvedOverdueRenewalPeriods<T extends RenewalPeriodState>(periods: T[], asOfDate: string) {
   if (!validDate(asOfDate)) throw new Error("Invalid renewal cutoff date.");
   return periods
-    .filter((period) => period.resolution === null && validDate(period.scheduledRenewalDate) && period.scheduledRenewalDate < asOfDate)
-    .sort((left, right) => left.scheduledRenewalDate.localeCompare(right.scheduledRenewalDate));
+    .filter((period) => period.resolution === null && validDate(period.billingDate || period.scheduledRenewalDate) && (period.billingDate || period.scheduledRenewalDate) < asOfDate)
+    .sort((left, right) => (left.billingDate || left.scheduledRenewalDate).localeCompare(right.billingDate || right.scheduledRenewalDate));
 }
 
 export function newestFirstUnresolvedRenewalPeriods<T extends RenewalPeriodState>(periods: T[]) {
   return periods
-    .filter((period) => period.resolution === null && validDate(period.scheduledRenewalDate))
-    .sort((left, right) => right.scheduledRenewalDate.localeCompare(left.scheduledRenewalDate));
+    .filter((period) => period.resolution === null && validDate(period.billingDate || period.scheduledRenewalDate))
+    .sort((left, right) => (right.billingDate || right.scheduledRenewalDate).localeCompare(left.billingDate || left.scheduledRenewalDate));
+}
+
+export function nextFutureRenewalFromAnchor(anchorDate: string, cadence: RenewalCadence, onOrAfterDate: string) {
+  if (!validDate(onOrAfterDate)) throw new Error("Invalid renewal reference date.");
+  const [anchorYear, anchorMonth] = anchorDate.split("-").map(Number);
+  const [targetYear, targetMonth] = onOrAfterDate.split("-").map(Number);
+  let index = cadence === "Monthly"
+    ? Math.max(0, (targetYear - anchorYear) * 12 + targetMonth - anchorMonth)
+    : Math.max(0, targetYear - anchorYear);
+  let candidate = renewalDateFromAnchor(anchorDate, cadence, index);
+  if (candidate < onOrAfterDate) candidate = renewalDateFromAnchor(anchorDate, cadence, ++index);
+  return candidate;
 }
 
 export function unresolvedRenewalReviewGroups<T extends RenewalPeriodState & { relationshipId: string }>(periods: T[]) {

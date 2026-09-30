@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { DropdownControl, type DropdownOption } from "@/components/DropdownControls";
+import DateFieldControl from "@/components/DateFieldControl";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { newestFirstUnresolvedRenewalPeriods } from "@/lib/renewalPeriods";
 import type {
@@ -37,6 +38,8 @@ function displayAmount(currency: string, amount: string) {
   return currency.trim() && amount.trim() ? `${currency.trim()} ${amount.trim()}` : "—";
 }
 
+const periodBillingDate = (period: BillingRenewalPeriod) => period.billingDate || period.scheduledRenewalDate;
+
 export default function UnconfirmedBillingSection({ canManage, currencyOptions, onConfirmPaid, onEdit, onNotCharged, onUndo, periods, relationshipId }: Props) {
   const [busyPeriodId, setBusyPeriodId] = useState("");
   const [error, setError] = useState("");
@@ -49,6 +52,8 @@ export default function UnconfirmedBillingSection({ canManage, currencyOptions, 
   const [editPlanName, setEditPlanName] = useState("");
   const [editCurrency, setEditCurrency] = useState("");
   const [editAmount, setEditAmount] = useState("");
+  const [editBillingDate, setEditBillingDate] = useState("");
+  const [dateScopePrompt, setDateScopePrompt] = useState(false);
   const [currencyOpen, setCurrencyOpen] = useState(false);
   const [undoState, setUndoState] = useState<UndoState | null>(null);
   const undoTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -73,7 +78,7 @@ export default function UnconfirmedBillingSection({ canManage, currencyOptions, 
     try {
       await onConfirmPaid(relationshipId, period.id);
       showUndo({
-        message: `Payment confirmed — ${displayAmount(period.currencySnapshot, period.amountSnapshot)} on ${billingHistoryDisplayDate(period.scheduledRenewalDate)}`,
+        message: `Payment confirmed — ${displayAmount(period.currencySnapshot, period.amountSnapshot)} on ${billingHistoryDisplayDate(periodBillingDate(period))}`,
         periodId: period.id,
       });
     } catch (caught) {
@@ -96,7 +101,7 @@ export default function UnconfirmedBillingSection({ canManage, currencyOptions, 
     try {
       await onNotCharged(relationshipId, period.id, { reasonCode, reasonText, note });
       setNotChargedPeriod(null);
-      showUndo({ message: `Marked as not charged — ${billingHistoryDisplayDate(period.scheduledRenewalDate)}`, periodId: period.id });
+      showUndo({ message: `Marked as not charged — ${billingHistoryDisplayDate(periodBillingDate(period))}`, periodId: period.id });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not update this billing period.");
     } finally {
@@ -106,15 +111,16 @@ export default function UnconfirmedBillingSection({ canManage, currencyOptions, 
 
   const openEdit = (period: BillingRenewalPeriod) => {
     if (!canManage || period.relationshipId !== relationshipId) return;
-    setEditPeriod(period); setEditPlanName(period.planNameSnapshot); setEditCurrency(period.currencySnapshot); setEditAmount(period.amountSnapshot); setCurrencyOpen(false); setError("");
+    setEditPeriod(period); setEditPlanName(period.planNameSnapshot); setEditCurrency(period.currencySnapshot); setEditAmount(period.amountSnapshot); setEditBillingDate(periodBillingDate(period)); setCurrencyOpen(false); setDateScopePrompt(false); setError("");
   };
 
-  const saveEdit = async () => {
+  const saveEdit = async (dateScope: UpdateBillingRenewalPeriodSnapshotInput["dateScope"]) => {
     if (!editPeriod || editPeriod.relationshipId !== relationshipId) return;
     setBusyPeriodId(editPeriod.id); setError("");
     try {
-      await onEdit(relationshipId, editPeriod.id, { planName: editPlanName, currency: editCurrency, amount: editAmount });
+      await onEdit(relationshipId, editPeriod.id, { planName: editPlanName, currency: editCurrency, amount: editAmount, billingDate: editBillingDate, dateScope });
       setEditPeriod(null);
+      setDateScopePrompt(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not update this billing period.");
     } finally {
@@ -150,7 +156,7 @@ export default function UnconfirmedBillingSection({ canManage, currencyOptions, 
         <colgroup><col /><col /><col /><col /></colgroup>
         <thead><tr>{["Date", "Billing Type", "Amount", "Action"].map((label) => <th key={label} scope="col">{label}</th>)}</tr></thead>
         <tbody>{unresolved.map((period) => <tr key={period.id} data-period-id={period.id}>
-          <td>{billingHistoryDisplayDate(period.scheduledRenewalDate)}</td>
+          <td>{billingHistoryDisplayDate(periodBillingDate(period))}</td>
           <td>{period.billingTypeSnapshot}</td>
           <td>{displayAmount(period.currencySnapshot, period.amountSnapshot)}</td>
           <td><div className="subscription-unconfirmed-actions">
@@ -165,7 +171,7 @@ export default function UnconfirmedBillingSection({ canManage, currencyOptions, 
 
     {notChargedPeriod ? <div className="welcome-modal-overlay" role="presentation"><section aria-labelledby="not-charged-title" aria-modal="true" className="welcome-modal subscription-renewal-modal" role="dialog">
       <h2 id="not-charged-title">Mark as not charged</h2>
-      <p>{billingHistoryDisplayDate(notChargedPeriod.scheduledRenewalDate)} · {notChargedPeriod.billingTypeSnapshot} · {displayAmount(notChargedPeriod.currencySnapshot, notChargedPeriod.amountSnapshot)}</p>
+      <p>{billingHistoryDisplayDate(periodBillingDate(notChargedPeriod))} · {notChargedPeriod.billingTypeSnapshot} · {displayAmount(notChargedPeriod.currencySnapshot, notChargedPeriod.amountSnapshot)}</p>
       <fieldset className="billing-current-fields" disabled={busyPeriodId === notChargedPeriod.id}>
         <label className="form-field"><span>Reason</span><DropdownControl ariaLabel="Not charged reason" id="not-charged-reason" isOpen={reasonOpen} onOpenChange={(id) => setReasonOpen(Boolean(id))} onChange={(value) => { setReasonCode(value as BillingRenewalNotChargedReasonCode); setReasonText(""); setReasonOpen(false); }} options={reasonOptions} placeholder="Select a reason" value={reasonCode} /></label>
         {reasonCode === "other" ? <label className="form-field"><span>Reason</span><input aria-label="Other reason" className="field-input" value={reasonText} onChange={(event) => setReasonText(event.target.value)} placeholder="Enter a reason" /></label> : null}
@@ -178,10 +184,20 @@ export default function UnconfirmedBillingSection({ canManage, currencyOptions, 
       <h2 id="renewal-edit-title">Edit billing period</h2>
       <fieldset className="billing-current-fields" disabled={busyPeriodId === editPeriod.id}>
         <label className="form-field"><span>Plan Name</span><input aria-label="Billing period Plan Name" className="field-input" value={editPlanName} onChange={(event) => setEditPlanName(event.target.value)} /></label>
-        <div className="tool-detail-field-row"><label className="form-field"><span>Billing Type</span><input aria-label="Billing period Billing Type" className="field-input" disabled value={editPeriod.billingTypeSnapshot} /></label><label className="form-field"><span>Scheduled Renewal Date</span><input aria-label="Scheduled Renewal Date" className="field-input" disabled value={editPeriod.scheduledRenewalDate} /></label></div>
+        <div className="tool-detail-field-row"><label className="form-field"><span>Billing Type</span><input aria-label="Billing period Billing Type" className="field-input" disabled value={editPeriod.billingTypeSnapshot} /></label><label className="form-field"><span>Billing Date</span><DateFieldControl ariaLabel="Billing Date" value={editBillingDate} onChange={setEditBillingDate} /></label></div>
         <div className="tool-detail-field-row"><label className="form-field"><span>Currency</span><DropdownControl ariaLabel="Billing period Currency" id="renewal-period-currency" isOpen={currencyOpen} onOpenChange={(id) => setCurrencyOpen(Boolean(id))} onChange={(value) => { setEditCurrency(value); setCurrencyOpen(false); }} options={currencyOptions} placeholder="Not set" value={editCurrency} /></label><label className="form-field"><span>Amount</span><input aria-label="Billing period Amount" className="field-input" inputMode="decimal" placeholder="Not set" value={editAmount} onChange={(event) => setEditAmount(event.target.value)} /></label></div>
       </fieldset>
-      <div className="welcome-modal-actions"><button className="btn-sm" disabled={busyPeriodId === editPeriod.id} onClick={() => setEditPeriod(null)} type="button">Cancel</button><button className="btn-primary" disabled={busyPeriodId === editPeriod.id} onClick={() => void saveEdit()} type="button">{busyPeriodId === editPeriod.id ? "Saving…" : "Save changes"}</button></div>
+      <div className="welcome-modal-actions"><button className="btn-sm" disabled={busyPeriodId === editPeriod.id} onClick={() => setEditPeriod(null)} type="button">Cancel</button><button className="btn-primary" disabled={!editBillingDate || busyPeriodId === editPeriod.id} onClick={() => editBillingDate === periodBillingDate(editPeriod) ? void saveEdit("period_only") : setDateScopePrompt(true)} type="button">{busyPeriodId === editPeriod.id ? "Saving…" : "Save changes"}</button></div>
+    </section></div> : null}
+
+    {dateScopePrompt && editPeriod ? <div className="welcome-modal-overlay subscription-renewal-scope-overlay" role="presentation"><section aria-labelledby="billing-date-scope-title" aria-modal="true" className="welcome-modal subscription-renewal-modal" role="dialog">
+      <h2 id="billing-date-scope-title">Billing date changed</h2>
+      <p>Apply this new billing date to:</p>
+      <div className="subscription-renewal-scope-actions">
+        <button className="btn-sm" disabled={busyPeriodId === editPeriod.id} onClick={() => void saveEdit("period_only")} type="button"><strong>This billing period only</strong><span>Keep the ongoing recurring schedule unchanged.</span></button>
+        <button className="btn-sm" disabled={busyPeriodId === editPeriod.id} onClick={() => void saveEdit("this_and_future")} type="button"><strong>This and future billing periods</strong><span>Use this date as the new recurring schedule anchor.</span></button>
+      </div>
+      <div className="welcome-modal-actions"><button className="btn-sm" disabled={busyPeriodId === editPeriod.id} onClick={() => setDateScopePrompt(false)} type="button">Back</button></div>
     </section></div> : null}
 
     {undoToast}

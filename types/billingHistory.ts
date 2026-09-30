@@ -9,6 +9,7 @@ export type BillingHistoryEvent =
   | "Double Charged"
   | "Paused"
   | "Resumed"
+  | "Restarted"
   | "Cancelled";
 
 export type BillingHistoryEntry = {
