@@ -2,6 +2,7 @@ export type RenewalCadence = "Monthly" | "Yearly";
 
 export type RenewalPeriodState = {
   billingDate?: string;
+  excludedAt?: string;
   resolution: "paid" | "not_charged" | null;
   scheduledRenewalDate: string;
 };
@@ -49,7 +50,7 @@ export function dueRenewalDates(anchorDate: string, nextRenewalDate: string, cad
 
 export function nextRenewalAfterResolution(anchorDate: string, cadence: RenewalCadence, periods: RenewalPeriodState[]) {
   const ordered = [...periods].sort((left, right) => left.scheduledRenewalDate.localeCompare(right.scheduledRenewalDate));
-  const firstUnresolved = ordered.find((period) => period.resolution === null);
+  const firstUnresolved = ordered.find((period) => period.resolution === null && !period.excludedAt);
   if (firstUnresolved) return firstUnresolved.scheduledRenewalDate;
   const latest = ordered.at(-1);
   if (!latest) return null;
@@ -61,13 +62,13 @@ export function nextRenewalAfterResolution(anchorDate: string, cadence: RenewalC
 export function unresolvedOverdueRenewalPeriods<T extends RenewalPeriodState>(periods: T[], asOfDate: string) {
   if (!validDate(asOfDate)) throw new Error("Invalid renewal cutoff date.");
   return periods
-    .filter((period) => period.resolution === null && validDate(period.billingDate || period.scheduledRenewalDate) && (period.billingDate || period.scheduledRenewalDate) < asOfDate)
+    .filter((period) => period.resolution === null && !period.excludedAt && validDate(period.billingDate || period.scheduledRenewalDate) && (period.billingDate || period.scheduledRenewalDate) < asOfDate)
     .sort((left, right) => (left.billingDate || left.scheduledRenewalDate).localeCompare(right.billingDate || right.scheduledRenewalDate));
 }
 
 export function newestFirstUnresolvedRenewalPeriods<T extends RenewalPeriodState>(periods: T[]) {
   return periods
-    .filter((period) => period.resolution === null && validDate(period.billingDate || period.scheduledRenewalDate))
+    .filter((period) => period.resolution === null && !period.excludedAt && validDate(period.billingDate || period.scheduledRenewalDate))
     .sort((left, right) => (right.billingDate || right.scheduledRenewalDate).localeCompare(left.billingDate || left.scheduledRenewalDate));
 }
 

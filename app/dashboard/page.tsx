@@ -5859,7 +5859,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
   const confirmSubscriptionRenewalPaid = async (relationshipId: string, periodId: string) => {
     subscriptionTarget(relationshipId);
-    const period = billingRenewalPeriods.find((candidate) => candidate.id === periodId && candidate.relationshipId === relationshipId && candidate.resolution === null);
+    const period = billingRenewalPeriods.find((candidate) => candidate.id === periodId && candidate.relationshipId === relationshipId && candidate.resolution === null && !candidate.excludedAt);
     if (!period) throw new Error("This renewal period changed. Refresh the account and try again.");
     const result = await confirmBillingRenewalPaid(relationshipId, periodId);
     await refreshSubscriptionRenewalData(relationshipId);
@@ -5868,7 +5868,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
   const markSubscriptionRenewalNotCharged = async (relationshipId: string, periodId: string, input: MarkBillingRenewalNotChargedInput) => {
     subscriptionTarget(relationshipId);
-    const period = billingRenewalPeriods.find((candidate) => candidate.id === periodId && candidate.relationshipId === relationshipId && candidate.resolution === null);
+    const period = billingRenewalPeriods.find((candidate) => candidate.id === periodId && candidate.relationshipId === relationshipId && candidate.resolution === null && !candidate.excludedAt);
     if (!period) throw new Error("This renewal period changed. Refresh the account and try again.");
     const result = await markBillingRenewalNotCharged(relationshipId, periodId, input);
     await refreshSubscriptionRenewalData(relationshipId);
@@ -5877,7 +5877,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
 
   const editSubscriptionRenewalPeriod = async (relationshipId: string, periodId: string, input: UpdateBillingRenewalPeriodSnapshotInput) => {
     subscriptionTarget(relationshipId);
-    const period = billingRenewalPeriods.find((candidate) => candidate.id === periodId && candidate.relationshipId === relationshipId && candidate.resolution === null);
+    const period = billingRenewalPeriods.find((candidate) => candidate.id === periodId && candidate.relationshipId === relationshipId && candidate.resolution === null && !candidate.excludedAt);
     if (!period) throw new Error("This renewal period changed. Refresh the account and try again.");
     await updateBillingRenewalPeriodSnapshot(relationshipId, periodId, input);
     const periods = await refreshSubscriptionRenewalData(relationshipId);

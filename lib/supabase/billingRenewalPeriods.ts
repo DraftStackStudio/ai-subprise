@@ -34,6 +34,8 @@ function asPeriod(record: Record<string, unknown>): BillingRenewalPeriod {
     billingTypeSnapshot: text(record.billing_type_snapshot) as "Monthly" | "Yearly",
     createdAt: text(record.created_at),
     currencySnapshot: text(record.currency_snapshot),
+    excludedAt: text(record.excluded_at),
+    excludedByLifecycleEventId: text(record.excluded_by_lifecycle_event_id),
     id: text(record.id),
     notChargedNote: text(record.not_charged_note),
     notChargedReasonCode: notChargedReasonCode

@@ -15,6 +15,8 @@ export type BillingRenewalPeriod = {
   billingDate: string;
   createdAt: string;
   currencySnapshot: string;
+  excludedAt: string;
+  excludedByLifecycleEventId: string;
   id: string;
   notChargedNote: string;
   notChargedReasonCode: BillingRenewalNotChargedReasonCode | null;

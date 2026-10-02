@@ -200,6 +200,11 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
       : [];
     const billingAmounts = rawComponents
       .filter((component): component is Record<string, unknown> => Boolean(component) && typeof component === "object")
+      .filter((component) => {
+        const billingType = typeof component.billing_type === "string" ? component.billing_type : "";
+        const isRecurring = billingType === "Monthly" || billingType === "Yearly";
+        return !isRecurring || component.retired_at === null || component.retired_at === undefined;
+      })
       .map((component): BillingAmount => ({
         amount: typeof component.amount === "string" ? component.amount : "",
         billingType: typeof component.billing_type === "string" ? component.billing_type : "",
@@ -536,27 +541,85 @@ export async function updateToolLinkDetails(
           tool_email_link_id: String(activeLink.id),
         };
       });
-    const selectedTypes = components.map((component) => component.billing_type);
+    const { data: storedRows, error: storedRowsError } = await supabase
+      .from("tool_link_billing_components")
+      .select("id,billing_type,retired_at")
+      .eq("tool_email_link_id", activeLink.id);
+    if (storedRowsError) {
+      const missingRetirementColumn = storedRowsError.code === "42703"
+        || storedRowsError.code === "PGRST204"
+        || storedRowsError.message.toLowerCase().includes("retired_at");
+      if (!missingRetirementColumn) throw storedRowsError;
 
-    if (components.length > 0) {
+      // Compatibility only while migration 0030 is intentionally unapplied.
+      // Once retired_at exists, the version-aware exact-row path below is used.
+      const selectedTypes = components.map((component) => component.billing_type);
+      if (components.length > 0) {
+        const { error } = await supabase
+          .from("tool_link_billing_components")
+          .upsert(components, { onConflict: "tool_email_link_id,billing_type" });
+        if (error) throw error;
+      }
+      let deleteQuery = supabase
+        .from("tool_link_billing_components")
+        .delete()
+        .eq("tool_email_link_id", activeLink.id);
+      if (selectedTypes.length > 0) {
+        deleteQuery = deleteQuery.not(
+          "billing_type",
+          "in",
+          `(${selectedTypes.map((billingType) => JSON.stringify(billingType)).join(",")})`,
+        );
+      }
+      const { error } = await deleteQuery;
+      if (error) throw error;
+      return;
+    }
+
+    const stored = (storedRows ?? []).map((row) => ({
+      billingType: typeof row.billing_type === "string" ? row.billing_type : "",
+      id: String(row.id),
+      retiredAt: typeof row.retired_at === "string" ? row.retired_at : "",
+    }));
+    const retainedStoredIds = new Set<string>();
+
+    for (const component of components) {
+      const recurring = component.billing_type === "Monthly" || component.billing_type === "Yearly";
+      const existing = recurring
+        ? stored.find((row) => !row.retiredAt && (row.billingType === "Monthly" || row.billingType === "Yearly"))
+        : stored.find((row) => !row.retiredAt && row.billingType === component.billing_type);
+
+      if (existing) {
+        const { data: updated, error } = await supabase
+          .from("tool_link_billing_components")
+          .update(component)
+          .eq("id", existing.id)
+          .eq("tool_email_link_id", activeLink.id)
+          .is("retired_at", null)
+          .select("id")
+          .maybeSingle();
+        if (error) throw error;
+        if (!updated) throw new Error("The current billing component changed. Reopen the editor before saving.");
+        retainedStoredIds.add(existing.id);
+      } else {
+        const { error } = await supabase
+          .from("tool_link_billing_components")
+          .insert(component);
+        if (error) throw error;
+      }
+    }
+
+    const omittedCurrentIds = stored
+      .filter((row) => !row.retiredAt && !retainedStoredIds.has(row.id))
+      .map((row) => row.id);
+    if (omittedCurrentIds.length > 0) {
       const { error } = await supabase
         .from("tool_link_billing_components")
-        .upsert(components, { onConflict: "tool_email_link_id,billing_type" });
+        .delete()
+        .eq("tool_email_link_id", activeLink.id)
+        .is("retired_at", null)
+        .in("id", omittedCurrentIds);
       if (error) throw error;
     }
-
-    let deleteQuery = supabase
-      .from("tool_link_billing_components")
-      .delete()
-      .eq("tool_email_link_id", activeLink.id);
-    if (selectedTypes.length > 0) {
-      deleteQuery = deleteQuery.not(
-        "billing_type",
-        "in",
-        `(${selectedTypes.map((billingType) => JSON.stringify(billingType)).join(",")})`,
-      );
-    }
-    const { error } = await deleteQuery;
-    if (error) throw error;
   }
 }
