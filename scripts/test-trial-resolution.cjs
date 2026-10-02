@@ -65,6 +65,15 @@ assert.match(resolver, /relationshipId: detail\.relationshipId/);
 assert.match(resolver, /\{ expectedRelationshipId: detail\.relationshipId \}/);
 assert.doesNotMatch(resolver, /createBillingTransaction\s*\(/);
 
+const linkedStatusStart = page.indexOf('  const renderLinkedStatusControl = (');
+const linkedStatusEnd = page.indexOf('\n  const renderToolRow', linkedStatusStart);
+assert(linkedStatusStart >= 0 && linkedStatusEnd > linkedStatusStart);
+const linkedStatus = page.slice(linkedStatusStart, linkedStatusEnd);
+assert.match(linkedStatus, /className="linked-status-readonly"/);
+assert.match(linkedStatus, /manageStatus === "On a Break" \? "Paused" : manageStatus/);
+assert.doesNotMatch(linkedStatus, /renderDropdown|renderExpiredTrialResolutionControl|updateLinkedManageStatus/);
+assert.match(page, /return renderExpiredTrialResolutionControl\(tool, item\.accountLabel/);
+
 const resolutionWriteMatch = resolver.match(/await updateToolLinkDetails\(tool\.id, accountLabel, accountList, \{([\s\S]*?)\}, \{ expectedRelationshipId: detail\.relationshipId \}\)/);
 assert(resolutionWriteMatch);
 const resolutionWrite = resolutionWriteMatch[1];

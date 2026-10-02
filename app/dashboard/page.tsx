@@ -6160,31 +6160,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   };
 
   const renderLinkedStatusControl = (tool: ToolItem, accountLabel: string) => {
-    const plan = relationPlan(tool, accountLabel);
     const detail = toolAccountDetails[tool.id]?.[accountLabel];
     const manageStatus = detail?.status ?? "Active";
-    const isEndedTrial =
-      plan === "Trial" &&
-      Boolean(detail?.trialExpiryDate) &&
-      (daysUntilDate(detail?.trialExpiryDate ?? "") ?? 0) < 0;
-    if (plan === "Trial" && !detail?.trialResolved && !isEndedTrial) {
-      return <span className="linked-status-readonly">Active</span>;
-    }
-    if (isEndedTrial && !detail?.trialResolved) {
-      return renderExpiredTrialResolutionControl(tool, accountLabel);
-    }
-    return renderDropdown({
-      ariaLabel: `Change ${tool.name} ${accountLabel} status`,
-      className: "billing-type-dropdown linked-manage-status-dropdown",
-      id: `linked-manage-status-${tool.id}-${accountLabel}`,
-      onChange: (nextStatus) => updateLinkedManageStatus(tool, accountLabel, nextStatus as ManageStatus),
-      options: [
-        { label: "Active", value: "Active" },
-        { label: "On a break", value: "On a Break" },
-        { label: "Goodbye", value: "Goodbye" },
-      ],
-      value: manageStatus,
-    });
+    return <span className="linked-status-readonly">{manageStatus === "On a Break" ? "Paused" : manageStatus}</span>;
   };
 
   const renderToolRow = (tool: ToolItem) => {
