@@ -88,15 +88,14 @@ classification as (
   select
     count(*) filter (
       where component.billing_type in ('Monthly', 'Yearly')
+        and component.retired_at is null
         and (
-          (
-            link.unlinked_at is not null
-            or link.status in (
-              'On a Break', 'On a break', 'Goodbye',
-              'Goodbye it was a journey', 'Goodbye, it was a journey'
-            )
-          ) is true
-        ) <> (component.retired_at is not null)
+          link.unlinked_at is not null
+          or link.status in (
+            'Paused', 'On a Break', 'On a break', 'Goodbye',
+            'Goodbye it was a journey', 'Goodbye, it was a journey'
+          )
+        )
     ) as mismatch_count,
     count(*) filter (
       where component.billing_type not in ('Monthly', 'Yearly')

@@ -16,6 +16,10 @@ import SubscriptionsView, { type SubscriptionRow } from "@/components/Subscripti
 import { qualifiesForSubscriptions, subscriptionComponents, subscriptionState, subscriptionBillingSummary, subscriptionBillingPatch } from "@/lib/subscriptions";
 import { isHistoricalBillingRelationship } from "@/lib/billingRelationshipPresentation";
 import { planPillTone } from "@/lib/planPresentation";
+import {
+  isRelationshipRenewalEligible,
+  requireRelationshipLifecycleStatus,
+} from "@/lib/relationshipLifecycle";
 import AccountsOverview from "@/components/AccountsOverview";
 import BillingRow, { HistoricalBillingRow, type BillingRowOptions } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
@@ -521,12 +525,6 @@ function statusDisplayLabel(status: ToolStatus) {
   return labels[status] ?? status;
 }
 
-function normaliseManageStatus(status: string): ManageStatus {
-  if (status === "On a break" || status === "On a Break") return "On a Break";
-  if (status === "Goodbye it was a journey" || status === "Goodbye, it was a journey" || status === "Goodbye") return "Goodbye";
-  return "Active";
-}
-
 function normaliseBillingType(value: string): BillingType {
   const normaliseEntry = (entry: string) => {
     const trimmedEntry = entry.trim();
@@ -634,9 +632,9 @@ function statusLedgerEntry(
   date: string,
 ): BillingHistoryEntry | null {
   const transition =
-    previousStatus === "Active" && nextStatus === "On a Break"
+    previousStatus === "Active" && nextStatus === "Paused"
       ? { event: "Paused" as const, note: "On a break, no charge" }
-      : previousStatus === "On a Break" && nextStatus === "Active"
+      : previousStatus === "Paused" && nextStatus === "Active"
         ? { event: "Resumed" as const, note: "Resumed" }
         : previousStatus === "Goodbye" && nextStatus === "Active"
           ? { event: "Restarted" as const, note: "Explicitly restarted" }
@@ -1350,7 +1348,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                   purchaseDate: detail.purchaseDate ?? "",
                   planName: detail.planName ?? "",
                   startDate: detail.startDate ?? "",
-                  status: normaliseManageStatus(detail.status ?? "Active"),
+                  status: requireRelationshipLifecycleStatus(detail.status, detail.relationshipId),
                   trialExpiryDate: detail.trialExpiryDate ?? "",
                   trialResolution: isTrialResolution(detail.trialResolution) ? detail.trialResolution : "",
                   trialResolutionHistory: (detail.trialResolutionHistory ?? [])
@@ -1515,7 +1513,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       if (
         !availableTools.has(detail.toolId)
         || detail.unlinkedAt
-        || detail.status !== "Active"
+        || !isRelationshipRenewalEligible(detail.status)
         || (detail.plan !== "Active" && detail.plan !== "Paid")
       ) return [];
 
@@ -1700,7 +1698,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               relationshipId: detail.relationshipId,
               planName: detail.planName,
               startDate: detail.startDate ?? "",
-              status: normaliseManageStatus(detail.status),
+              status: requireRelationshipLifecycleStatus(detail.status, detail.relationshipId),
               trialExpiryDate: detail.trialExpiryDate,
               trialResolution: detail.trialResolution,
               trialResolutionHistory: detail.trialResolutionHistory,
@@ -4050,7 +4048,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       if (transitionEntry) {
         nextDetail.billingHistoryEntries = [...nextDetail.billingHistoryEntries, transitionEntry];
       }
-      if (currentDetail.status === "On a Break" && status === "Active") {
+      if (currentDetail.status === "Paused" && status === "Active") {
         const recurringType = recurringBillingType(nextDetail.billingType);
         nextDetail.nextChargeDate = recurringType
           ? nextDetail.startDate
@@ -5364,7 +5362,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         accountTag: accountTag(accountLabel, accountList),
         plan: detail.planName || (detail.plan === "Active" || detail.plan === "Paid" ? "Paid" : detail.plan === "Trial" ? "Trial" : "Free"),
         planTone: planPillTone(detail.plan),
-        status: normaliseManageStatus(detail.status), billing: subscriptionBillingSummary(components), state: subscriptionState(components),
+        status: requireRelationshipLifecycleStatus(detail.status, detail.relationshipId), billing: subscriptionBillingSummary(components), state: subscriptionState(components),
         planName: detail.planName,
         billingComponents: components,
         payments: billingTransactions.filter((transaction) => transaction.relationshipId === detail.relationshipId),
@@ -5379,7 +5377,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       const detail = toolAccountDetails[tool.id]?.[accountLabel];
       const relationshipId = detail?.relationshipId;
       const date = detail?.trialExpiryDate ?? "";
-      if (!relationshipId || (detail.status ?? "Active") !== "Active" || relationPlan(tool, accountLabel) !== "Trial" || (daysUntilDate(date) ?? 0) <= 0) return [];
+      if (!relationshipId || !isRelationshipRenewalEligible(detail.status) || relationPlan(tool, accountLabel) !== "Trial" || (daysUntilDate(date) ?? 0) <= 0) return [];
       const account = accountList.find((candidate) => candidate.label === accountLabel);
       return [{
         accountEmail: account?.login ?? "",
@@ -5607,8 +5605,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     .flatMap((tool) => tool.accounts.flatMap((accountLabel): BillingUpcomingItem[] => {
       const detail = toolAccountDetails[tool.id]?.[accountLabel];
       const relationshipId = detail?.relationshipId;
-      const relationshipStatus = detail?.status ?? "Active";
-      if (!relationshipId || relationshipStatus !== "Active") return [];
+      if (!relationshipId || !isRelationshipRenewalEligible(detail?.status)) return [];
 
       const account = accountList.find((candidate) => candidate.label === accountLabel);
       const identity = {
@@ -6162,7 +6159,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const renderLinkedStatusControl = (tool: ToolItem, accountLabel: string) => {
     const detail = toolAccountDetails[tool.id]?.[accountLabel];
     const manageStatus = detail?.status ?? "Active";
-    return <span className="linked-status-readonly">{manageStatus === "On a Break" ? "Paused" : manageStatus}</span>;
+    return <span className="linked-status-readonly">{manageStatus}</span>;
   };
 
   const renderToolRow = (tool: ToolItem) => {
@@ -7576,7 +7573,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             className: "modal-dropdown field-dropdown",
             id: `detail-status-${managedTool.id}-${draft.draftId ?? draft.accountLabel}`,
             onChange: (status) => updateToolDetailDraft(draft.draftId ?? draft.accountLabel, { status: status as ManageStatus }),
-            options: (["Active", "On a Break", "Goodbye"] as ManageStatus[]).map((status) => ({ label: status, value: status })),
+            options: (["Active", "Paused", "Goodbye"] as ManageStatus[]).map((status) => ({ label: status, value: status })),
             value: draft.status,
           })}
           renderTrialOutcomeSelector={(draft, placeholder) => renderDropdown({

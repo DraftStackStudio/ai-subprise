@@ -138,6 +138,8 @@ assert(postcheck.includes('retained.jan_aug_baseline_preserved'));
 assert(postcheck.includes('retained.current_billing_progression_is_consistent'));
 assert(postcheck.includes('retained.audit_history_is_valid'));
 assert(postcheck.includes('component.recurrence_anchor_date is not null'));
+assert(postcheck.includes('component.retired_at is null'));
+assert(postcheck.includes("'paused', 'on a break', 'on a break', 'goodbye'"));
 assert(postcheck.includes('component.next_renewal_date = make_date('));
 assert(postcheck.includes('extract(day from component.recurrence_anchor_date)'));
 assert(!postcheck.includes('baseline.renewal_period_count = 8'));

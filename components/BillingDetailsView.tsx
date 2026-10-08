@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { BillingTransaction } from "@/types/billingTransaction";
-import type { BillingAmount } from "@/types/toolDetail";
+import type { BillingAmount, ManageStatus } from "@/types/toolDetail";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
@@ -19,7 +19,7 @@ export type BillingDetailsAccount = {
   plan: string;
   planName: string;
   relationshipId: string;
-  status: string;
+  status: ManageStatus;
   transactions: BillingTransaction[];
 };
 
@@ -60,7 +60,7 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
   return <article className="billing-history-account-card billing-details-account">
     <header className="billing-details-account-header">
       <LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail} nameSuffix={accountPlan ? <span className={`tool-status-chip current-plan-pill ${planPillTone(account.plan)}`}>{accountPlan}</span> : null} tagClass={account.accountTag} />
-      {account.isHistorical ? <span className="billing-details-status">Historical</span> : <span className="tool-status-chip status-muted billing-details-status-pill">{account.status === "On a Break" ? "On a break" : account.status}</span>}
+      {account.isHistorical ? <span className="billing-details-status">Historical</span> : <span className="tool-status-chip status-muted billing-details-status-pill">{account.status}</span>}
     </header>
 
     <div className="billing-details-account-body">

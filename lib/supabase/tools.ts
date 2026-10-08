@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import { isTrialResolution } from "@/lib/trialResolution";
-import type { BillingAmount, TrialResolution, TrialResolutionHistoryEntry } from "@/types/toolDetail";
+import { requireRelationshipLifecycleStatus } from "@/lib/relationshipLifecycle";
+import type { BillingAmount, ManageStatus, TrialResolution, TrialResolutionHistoryEntry } from "@/types/toolDetail";
 
 export type SupabaseToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 
@@ -259,7 +260,7 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
       plan: typeof rawLink.plan === "string" && rawLink.plan ? rawLink.plan : "Free Tier",
       planName: typeof rawLink.plan_name === "string" ? rawLink.plan_name : "",
       relationshipId: String(rawLink.id ?? ""),
-      status: typeof rawLink.status === "string" && rawLink.status ? rawLink.status : "Active",
+      status: requireRelationshipLifecycleStatus(rawLink.status, String(rawLink.id ?? "")),
       toolId: String(rawLink.tool_id ?? ""),
       trialExpiryDate: typeof rawLink.trial_expiry_date === "string" ? rawLink.trial_expiry_date : "",
       trialResolution: isTrialResolution(rawLink.trial_resolution)
@@ -433,6 +434,7 @@ export async function syncToolLinks(toolId: string, labels: string[], accounts: 
       .insert({
         email_account_id: account.id,
         slot_order: slotOrder,
+        status: "Active",
         tool_id: toolId,
         user_id: userId,
       })
@@ -462,7 +464,7 @@ export async function updateToolLinkDetails(
     startDate?: string;
     plan?: string;
     planName?: string;
-    status?: string;
+    status?: ManageStatus;
     trialExpiryDate?: string;
     trialResolution?: "" | TrialResolution;
     trialResolutionHistory?: TrialResolutionHistoryEntry[];

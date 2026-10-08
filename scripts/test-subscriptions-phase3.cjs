@@ -252,7 +252,7 @@ async function main() {
 
   const statusSource = page.slice(page.indexOf('  const updateLinkedManageStatus ='), page.indexOf('  const saveToolLink ='));
   const statusWiring = compile(`
-    let toolAccountDetails = { tool: { Personal: { relationshipId: 'r1', status: 'On a Break', billingType: 'Monthly', billingAmounts: [${JSON.stringify(monthly)}] } } };
+    let toolAccountDetails = { tool: { Personal: { relationshipId: 'r1', status: 'Paused', billingType: 'Monthly', billingAmounts: [${JSON.stringify(monthly)}] } } };
     const shouldUseSupabase = true, accountList = [], calls = [], events = [];
     const normaliseBillingType = (value) => value, normaliseCurrency = (value) => value || '';
     const relationPlan = () => 'Paid', relationPlanStatusValue = () => 'Active';
@@ -267,7 +267,7 @@ async function main() {
   `);
   await statusWiring.updateLinkedManageStatus({ id: 'tool' }, 'Personal', 'Active', 'r1');
   assert.equal(statusWiring.calls[0][4].expectedRelationshipId, 'r1');
-  assert.deepEqual(statusWiring.events, [['On a Break', 'Active']]);
+  assert.deepEqual(statusWiring.events, [['Paused', 'Active']]);
   assert.equal(statusWiring.get().tool.Personal.billingAmounts[0].nextRenewalDate, '2026-09-30');
   assert.equal(statusWiring.get().tool.Personal.relationshipId, 'r1');
   await assert.rejects(statusWiring.updateLinkedManageStatus({ id: 'tool' }, 'Personal', 'Goodbye', 'r2'));

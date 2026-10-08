@@ -5,7 +5,7 @@ import { DropdownControl } from "@/components/DropdownControls";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
 import type { SubscriptionState } from "@/lib/subscriptions";
 import SubscriptionAccountView from "@/components/SubscriptionAccountView";
-import type { BillingAmount } from "@/types/toolDetail";
+import type { BillingAmount, ManageStatus } from "@/types/toolDetail";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { SubscriptionActions } from "@/components/SubscriptionBillingEditor";
@@ -25,7 +25,7 @@ export type SubscriptionRow = {
   accountTag: string;
   plan: string;
   planTone: string;
-  status: string;
+  status: ManageStatus;
   billing: string[];
   state: SubscriptionState;
   planName: string;
@@ -36,7 +36,7 @@ export type SubscriptionRow = {
   activity: BillingHistoryEntry[];
 };
 
-const statuses = ["Active", "On a Break", "Goodbye"];
+const statuses = ["Active", "Paused", "Goodbye"];
 const states = ["All", "Not started", "Incomplete", "Complete"] as const;
 
 export default function SubscriptionsView({ rows, isLoading, onSelectRelationship, selectedRelationshipId, selectedView, onViewChange, upcomingFilter, onUpcomingFilterChange, upcomingItems, ...actions }: SubscriptionActions & {
@@ -85,7 +85,7 @@ export default function SubscriptionsView({ rows, isLoading, onSelectRelationshi
       {isLoading ? <div className="empty-state"><strong>Loading subscriptions</strong></div> : visible.length ? statuses.map((status) => {
         const group = visible.filter((row) => row.status === status);
         return group.length ? <Fragment key={status}>
-          <div className="tool-category-row-header"><span className="category-row-label"><span>{status === "On a Break" ? "On a break" : status}</span><span>{group.length}</span></span></div>
+          <div className="tool-category-row-header"><span className="category-row-label"><span>{status}</span><span>{group.length}</span></span></div>
           {[...new Set(group.map((row) => row.toolId))].map((toolId) => {
             const accounts = group.filter((row) => row.toolId === toolId);
             const tool = accounts[0];

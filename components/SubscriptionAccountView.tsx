@@ -166,11 +166,11 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
       </div>
       <div className="subscription-callout-status">
         {account.canManageBilling ? <fieldset className="billing-current-fields" disabled={statusBusy || editingBilling}>
-          <DropdownControl ariaLabel="Account Status" className="subscription-lifecycle-dropdown" id="subscription-status" isOpen={statusOpen} onOpenChange={(id) => setStatusOpen(Boolean(id))} onChange={(value) => { setStatusDraft(value as ManageStatus); setStatusOpen(false); setStatusError(""); }} value={statusDraft ?? account.status} options={["Active", "On a Break", "Goodbye"].map((value) => ({ value, label: value === "On a Break" ? "On a break" : value }))} />
+          <DropdownControl ariaLabel="Account Status" className="subscription-lifecycle-dropdown" id="subscription-status" isOpen={statusOpen} onOpenChange={(id) => setStatusOpen(Boolean(id))} onChange={(value) => { setStatusDraft(value as ManageStatus); setStatusOpen(false); setStatusError(""); }} value={statusDraft ?? account.status} options={["Active", "Paused", "Goodbye"].map((value) => ({ value, label: value }))} />
           {statusDraft !== null ?
           <div className="welcome-modal-actions"><button className="btn-sm" type="button" onClick={() => { setStatusDraft(null); setStatusOpen(false); }}>Cancel</button><button className="btn-sm" type="button" onClick={async () => { setStatusBusy(true); setStatusError(""); try { await actions.onSaveStatus(account.relationshipId, statusDraft); setStatusDraft(null); } catch (error) { setStatusError(error instanceof Error ? error.message : "Could not save status."); } finally { setStatusBusy(false); } }}>Save changes</button></div>
           : null}
-        </fieldset> : <span>{account.status === "On a Break" ? "On a break" : account.status}</span>}
+        </fieldset> : <span>{account.status}</span>}
         {statusError ? <small className="field-feedback error" role="alert">{statusError}</small> : null}
       </div>
     </section>

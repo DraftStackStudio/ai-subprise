@@ -1,5 +1,6 @@
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
 import { Fragment } from "react";
+import type { ManageStatus } from "@/types/toolDetail";
 
 export type BillingDirectoryAccount = {
   accountEmail: string;
@@ -8,7 +9,7 @@ export type BillingDirectoryAccount = {
   isHistorical: boolean;
   planName: string;
   relationshipId: string;
-  status: string;
+  status: ManageStatus;
 };
 
 export type BillingDirectoryGroup = {
@@ -28,7 +29,7 @@ type BillingDirectoryProps = {
   searchTerm: string;
 };
 
-const billingStatusGroups = ["Active", "On a Break", "Goodbye"] as const;
+const billingStatusGroups = ["Active", "Paused", "Goodbye"] as const;
 
 export default function BillingDirectory({
   groups,
@@ -68,7 +69,7 @@ export default function BillingDirectory({
             {group.accounts.map((account) => <button className="billing-directory-account-row" key={account.relationshipId} onClick={() => onOpenAccount(group.toolId, account.relationshipId)} type="button">
               <span className="billing-directory-account-identity"><LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail} tagClass={account.accountTag} /></span>
               <span className="billing-directory-plan">{account.planName ? <span className="tool-status-chip status-paid">{account.planName}</span> : <span className="muted-cell">Not set</span>}</span>
-              <span className="billing-directory-status linked-expanded-status-cell"><span className="linked-status-readonly">{account.isHistorical ? "Historical" : account.status === "On a Break" ? "On a break" : account.status}</span></span>
+              <span className="billing-directory-status linked-expanded-status-cell"><span className="linked-status-readonly">{account.isHistorical ? "Historical" : account.status}</span></span>
             </button>)}
           </div>
         </div>)}

@@ -244,7 +244,7 @@ export default function LinkAIToolModal({
                               current.map((item) => item.id === block.id ? { ...item, status: status as ManageStatus } : item)),
                             options: [
                               { label: "Active", value: "Active" },
-                              { label: "On a break", value: "On a Break" },
+                              { label: "Paused", value: "Paused" },
                               { label: "Goodbye", value: "Goodbye" },
                             ],
                             value: block.status,

@@ -8,7 +8,7 @@ export type ToolStatus =
   | "Paid"
   | "Free";
 
-export type ManageStatus = "Active" | "On a Break" | "Goodbye";
+export type ManageStatus = "Active" | "Paused" | "Goodbye";
 
 export type TrialResolution = "converted" | "moved_to_free" | "stopped_using";
 

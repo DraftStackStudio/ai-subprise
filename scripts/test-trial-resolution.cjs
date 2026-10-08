@@ -70,7 +70,7 @@ const linkedStatusEnd = page.indexOf('\n  const renderToolRow', linkedStatusStar
 assert(linkedStatusStart >= 0 && linkedStatusEnd > linkedStatusStart);
 const linkedStatus = page.slice(linkedStatusStart, linkedStatusEnd);
 assert.match(linkedStatus, /className="linked-status-readonly"/);
-assert.match(linkedStatus, /manageStatus === "On a Break" \? "Paused" : manageStatus/);
+assert.match(linkedStatus, />\{manageStatus\}<\/span>/);
 assert.doesNotMatch(linkedStatus, /renderDropdown|renderExpiredTrialResolutionControl|updateLinkedManageStatus/);
 assert.match(page, /return renderExpiredTrialResolutionControl\(tool, item\.accountLabel/);
 
