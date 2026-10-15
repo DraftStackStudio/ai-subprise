@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import { isTrialResolution } from "@/lib/trialResolution";
 import { requireRelationshipLifecycleStatus } from "@/lib/relationshipLifecycle";
-import type { BillingAmount, ManageStatus, TrialResolution, TrialResolutionHistoryEntry } from "@/types/toolDetail";
+import type { BillingAmount, ManageStatus, RetiredBillingAmount, TrialResolution, TrialResolutionHistoryEntry } from "@/types/toolDetail";
 
 export type SupabaseToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
 
@@ -85,6 +85,18 @@ function toolPayload(input: ToolInput) {
 function accountIdsForLabels(accounts: AccountRef[], labels: string[]) {
   const selectedLabels = new Set(labels);
   return accounts.filter((account) => account.id && selectedLabels.has(account.label));
+}
+
+function billingAmountFromRecord(component: Record<string, unknown>): BillingAmount {
+  return {
+    amount: typeof component.amount === "string" ? component.amount : "",
+    billingType: typeof component.billing_type === "string" ? component.billing_type : "",
+    currency: typeof component.currency === "string" ? component.currency : "",
+    id: String(component.id ?? crypto.randomUUID()),
+    lastTopUpDate: typeof component.last_top_up_date === "string" ? component.last_top_up_date : "",
+    nextRenewalDate: typeof component.next_renewal_date === "string" ? component.next_renewal_date : "",
+    purchaseDate: typeof component.purchase_date === "string" ? component.purchase_date : "",
+  };
 }
 
 async function currentUserId() {
@@ -199,23 +211,27 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
     const rawComponents = Array.isArray(rawLink.tool_link_billing_components)
       ? rawLink.tool_link_billing_components
       : [];
-    const billingAmounts = rawComponents
-      .filter((component): component is Record<string, unknown> => Boolean(component) && typeof component === "object")
+    const componentRecords = rawComponents
+      .filter((component): component is Record<string, unknown> => Boolean(component) && typeof component === "object");
+    const billingAmounts = componentRecords
       .filter((component) => {
         const billingType = typeof component.billing_type === "string" ? component.billing_type : "";
         const isRecurring = billingType === "Monthly" || billingType === "Yearly";
         return !isRecurring || component.retired_at === null || component.retired_at === undefined;
       })
-      .map((component): BillingAmount => ({
-        amount: typeof component.amount === "string" ? component.amount : "",
-        billingType: typeof component.billing_type === "string" ? component.billing_type : "",
-        currency: typeof component.currency === "string" ? component.currency : "",
-        id: String(component.id ?? crypto.randomUUID()),
-        lastTopUpDate: typeof component.last_top_up_date === "string" ? component.last_top_up_date : "",
-        nextRenewalDate: typeof component.next_renewal_date === "string" ? component.next_renewal_date : "",
-        purchaseDate: typeof component.purchase_date === "string" ? component.purchase_date : "",
-      }))
+      .map(billingAmountFromRecord)
       .filter((component) => component.billingType);
+    const retiredBillingAmounts = componentRecords
+      .filter((component) => (
+        (component.billing_type === "Monthly" || component.billing_type === "Yearly")
+        && typeof component.retired_at === "string"
+        && component.retired_at
+      ))
+      .map((component): RetiredBillingAmount => ({
+        ...billingAmountFromRecord(component),
+        retiredAt: String(component.retired_at),
+      }))
+      .sort((left, right) => right.retiredAt.localeCompare(left.retiredAt));
     const componentBillingType = billingAmounts.map((component) => component.billingType).join(", ");
     const recurringComponent = billingAmounts.find((component) =>
       component.billingType === "Monthly" || component.billingType === "Yearly");
@@ -260,6 +276,7 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
       plan: typeof rawLink.plan === "string" && rawLink.plan ? rawLink.plan : "Free Tier",
       planName: typeof rawLink.plan_name === "string" ? rawLink.plan_name : "",
       relationshipId: String(rawLink.id ?? ""),
+      retiredBillingAmounts,
       status: requireRelationshipLifecycleStatus(rawLink.status, String(rawLink.id ?? "")),
       toolId: String(rawLink.tool_id ?? ""),
       trialExpiryDate: typeof rawLink.trial_expiry_date === "string" ? rawLink.trial_expiry_date : "",

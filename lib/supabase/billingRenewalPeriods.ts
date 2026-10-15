@@ -90,27 +90,45 @@ function mutationResult(data: unknown): BillingRenewalMutationResult {
   };
 }
 
-export async function getBillingRenewalPeriodsByRelationship(relationshipId: string) {
+export async function getBillingRenewalPeriodsByRelationships(relationshipIds: string[]) {
+  const scopedIds = [...new Set(relationshipIds.filter(Boolean))];
+  if (!scopedIds.length) return [];
   const supabase = createClient();
   const { data, error } = await supabase
     .from("billing_renewal_periods")
     .select("*")
-    .eq("tool_email_link_id", relationshipId)
+    .in("tool_email_link_id", scopedIds)
     .order("scheduled_renewal_date", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((record) => asPeriod(record as Record<string, unknown>));
+  const allowedIds = new Set(scopedIds);
+  return (data ?? [])
+    .map((record) => asPeriod(record as Record<string, unknown>))
+    .filter((period) => allowedIds.has(period.relationshipId));
 }
 
-export async function getBillingRenewalActivitiesByRelationship(relationshipId: string) {
+export async function getBillingRenewalPeriodsByRelationship(relationshipId: string) {
+  return getBillingRenewalPeriodsByRelationships([relationshipId]);
+}
+
+export async function getBillingRenewalActivitiesByRelationships(relationshipIds: string[]) {
+  const scopedIds = [...new Set(relationshipIds.filter(Boolean))];
+  if (!scopedIds.length) return [];
   const supabase = createClient();
   const { data, error } = await supabase
     .from("billing_renewal_activity")
     .select("*")
-    .eq("tool_email_link_id", relationshipId)
+    .in("tool_email_link_id", scopedIds)
     .order("activity_date", { ascending: false })
     .order("created_at", { ascending: false });
   if (error) throw error;
-  return (data ?? []).map((record) => asActivity(record as Record<string, unknown>));
+  const allowedIds = new Set(scopedIds);
+  return (data ?? [])
+    .map((record) => asActivity(record as Record<string, unknown>))
+    .filter((activity) => allowedIds.has(activity.relationshipId));
+}
+
+export async function getBillingRenewalActivitiesByRelationship(relationshipId: string) {
+  return getBillingRenewalActivitiesByRelationships([relationshipId]);
 }
 
 export async function syncDueBillingRenewalPeriods(relationshipId: string, billingComponentId: string, asOfDate?: string) {

@@ -81,7 +81,10 @@ assert.match(billingDetails, /status: ManageStatus/);
 assert.doesNotMatch(billingDetails, /On a Break|On a break/);
 
 const subscriptionAccount = read('components/SubscriptionAccountView.tsx');
-assert.match(subscriptionAccount, /options=\{\["Active", "Paused", "Goodbye"\]/);
+assert.match(subscriptionAccount, /id="subscription-manage"/);
+assert.match(subscriptionAccount, /options=\{\[\{ value: "pause", label: "Pause subscription" \}\]\}/);
+assert.match(subscriptionAccount, /tool-status-chip status-muted subscription-lifecycle-pill/);
+assert.doesNotMatch(subscriptionAccount, /id="subscription-status"/);
 
 const linkModal = read('components/LinkAIToolModal.tsx');
 assert.match(linkModal, /\{ label: "Paused", value: "Paused" \}/);

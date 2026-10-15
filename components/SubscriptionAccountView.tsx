@@ -4,21 +4,22 @@ import type { BillingAmount } from "@/types/toolDetail";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { useState } from "react";
 import { DropdownControl } from "@/components/DropdownControls";
-import type { ManageStatus } from "@/types/toolDetail";
 import SubscriptionBillingEditor, { type SubscriptionActions } from "@/components/SubscriptionBillingEditor";
+import PauseSubscriptionModal from "@/components/PauseSubscriptionModal";
 import BillingPastEntryModal from "@/components/BillingPastEntryModal";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
 import SubscriptionPayments from "@/components/SubscriptionPayments";
 import UnconfirmedBillingSection from "@/components/UnconfirmedBillingSection";
+import { canPauseSubscription } from "@/lib/subscriptionPause";
 
 function displayAmount(currency: string, amount: string) {
   return currency.trim() && amount.trim() ? `${currency.trim()} ${amount.trim()}` : "—";
 }
 
-function componentDate(component: BillingAmount) {
+function componentDate(component: BillingAmount, isLastBillingSetup = false) {
   switch (component.billingType) {
     case "Monthly":
-    case "Yearly": return { label: "Next renewal", value: component.nextRenewalDate };
+    case "Yearly": return { label: isLastBillingSetup ? "Last recorded renewal" : "Next renewal", value: component.nextRenewalDate };
     case "Lifetime":
     case "One-time": return { label: "Purchased on", value: component.purchaseDate };
     case "Top-up": return { label: "Last top-up", value: component.lastTopUpDate };
@@ -99,10 +100,8 @@ function ActivityMetadata({ parts }: { parts: string[] }) {
 }
 
 export default function SubscriptionAccountView({ account, ...actions }: SubscriptionActions & { account: SubscriptionRow }) {
-  const [statusDraft, setStatusDraft] = useState<ManageStatus | null>(null);
-  const [statusOpen, setStatusOpen] = useState(false);
-  const [statusBusy, setStatusBusy] = useState(false);
-  const [statusError, setStatusError] = useState("");
+  const [manageOpen, setManageOpen] = useState(false);
+  const [pauseOpen, setPauseOpen] = useState(false);
   const [editingBilling, setEditingBilling] = useState(false);
   const [paymentPrompt, setPaymentPrompt] = useState(false);
   const [paymentChoice, setPaymentChoice] = useState(false);
@@ -114,13 +113,23 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
   const paymentAccount = paymentPrefill ? { ...account, planName: paymentPrefill.planName, billingComponents: paymentPrefill.billingComponents } : account;
   const finishPaymentFlow = () => { setPaymentMode(null); setPaymentChoice(false); setFirstTimeSetup(false); setPaymentPrefill(null); actions.onPaymentsChanged?.(); };
   const shouldUpdateCurrentBilling = firstTimeSetup || paymentMode === "period";
-  const canAddPayment = Boolean(account.relationshipId && account.canManageBilling) && !editingBilling && statusDraft === null && !statusBusy;
+  const canAddPayment = Boolean(account.relationshipId && account.canManageBilling) && !editingBilling;
+  const pauseEligible = canPauseSubscription({ canManageBilling: account.canManageBilling, lifecycleStatus: account.status, planStatus: account.planStatus });
+  const showLastBillingSetup = Boolean(account.lastBillingSetup)
+    && (!account.canManageBilling || account.status !== "Active");
+  const displayedBillingComponents = showLastBillingSetup
+    ? account.lastBillingSetup?.components ?? []
+    : account.billingComponents;
   // Keep history relationship-scoped even if callers later pass a broader collection.
   const lifecycleActivity = account.activity.filter((entry) => entry.saved === true && lifecycleEvents.has(entry.event) && entry.date).map((entry, index): AccountActivityItem => {
     const title = activityDisplayLabels[entry.event] ?? entry.event;
     return {
       date: entry.date,
-      details: compactActivityDetails(entry.planName, entry.billingType),
+      details: compactActivityDetails(
+        entry.planName,
+        entry.billingType,
+        entry.amount?.trim() ? displayAmount(entry.currency ?? "", entry.amount) : undefined,
+      ),
       id: entry.id,
       lifecycleEvent: entry.event,
       note: visibleLifecycleNote(title, entry.note || ""),
@@ -160,33 +169,35 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
 
   return <div className="subscription-account-view" data-relationship-id={account.relationshipId}>
     <section className="subscription-account-card" aria-label="Account">
-      <div className="subscription-callout-identity">
+      <div className="subscription-account-header-section subscription-callout-tool">
         <span className="tool-logo" style={{ background: account.logoBackground }}>{account.logo}</span>
-        <div><div className="subscription-callout-title"><h2>{account.toolName}</h2></div><LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail || "Not available"} tagClass={account.accountTag} /></div>
+        <h2>{account.toolName}</h2>
       </div>
-      <div className="subscription-callout-status">
-        {account.canManageBilling ? <fieldset className="billing-current-fields" disabled={statusBusy || editingBilling}>
-          <DropdownControl ariaLabel="Account Status" className="subscription-lifecycle-dropdown" id="subscription-status" isOpen={statusOpen} onOpenChange={(id) => setStatusOpen(Boolean(id))} onChange={(value) => { setStatusDraft(value as ManageStatus); setStatusOpen(false); setStatusError(""); }} value={statusDraft ?? account.status} options={["Active", "Paused", "Goodbye"].map((value) => ({ value, label: value }))} />
-          {statusDraft !== null ?
-          <div className="welcome-modal-actions"><button className="btn-sm" type="button" onClick={() => { setStatusDraft(null); setStatusOpen(false); }}>Cancel</button><button className="btn-sm" type="button" onClick={async () => { setStatusBusy(true); setStatusError(""); try { await actions.onSaveStatus(account.relationshipId, statusDraft); setStatusDraft(null); } catch (error) { setStatusError(error instanceof Error ? error.message : "Could not save status."); } finally { setStatusBusy(false); } }}>Save changes</button></div>
+      <div className="subscription-account-header-section subscription-callout-account">
+        <LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail || "Not available"} tagClass={account.accountTag} />
+      </div>
+      <div className="subscription-account-header-section subscription-callout-lifecycle">
+        <span className="tool-status-chip status-muted subscription-lifecycle-pill">{account.status}</span>
+      </div>
+      <div className="subscription-account-header-section subscription-callout-action">
+        {account.canManageBilling ? pauseEligible ? <DropdownControl ariaLabel="Manage Subscription" className="subscription-lifecycle-dropdown" id="subscription-manage" isOpen={manageOpen} onOpenChange={(id) => setManageOpen(Boolean(id))} onChange={(value) => { if (value === "pause") setPauseOpen(true); }} placeholder="Manage Subscription" selectedLabel="Manage Subscription" value="" options={[{ value: "pause", label: "Pause subscription" }]} />
+          : <button aria-label="Manage Subscription" className="subscription-manage-trigger" disabled title="No lifecycle actions are currently available" type="button"><span>Manage Subscription</span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg></button>
           : null}
-        </fieldset> : <span>{account.status}</span>}
-        {statusError ? <small className="field-feedback error" role="alert">{statusError}</small> : null}
       </div>
     </section>
 
     <section className="subscription-account-section" aria-labelledby="subscription-current-billing">
-      <div className="subscription-section-heading"><h3 id="subscription-current-billing">Current Billing</h3>{account.state === "Incomplete" && account.billingComponents.length && account.canManageBilling ? <button className="btn-primary" disabled={statusDraft !== null || statusBusy} type="button" onClick={() => { setContinueToPaymentAfterBilling(true); setEditingBilling(true); }}>Complete setup</button> : null}</div>
-      {!account.billingComponents.length ? <div className="subscription-detail-empty subscription-setup-helper">
+      <div className="subscription-section-heading"><h3 id="subscription-current-billing">{showLastBillingSetup ? "Last Billing Setup" : "Current Billing"}</h3>{!showLastBillingSetup && account.state === "Incomplete" && account.billingComponents.length && account.canManageBilling ? <button className="btn-primary" type="button" onClick={() => { setContinueToPaymentAfterBilling(true); setEditingBilling(true); }}>Complete setup</button> : null}</div>
+      {!displayedBillingComponents.length ? <div className="subscription-detail-empty subscription-setup-helper">
         <svg aria-hidden="true" className="subscription-warning-icon" viewBox="0 0 24 24"><path d="M12 3 22 21H2L12 3Z" /><path d="M12 9v5M12 17v1" /></svg>
         <div><strong>Your billing information is incomplete.</strong><p>Please complete the setup to keep track of your subscription.</p></div>
-        <button className="btn-primary" disabled={!account.canManageBilling || statusDraft !== null || statusBusy} type="button" onClick={() => { setFirstTimeSetup(true); setPaymentChoice(true); }}>Set up billing</button>
+        {!showLastBillingSetup ? <button className="btn-primary" disabled={!account.canManageBilling} type="button" onClick={() => { setFirstTimeSetup(true); setPaymentChoice(true); }}>Set up billing</button> : null}
       </div> : <div className="subscription-current-components">
-        {account.state === "Complete" && account.canManageBilling && !editingBilling ? <button aria-label="Edit Current Billing" className="subscription-current-edit" disabled={statusDraft !== null || statusBusy} type="button" onClick={() => { setContinueToPaymentAfterBilling(false); setEditingBilling(true); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m4 20 4.25-1 10.4-10.4a2.1 2.1 0 0 0-3-3L5.25 16 4 20Z" /><path d="m14.5 7.5 3 3" /></svg></button> : null}
-        {account.billingComponents.map((component, index) => {
-          const date = componentDate(component);
+        {!showLastBillingSetup && account.state === "Complete" && account.canManageBilling && !editingBilling ? <button aria-label="Edit Current Billing" className="subscription-current-edit" type="button" onClick={() => { setContinueToPaymentAfterBilling(false); setEditingBilling(true); }}><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m4 20 4.25-1 10.4-10.4a2.1 2.1 0 0 0-3-3L5.25 16 4 20Z" /><path d="m14.5 7.5 3 3" /></svg></button> : null}
+        {displayedBillingComponents.map((component, index) => {
+          const date = componentDate(component, showLastBillingSetup);
           return <dl className="subscription-current-component" key={component.id || `${component.billingType}-${index}`}>
-            <div><dt>Plan Name</dt><dd>{account.planName.trim() ? <span className={`tool-status-chip subscription-current-plan-pill ${account.planTone}`}>{account.planName.trim()}</span> : "Not set"}</dd></div>
+            <div><dt>Plan Name</dt><dd>{account.planName.trim() ? <span className="tool-status-chip status-muted subscription-current-plan-pill">{account.planName.trim()}</span> : "Not set"}</dd></div>
             <div><dt>Billing Type</dt><dd>{component.billingType === "Top-up" ? "Top-up credit" : component.billingType === "One-time" ? "One-time payment" : component.billingType}</dd></div>
             <div><dt>Amount</dt><dd>{displayAmount(component.currency, component.amount)}</dd></div>
             <div><dt>{date.label}</dt><dd>{date.value ? billingHistoryDisplayDate(date.value) : "Not set"}</dd></div>
@@ -232,6 +243,10 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
       <p>Add this billing cycle now, or add several past billing records.</p>
       <div className="welcome-modal-actions"><button className="btn-sm" type="button" onClick={() => setPaymentPrompt(false)}>Not now</button><button className="btn-primary" type="button" onClick={() => { setPaymentPrompt(false); setPaymentChoice(true); }}>Add payment</button></div>
     </section></div> : null}
+    {pauseOpen ? <PauseSubscriptionModal onCancel={() => setPauseOpen(false)} onConfirm={async (requestId, input) => {
+      await actions.onPauseSubscription(account.relationshipId, requestId, input);
+      setPauseOpen(false);
+    }} /> : null}
     {editingBilling ? <div className="welcome-modal-overlay" role="presentation"><section className="welcome-modal subscription-current-billing-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-current-billing-modal-title">
       <h2 id="subscription-current-billing-modal-title">Edit Current Billing</h2>
       <SubscriptionBillingEditor account={account} {...actions} onClose={() => { setEditingBilling(false); setContinueToPaymentAfterBilling(false); }} onSaved={(planName, billingComponents) => {

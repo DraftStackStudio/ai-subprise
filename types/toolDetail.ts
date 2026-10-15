@@ -34,6 +34,10 @@ export type BillingAmount = {
   purchaseDate?: string;
 };
 
+export type RetiredBillingAmount = BillingAmount & {
+  retiredAt: string;
+};
+
 export type ToolDetailAccountDraft = {
   accountLabel: string;
   billingAmounts: BillingAmount[];

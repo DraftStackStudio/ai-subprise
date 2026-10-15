@@ -34,9 +34,9 @@ assert(directory.includes('{ groups: groupAccounts((account) => account.isHistor
 assert(directory.includes('account.isHistorical ? "Historical"'));
 
 const details = read('components/BillingDetailsView.tsx');
-assert(details.includes('account.isHistorical ? "Last Billing Setup" : "Current Billing"'));
+assert(details.includes('account.isHistorical || showLastBillingSetup ? "Last Billing Setup" : "Current Billing"'));
 assert(details.includes('isHistorical ? "Last recorded renewal" : "Next renewal"'));
-assert(details.includes('{!account.isHistorical ? <DetailsSection title="Upcoming">'));
+assert(details.includes('{account.status === "Active" && !account.isHistorical ? <DetailsSection title="Upcoming">'));
 assert(details.includes('title="Payments"'));
 assert(details.includes('title="Account Activity"'));
 assert(details.includes('billingRelationshipSelectorLabel(account.accountLabel, account.planName, account.isHistorical)'));

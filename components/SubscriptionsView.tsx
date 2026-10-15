@@ -10,6 +10,7 @@ import type { BillingTransaction } from "@/types/billingTransaction";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { SubscriptionActions } from "@/components/SubscriptionBillingEditor";
 import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
+import type { LastBillingSetup, SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
 import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
 import { newestFirstUnresolvedRenewalPeriods } from "@/lib/renewalPeriods";
 
@@ -24,6 +25,7 @@ export type SubscriptionRow = {
   accountEmail: string;
   accountTag: string;
   plan: string;
+  planStatus: string;
   planTone: string;
   status: ManageStatus;
   billing: string[];
@@ -33,6 +35,8 @@ export type SubscriptionRow = {
   payments: BillingTransaction[];
   renewalPeriods: BillingRenewalPeriod[];
   renewalActivities?: BillingRenewalActivity[];
+  lifecycleEvents: SubscriptionLifecycleEvent[];
+  lastBillingSetup: LastBillingSetup | null;
   activity: BillingHistoryEntry[];
 };
 

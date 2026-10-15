@@ -12,3 +12,6 @@ npm-debug.log*
 .vercel
 *.tsbuildinfo
 next-env.d.ts
+scripts/pause-e2e-baseline-non-fixture.json
+scripts/pause-e2e-pre-pause-non-fixture.json
+scripts/pause-e2e-pre-pause-fixture-approved-2026-10-15.json

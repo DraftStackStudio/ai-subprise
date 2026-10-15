@@ -461,7 +461,21 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
         {transactions.length > 5 ? <button className="billing-history-view-more" onClick={() => setShowAllPayments((value) => !value)} type="button">{showAllPayments ? "Show fewer payments" : `View ${hiddenPaymentCount} more payments`}</button> : null}
       </> : <div className="billing-history-empty-state"><strong>No payments recorded yet</strong><p>Add previous payments to build your billing history.</p><button className="billing-history-add-button" onClick={openForm} type="button">+ Add Payment</button></div>}
 
-      {activity.length ? <section className="billing-history-activity"><h3>Account Activity</h3><div className="billing-history-activity-list">{activity.map((entry) => <div className="billing-history-activity-row" key={entry.id}><div><strong>{entry.event}</strong><span>{billingHistoryDisplayDate(entry.date)}</span></div><p>{entry.note || ""}</p></div>)}</div></section> : null}
+      {activity.length ? <section className="billing-history-activity"><h3>Account Activity</h3><div className="billing-history-activity-list">{activity.map((entry) => {
+        const entryAmount = "amount" in entry ? entry.amount?.trim() : "";
+        const amount = entryAmount
+          ? ["currency" in entry ? entry.currency?.trim() : "", entryAmount].filter(Boolean).join(" ")
+          : "";
+        const details = [
+          "planName" in entry ? entry.planName : undefined,
+          "billingType" in entry ? entry.billingType : undefined,
+          amount,
+          entry.note,
+        ]
+          .map((value) => value?.trim())
+          .filter((value): value is string => Boolean(value));
+        return <div className="billing-history-activity-row" key={entry.id}><div><strong>{entry.event}</strong><span>{billingHistoryDisplayDate(entry.date)}</span></div>{details.length ? <p>{details.join(" · ")}</p> : null}</div>;
+      })}</div></section> : null}
     </div> : null}
     {showPastBillingModal ? <div className="welcome-modal-overlay billing-past-modal-overlay"
       onClick={(event) => { if (modalBackdropPressStarted.current && event.target === event.currentTarget) closeForm(); modalBackdropPressStarted.current = false; }}

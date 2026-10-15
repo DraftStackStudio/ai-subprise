@@ -348,7 +348,6 @@ async function main() {
   assert(!read('components/SubscriptionBillingEditor.tsx').includes('useEffect'));
   assert(!saves.includes('createBillingTransaction'));
   hooks = [];
-  const statusCalls = [];
   const AccountView = load('components/SubscriptionAccountView.tsx', {
     react,
     '@/components/ToolRowRenderer': { LinkedAccountCell: () => null },
@@ -357,17 +356,19 @@ async function main() {
     '@/components/BillingPastEntryModal': { default: () => null },
     '@/components/BillingHistoryPanel': { default: () => null },
     '@/components/SubscriptionPayments': { default: () => null },
+    '@/components/PauseSubscriptionModal': { default: () => null },
     '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
+    '@/lib/subscriptionPause': { canPauseSubscription: ({ canManageBilling, lifecycleStatus, planStatus }) => canManageBilling && lifecycleStatus === 'Active' && planStatus === 'Paid' },
   }).default;
   assert(read('components/SubscriptionAccountView.tsx').includes('const shouldUpdateCurrentBilling = firstTimeSetup || paymentMode === "period";'));
-  const account = { ...props.account, plan: 'Paid', planTone: 'status-running', planName: '', canManageBilling: true, toolName: 'Test Tool', status: 'Active', payments: [
+  const account = { ...props.account, plan: 'Paid', planStatus: 'Paid', planTone: 'status-running', planName: '', canManageBilling: true, toolName: 'Test Tool', status: 'Active', payments: [
     { id: 'p1', relationshipId: 'r1', paymentDate: '2026-08-10', planNameSnapshot: 'Historical', billingTypeSnapshot: 'Monthly', currency: 'SGD', amount: '20', status: 'Paid' },
     { id: 'p2', relationshipId: 'r2', paymentDate: '2026-08-11' },
   ], activity: [{ id: 'a1', saved: true, event: 'Paused', date: '2026-08-01', note: 'First' }, { id: 'a2', saved: false, event: 'Resumed', date: '2026-08-02' }, { id: 'a3', saved: true, event: 'Cancelled', date: '2026-08-01', note: 'Second' }, { id: 'a4', saved: true, event: 'Trial Started', date: '2026-07-31' }] };
-  const renderAccount = () => { cursor = 0; return AccountView({ ...props, account, onSaveStatus: async (...args) => statusCalls.push(args) }); };
+  const renderAccount = () => { cursor = 0; return AccountView({ ...props, account, onPauseSubscription: async () => {} }); };
   hooks = [];
-  hooks[7] = 'period';
-  hooks[9] = false;
+  hooks[5] = 'period';
+  hooks[7] = false;
   let periodCurrentBillingSave;
   const savedBillingHandler = props.onSaveBilling;
   props.onSaveBilling = async (...args) => { periodCurrentBillingSave = args; };
@@ -384,7 +385,7 @@ async function main() {
   let syncedCurrentBilling;
   props.onSaveBilling = async (...args) => { syncedCurrentBilling = args; };
   tree = renderAccount();
-  assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip subscription-current-plan-pill status-running' && node.props.children === 'Max'));
+  assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip status-muted subscription-current-plan-pill' && node.props.children === 'Max'));
   assert(!read('components/SubscriptionAccountView.tsx').includes('tool-status-chip current-plan-pill'));
   assert(read('components/SubscriptionAccountView.tsx').includes('className="subscription-lifecycle-dropdown"'));
   const paymentProps = nodes(tree).find((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.onUpdateCurrentBillingAmount === 'function').props;
@@ -407,9 +408,10 @@ async function main() {
   assert.equal(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-event').length, 3);
   assert.equal(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-date' && node.props.children === '2026-08-01').length, 2);
   assert.deepEqual(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-event').map((node) => nodes(node).find((child) => child.type === 'strong').props.children), ['Subscription cancelled', 'Paused', 'Trial Started']);
-  nodes(tree).find((node) => node.props?.id === 'subscription-status').props.onChange('Goodbye');
-  await button(renderAccount(), 'Save changes').props.onClick();
-  assert.deepEqual(statusCalls, [['r1', 'Goodbye']]);
+  const manageSubscription = nodes(tree).find((node) => node.props?.id === 'subscription-manage');
+  assert(manageSubscription);
+  assert.deepEqual(manageSubscription.props.options, [{ value: 'pause', label: 'Pause subscription' }]);
+  assert(!nodes(tree).some((node) => node.props?.id === 'subscription-status'));
   nodes(renderAccount()).find((node) => node.props?.['aria-label'] === 'Edit Current Billing').props.onClick();
   tree = renderAccount();
   assert(nodes(tree).some((node) => node.type === Editor));
