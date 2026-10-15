@@ -2507,6 +2507,7 @@ p {
 
 .dashboard-attention-panel {
   border-color: transparent;
+  isolation: isolate;
   overflow: visible;
   position: relative;
 }
@@ -12062,10 +12063,12 @@ select:focus-visible {
 .subscription-setup-helper { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; box-sizing: border-box; background: var(--surface); }
 .subscription-setup-helper > div { flex: 1 1 280px; min-width: 0; }
 .subscription-setup-helper > .btn-primary { flex-shrink: 0; margin-left: auto; }
-.subscription-setup-helper > svg { width: 20px; height: 20px; flex-shrink: 0; fill: none; stroke: currentColor; stroke-width: 1.5; }
-.subscription-setup-helper > .subscription-warning-icon { stroke-linejoin: round; }
+.subscription-payment-empty-heading { align-items: center; color: var(--text-1); display: flex; gap: 8px; }
+.subscription-payment-empty-heading > svg { color: var(--accent); fill: none; flex: 0 0 20px; height: 20px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.5; width: 20px; }
+.subscription-setup-helper > .subscription-warning-icon { fill: none; flex-shrink: 0; height: 20px; stroke: currentColor; stroke-linejoin: round; stroke-width: 1.5; width: 20px; }
 .subscription-setup-helper strong { color: var(--text-1); font-weight: 600; }
 .subscription-setup-helper p { margin: 6px 0 0; }
+.subscription-setup-helper > .subscription-payment-empty-copy > p { margin: 6px 0 0 28px; }
 .subscription-current-billing-modal { max-height: 90vh; max-width: 620px; overflow-y: auto; }
 .subscription-current-billing-modal > h2 { margin-bottom: 18px; }
 @media (max-width: 980px) {

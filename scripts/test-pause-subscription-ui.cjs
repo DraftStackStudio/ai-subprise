@@ -125,6 +125,10 @@ const lifecycle = loadTypeScript('lib/supabase/subscriptionLifecycleEvents.ts', 
   assert.match(styles, /\.subscription-pause-reason:focus[\s\S]*border-color: var\(--accent\);[\s\S]*box-shadow: 0 0 0 3px rgba\(240, 200, 70, \.18\);[\s\S]*outline: 0;/);
   assert.match(styles, /\.subscription-pause-info[\s\S]*border-top: 1px solid var\(--border\);/);
   assert.match(styles, /\.subscription-pause-info > svg[\s\S]*color: var\(--accent\);/);
+  assert.match(payments, /subscription-payment-empty-heading"><svg aria-hidden="true"[\s\S]*<strong>No payments recorded yet\.<\/strong>/);
+  assert.match(styles, /\.subscription-payment-empty-heading[\s\S]*color: var\(--text-1\);/);
+  assert.match(styles, /\.subscription-payment-empty-heading > svg[\s\S]*color: var\(--accent\);/);
+  assert.match(styles, /\.subscription-setup-helper > \.subscription-payment-empty-copy > p \{ margin: 6px 0 0 28px; \}/);
   assert.match(styles, /\.modal-date-display-control input\[type="date"\],[\s\S]*\.modal-date-display-control input\[type="month"\]/);
   assert.match(accountView, /options=\{\[\{ value: "pause", label: "Pause subscription" \}\]\}/);
   assert.doesNotMatch(accountView, /options=\{\["Active", "Paused", "Goodbye"\]/);
