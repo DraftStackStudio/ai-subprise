@@ -11999,6 +11999,20 @@ select:focus-visible {
 .subscription-pause-info p { color: var(--text-3); font-size: 11px; line-height: 1.45; margin: 0; }
 .subscription-pause-error { display: block; }
 .subscription-pause-actions { margin-top: 18px; }
+.subscription-resume-modal { max-width: 560px; }
+.subscription-resume-provider-check,
+.subscription-resume-success,
+.subscription-resume-review-warning { background: rgba(240, 200, 70, .08); border: 1px solid rgba(240, 200, 70, .24); border-radius: var(--r-md); display: grid; gap: 4px; padding: 12px 14px; }
+.subscription-resume-provider-check strong,
+.subscription-resume-success strong,
+.subscription-resume-review-warning strong { color: var(--text-1); font-size: 12px; }
+.subscription-resume-provider-check span,
+.subscription-resume-success span,
+.subscription-resume-review-warning span { color: var(--text-3); font-size: 11px; line-height: 1.45; }
+.subscription-resume-confirm-suggestion { align-items: center; align-self: flex-start; color: var(--text-2); cursor: pointer; display: inline-flex; font-size: 12px; gap: 8px; margin: 8px 0; }
+.subscription-resume-confirm-suggestion input { accent-color: var(--accent); height: 15px; margin: 0; width: 15px; }
+.subscription-resume-confirm-suggestion input:focus-visible { outline: 2px solid rgba(240, 200, 70, .42); outline-offset: 2px; }
+.subscription-resume-confirm-suggestion:has(input:disabled) { color: var(--text-3); cursor: default; }
 .subscription-payment-database { overflow: visible; }
 .subscription-payment-table th:first-child { border-top-left-radius: var(--r-md); }
 .subscription-payment-table th:last-child { border-top-right-radius: var(--r-md); }

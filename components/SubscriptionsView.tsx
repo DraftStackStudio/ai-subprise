@@ -5,7 +5,7 @@ import { DropdownControl } from "@/components/DropdownControls";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
 import type { SubscriptionState } from "@/lib/subscriptions";
 import SubscriptionAccountView from "@/components/SubscriptionAccountView";
-import type { BillingAmount, ManageStatus } from "@/types/toolDetail";
+import type { BillingAmount, ManageStatus, RetiredBillingAmount } from "@/types/toolDetail";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { SubscriptionActions } from "@/components/SubscriptionBillingEditor";
@@ -32,6 +32,7 @@ export type SubscriptionRow = {
   state: SubscriptionState;
   planName: string;
   billingComponents: BillingAmount[];
+  retiredBillingComponents: RetiredBillingAmount[];
   payments: BillingTransaction[];
   renewalPeriods: BillingRenewalPeriod[];
   renewalActivities?: BillingRenewalActivity[];

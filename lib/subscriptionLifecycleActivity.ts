@@ -43,6 +43,41 @@ export function pauseLifecycleHistoryEntries(
   });
 }
 
+export function resumeLifecycleHistoryEntries(
+  events: SubscriptionLifecycleEvent[],
+  relationshipId: string,
+): BillingHistoryEntry[] {
+  const seenEventIds = new Set<string>();
+
+  return events.flatMap((event): BillingHistoryEntry[] => {
+    if (
+      event.relationshipId !== relationshipId ||
+      event.eventKind !== "resumed" ||
+      !event.id ||
+      !event.effectiveDate ||
+      seenEventIds.has(event.id)
+    ) return [];
+
+    seenEventIds.add(event.id);
+    const nextRenewal = event.nextRenewalDateSnapshot
+      ? `Next renewal: ${billingHistoryDisplayDate(event.nextRenewalDateSnapshot)}`
+      : "Next renewal needs review";
+
+    return [{
+      amount: optionalSnapshot(event.amountSnapshot),
+      billingType: optionalSnapshot(event.billingTypeSnapshot),
+      currency: optionalSnapshot(event.currencySnapshot),
+      date: event.effectiveDate,
+      event: "Resumed",
+      id: `lifecycle-resume-${event.id}`,
+      note: nextRenewal,
+      planName: optionalSnapshot(event.planNameSnapshot) ?? optionalSnapshot(event.previousPlanName),
+      saved: true,
+      source: "generated",
+    }];
+  });
+}
+
 export function mergePauseLifecycleHistory(
   existingEntries: BillingHistoryEntry[],
   events: SubscriptionLifecycleEvent[],
@@ -55,4 +90,22 @@ export function mergePauseLifecycleHistory(
   ));
 
   return [...nonDuplicateExistingEntries, ...pauseEntries];
+}
+
+export function mergeSubscriptionLifecycleHistory(
+  existingEntries: BillingHistoryEntry[],
+  events: SubscriptionLifecycleEvent[],
+  relationshipId: string,
+) {
+  const ledgerEntries = [
+    ...pauseLifecycleHistoryEntries(events, relationshipId),
+    ...resumeLifecycleHistoryEntries(events, relationshipId),
+  ];
+  const ledgerDatesByEvent = new Set(ledgerEntries.map((entry) => `${entry.event}:${entry.date}`));
+  const ledgerIds = new Set(ledgerEntries.map((entry) => entry.id));
+  const nonDuplicateExistingEntries = existingEntries.filter((entry) => (
+    !ledgerIds.has(entry.id) && !ledgerDatesByEvent.has(`${entry.event}:${entry.date}`)
+  ));
+
+  return [...nonDuplicateExistingEntries, ...ledgerEntries];
 }

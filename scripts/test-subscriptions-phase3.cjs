@@ -265,13 +265,13 @@ async function main() {
     ${statusSource}
     module.exports = { updateLinkedManageStatus, calls, events, get: () => toolAccountDetails };
   `);
-  await statusWiring.updateLinkedManageStatus({ id: 'tool' }, 'Personal', 'Active', 'r1');
-  assert.equal(statusWiring.calls[0][4].expectedRelationshipId, 'r1');
-  assert.deepEqual(statusWiring.events, [['Paused', 'Active']]);
-  assert.equal(statusWiring.get().tool.Personal.billingAmounts[0].nextRenewalDate, '2026-09-30');
+  await assert.rejects(statusWiring.updateLinkedManageStatus({ id: 'tool' }, 'Personal', 'Active', 'r1'), /Use Resume Subscription/);
+  assert.equal(statusWiring.calls.length, 0);
+  assert.deepEqual(statusWiring.events, []);
+  assert.equal(statusWiring.get().tool.Personal.billingAmounts[0].nextRenewalDate, '2026-09-18');
   assert.equal(statusWiring.get().tool.Personal.relationshipId, 'r1');
   await assert.rejects(statusWiring.updateLinkedManageStatus({ id: 'tool' }, 'Personal', 'Goodbye', 'r2'));
-  assert.equal(statusWiring.calls.length, 1);
+  assert.equal(statusWiring.calls.length, 0);
 
   // Render the actual editor with a small hook harness; Cancel must never call Save.
   let hooks = [], cursor = 0, calls = 0;
@@ -346,7 +346,8 @@ async function main() {
   delete props.onSaved;
   // Leaving the edit view unmounts the draft; there is no effect or autosave path.
   assert(!read('components/SubscriptionBillingEditor.tsx').includes('useEffect'));
-  assert(!saves.includes('createBillingTransaction'));
+  const currentBillingSave = saves.slice(saves.indexOf('  const saveSubscriptionBilling ='), saves.indexOf('  const pauseSubscriptionRelationship ='));
+  assert(!currentBillingSave.includes('createBillingTransaction'));
   hooks = [];
   const AccountView = load('components/SubscriptionAccountView.tsx', {
     react,

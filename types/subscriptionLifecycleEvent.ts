@@ -17,6 +17,7 @@ export type SubscriptionLifecycleEvent = {
   eventKind: SubscriptionLifecycleEventKind;
   id: string;
   newBillingComponentId: string;
+  nextRenewalDateSnapshot: string;
   nextLifecycleState: "Active" | "Paused" | "Goodbye";
   planNameSnapshot: string;
   plannedResumeDate: string;
@@ -40,5 +41,14 @@ export type PauseSubscriptionResult = {
   materializedPeriodCount: number;
   relationshipId: string;
   retiredBillingComponentId: string;
+  wasAlreadyApplied: boolean;
+};
+
+export type ResumeSubscriptionResult = {
+  lifecycleEventId: string;
+  newBillingComponentId: string;
+  nextRenewalDate: string;
+  previousBillingComponentId: string;
+  relationshipId: string;
   wasAlreadyApplied: boolean;
 };

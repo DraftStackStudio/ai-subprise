@@ -5,6 +5,8 @@ import DateFieldControl from "@/components/DateFieldControl";
 import { DropdownControl, MultiSelectDropdownControl, type DropdownOption } from "@/components/DropdownControls";
 import type { BillingAmount } from "@/types/toolDetail";
 import type { PauseSubscriptionInput } from "@/lib/subscriptionPause";
+import type { ResumePaymentInput, ResumeSubscriptionInput } from "@/lib/subscriptionResume";
+import type { ResumeSubscriptionResult } from "@/types/subscriptionLifecycleEvent";
 import type { SubscriptionRow } from "@/components/SubscriptionsView";
 import type { BillingRenewalMutationResult, BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
 import { validSubscriptionBillingTypes } from "@/lib/subscriptions";
@@ -14,6 +16,8 @@ export type SubscriptionActions = {
   onConfirmRenewalPaid: (relationshipId: string, periodId: string) => Promise<BillingRenewalMutationResult>;
   onMarkRenewalNotCharged: (relationshipId: string, periodId: string, input: MarkBillingRenewalNotChargedInput) => Promise<BillingRenewalMutationResult>;
   onPauseSubscription: (relationshipId: string, requestId: string, input: PauseSubscriptionInput) => Promise<void>;
+  onResumeSubscription: (relationshipId: string, requestId: string, pauseEventId: string, input: ResumeSubscriptionInput) => Promise<ResumeSubscriptionResult>;
+  onRecordResumePayment: (relationshipId: string, lifecycleEventId: string, input: ResumePaymentInput) => Promise<void>;
   onSaveBilling: (relationshipId: string, planName: string, components: BillingAmount[]) => Promise<void>;
   onUndoRenewalResolution: (relationshipId: string, periodId: string) => Promise<BillingRenewalMutationResult>;
   onUpdateRenewalPeriodSnapshot: (relationshipId: string, periodId: string, input: UpdateBillingRenewalPeriodSnapshotInput) => Promise<BillingRenewalPeriod>;

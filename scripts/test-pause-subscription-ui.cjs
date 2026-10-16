@@ -130,7 +130,7 @@ const lifecycle = loadTypeScript('lib/supabase/subscriptionLifecycleEvents.ts', 
   assert.match(styles, /\.subscription-payment-empty-heading > svg[\s\S]*color: var\(--accent\);/);
   assert.match(styles, /\.subscription-setup-helper > \.subscription-payment-empty-copy > p \{ margin: 6px 0 0 28px; \}/);
   assert.match(styles, /\.modal-date-display-control input\[type="date"\],[\s\S]*\.modal-date-display-control input\[type="month"\]/);
-  assert.match(accountView, /options=\{\[\{ value: "pause", label: "Pause subscription" \}\]\}/);
+  assert.match(accountView, /pauseEligible \? \[\{ value: "pause", label: "Pause subscription" \}\]/);
   assert.doesNotMatch(accountView, /options=\{\["Active", "Paused", "Goodbye"\]/);
   assert.match(accountView, /subscription-callout-tool/);
   assert.match(accountView, /subscription-callout-account/);

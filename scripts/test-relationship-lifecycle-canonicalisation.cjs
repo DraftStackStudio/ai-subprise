@@ -82,9 +82,18 @@ assert.doesNotMatch(billingDetails, /On a Break|On a break/);
 
 const subscriptionAccount = read('components/SubscriptionAccountView.tsx');
 assert.match(subscriptionAccount, /id="subscription-manage"/);
-assert.match(subscriptionAccount, /options=\{\[\{ value: "pause", label: "Pause subscription" \}\]\}/);
+assert.match(subscriptionAccount, /const pauseEligible = canPauseSubscription\(/);
+assert.match(subscriptionAccount, /const resumeEligible = canResumeSubscription\(/);
+assert.match(subscriptionAccount, /pauseEligible \|\| resumeEligible \? <DropdownControl[\s\S]*options=\{pauseEligible \? \[\{ value: "pause", label: "Pause subscription" \}\] : \[\{ value: "resume", label: "Resume subscription" \}\]\}/);
+assert.match(subscriptionAccount, /disabled title="No lifecycle actions are currently available"/);
 assert.match(subscriptionAccount, /tool-status-chip status-muted subscription-lifecycle-pill/);
 assert.doesNotMatch(subscriptionAccount, /id="subscription-status"/);
+
+const subscriptionResume = read('lib/subscriptionResume.ts');
+assert.match(subscriptionResume, /input\.lifecycleStatus === "Paused"/);
+assert.match(subscriptionResume, /input\.planStatus === "Active" \|\| input\.planStatus === "Paid"/);
+assert.match(subscriptionResume, /Boolean\(input\.retiredComponentId\)/);
+assert.match(subscriptionResume, /input\.retiredBillingType === "Monthly" \|\| input\.retiredBillingType === "Yearly"/);
 
 const linkModal = read('components/LinkAIToolModal.tsx');
 assert.match(linkModal, /\{ label: "Paused", value: "Paused" \}/);

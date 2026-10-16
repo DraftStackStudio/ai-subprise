@@ -93,9 +93,9 @@ const renewalPeriods = read('lib/renewalPeriods.ts');
 
 assert.match(page, /status: requireRelationshipLifecycleStatus\(detail\.status, detail\.relationshipId\)/);
 assert.match(subscriptions, /const statuses = \["Active", "Paused", "Goodbye"\]/);
-assert.match(page, /mergePauseLifecycleHistory\([\s\S]*detail\.relationshipId/);
-assert.match(page, /mergePauseLifecycleHistory\([\s\S]*directoryAccount\.relationshipId/);
-assert.match(page, /mergePauseLifecycleHistory\([\s\S]*account\.relationshipId/);
+assert.match(page, /mergeSubscriptionLifecycleHistory\([\s\S]*detail\.relationshipId/);
+assert.match(page, /mergeSubscriptionLifecycleHistory\([\s\S]*directoryAccount\.relationshipId/);
+assert.match(page, /mergeSubscriptionLifecycleHistory\([\s\S]*account\.relationshipId/);
 assert.match(page, /!isRelationshipRenewalEligible\(detail\.status\)/);
 assert.match(page, /isRelationshipRenewalEligible\(detail\?\.status\)/);
 assert.match(renewalPeriods, /period\.resolution === null && !period\.excludedAt/);
