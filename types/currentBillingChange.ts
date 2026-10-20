@@ -43,6 +43,15 @@ export type CurrentBillingSnapshot = {
   planName: string;
 };
 
+export type CurrentBillingRevisionComponent = CurrentBillingComponentSnapshot & {
+  id: string;
+};
+
+export type CurrentBillingRevision = {
+  components: Partial<Record<CurrentBillingComponentSlot, CurrentBillingRevisionComponent>>;
+  planName: string;
+};
+
 export type CurrentBillingFieldChange = {
   after: string | null;
   before: string | null;
@@ -73,4 +82,26 @@ export type CompareCurrentBillingInput = {
   isCorrection: boolean;
   previousComponents: BillingAmount[];
   previousPlanName: string;
+};
+
+export type UpdateCurrentBillingInput = {
+  components: BillingAmount[];
+  effectiveDate: string;
+  expectedRevision: CurrentBillingRevision;
+  localDate: string;
+  mode: CurrentBillingChangeMode;
+  planName: string;
+  reason: string | null;
+  relationshipId: string;
+  requestId: string;
+};
+
+export type UpdateCurrentBillingResult = {
+  billingEventId: string | null;
+  excludedPeriodCount: number;
+  newRecurringComponentId: string | null;
+  previousRecurringComponentId: string | null;
+  relationshipId: string;
+  wasAlreadyApplied: boolean;
+  wasNoOp: boolean;
 };

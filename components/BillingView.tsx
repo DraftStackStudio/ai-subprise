@@ -1,5 +1,13 @@
 import { Fragment, type ReactNode } from "react";
-import type { BillingRowOptions } from "@/components/BillingRow";
+
+type BillingRowOptions = {
+  isAccountContinuation?: boolean;
+  isPlanGroupEnd?: boolean;
+  isPlanGroupStart?: boolean;
+  isPlanGrouped?: boolean;
+  isPlanContinuation?: boolean;
+  isToolContinuation?: boolean;
+};
 
 type BillingViewRow = {
   accountLabel: string;

@@ -1,6 +1,10 @@
 -- Rollback-only behavioural verification for migration 0034.
 -- Run manually only after 0034 has been applied. Every a035 fixture rolls back.
+-- Before execution, replace both placeholders below with the exact UUID and
+-- deliverable email of an explicitly approved, confirmed test Auth user.
+-- Never substitute an arbitrary production user.
 begin;
+set transaction isolation level repeatable read;
 
 create temporary table billing_0034_context (user_id uuid primary key) on commit drop;
 create temporary table billing_0034_revision (
@@ -9,10 +13,25 @@ create temporary table billing_0034_revision (
 ) on commit drop;
 
 do $setup$
-declare v_user_id uuid;
+declare
+  v_user_id constant uuid := '00000000-0000-0000-0000-000000000000'::uuid;
+  v_user_email constant text := 'REPLACE_WITH_DEDICATED_TEST_AUTH_EMAIL';
 begin
-  select id into v_user_id from auth.users order by created_at limit 1;
-  if v_user_id is null then raise exception '0034 test requires an authenticated fixture user.'; end if;
+  if v_user_id = '00000000-0000-0000-0000-000000000000'::uuid then
+    raise exception 'Replace the zero UUID with the explicitly approved 0034 test Auth user ID.';
+  end if;
+  if lower(v_user_email) = lower('REPLACE_WITH_DEDICATED_TEST_AUTH_EMAIL') then
+    raise exception 'Replace the Auth-email placeholder with the explicitly approved 0034 test Auth email.';
+  end if;
+  if not exists (
+    select 1
+    from auth.users as fixture_user
+    where fixture_user.id = v_user_id
+      and lower(fixture_user.email) = lower(v_user_email)
+      and fixture_user.email_confirmed_at is not null
+  ) then
+    raise exception 'The exact confirmed 0034 test Auth user was not found.';
+  end if;
   if exists (select 1 from public.ai_tools where id::text like 'a035%')
     or exists (select 1 from public.logins where id::text like 'a035%')
     or exists (select 1 from public.tool_email_links where id::text like 'a035%')
@@ -21,6 +40,39 @@ begin
     or exists (select 1 from public.billing_transactions where id::text like 'a035%')
     or exists (select 1 from public.subscription_billing_events where id::text like 'a035%') then
     raise exception 'Safety stop: disposable a035 fixture IDs already exist.';
+  end if;
+  if exists (
+    select 1
+    from public.ai_tools as tool
+    where tool.user_id = v_user_id
+      and tool.deleted_at is null
+      and lower(trim(tool.name)) = lower(trim('TEST Current Billing Contract 0034'))
+  ) then
+    raise exception 'Safety stop: the 0034 fixture AI tool name already exists for the approved test owner.';
+  end if;
+  if exists (
+    select 1
+    from public.billing_transactions as payment
+    where payment.user_id = v_user_id
+      and payment.source = 'manual'
+      and payment.source_key = 'a035-protected-payment'
+  ) then
+    raise exception 'Safety stop: the 0034 fixture Payment source key already exists for the approved test owner.';
+  end if;
+  if exists (
+    select 1
+    from public.logins as login
+    where login.user_id = v_user_id
+      and lower(login.email_address) in (
+        'billing-change-0034@ai-subprise.invalid',
+        'billing-correction-0034@ai-subprise.invalid',
+        'billing-control-0034@ai-subprise.invalid',
+        'billing-paused-0034@ai-subprise.invalid',
+        'billing-one-time-0034@ai-subprise.invalid',
+        'billing-resolved-0034@ai-subprise.invalid'
+      )
+  ) then
+    raise exception 'Safety stop: a 0034 fixture login address already exists for the approved test owner.';
   end if;
   insert into billing_0034_context values (v_user_id);
 
@@ -276,6 +328,8 @@ begin
 end
 $negative_guards$;
 
+reset role;
+
 do $contract_assertions$
 declare baseline billing_0034_baseline%rowtype;
 begin
@@ -390,6 +444,5 @@ begin
 end
 $contract_assertions$;
 
-reset role;
 select 'PASS: 0034 Current Billing change/correction, effective boundary, audit, idempotency, and isolation contracts verified; all disposable changes will now roll back.' as result;
 rollback;

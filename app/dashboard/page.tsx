@@ -21,7 +21,7 @@ import {
   requireRelationshipLifecycleStatus,
 } from "@/lib/relationshipLifecycle";
 import AccountsOverview from "@/components/AccountsOverview";
-import BillingRow, { HistoricalBillingRow, type BillingRowOptions } from "@/components/BillingRow";
+import { HistoricalBillingRow } from "@/components/BillingRow";
 import BillingView from "@/components/BillingView";
 import BulkToolActions from "@/components/BulkToolActions";
 import AIToolboxView from "@/components/AIToolboxView";
@@ -56,7 +56,6 @@ import SettingsView from "@/components/SettingsView";
 import ToolDetailModal from "@/components/ToolDetailModal";
 import ToolCategoryGroup from "@/components/ToolCategoryGroup";
 import ToolRowRenderer, {
-  BillingAccountCell,
   LinkedAccountCell,
   ToolUrlIcon,
   ToolNameCell,
@@ -103,6 +102,8 @@ import type { LinkToolAccountBlock } from "@/types/linkTool";
 import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship } from "@/lib/supabase/billingTransactions";
 import { estimateCurrentPayment, hasCurrentPayment, localBillingToday, validBillingDate, type CurrentPaymentEstimate, type RecurringBillingSettings } from "@/lib/currentBilling";
 import { unresolvedRenewalReviewGroups } from "@/lib/renewalPeriods";
+import { saveAuditedCurrentBilling, saveAuditedCurrentBillingSetup } from "@/lib/currentBillingSave";
+import { protectedToolDetailCurrentBillingPlan } from "@/lib/toolDetailCurrentBilling";
 import {
   confirmBillingRenewalPaid,
   getBillingRenewalActivitiesByRelationships,
@@ -120,6 +121,12 @@ import {
   pauseSubscription,
   resumeSubscription,
 } from "@/lib/supabase/subscriptionLifecycleEvents";
+import {
+  getSubscriptionBillingEventsByRelationship,
+  getSubscriptionBillingEventsByRelationships,
+  replaceRelationshipBillingEvents,
+} from "@/lib/supabase/subscriptionBillingEvents";
+import { updateCurrentBilling } from "@/lib/supabase/currentBillingUpdates";
 import { lastBillingSetupFromRetiredComponents } from "@/lib/subscriptionLifecycleReadModel";
 import { mergeSubscriptionLifecycleHistory } from "@/lib/subscriptionLifecycleActivity";
 import { canPauseSubscription, type PauseSubscriptionInput } from "@/lib/subscriptionPause";
@@ -127,6 +134,8 @@ import { canResumeSubscription, currentPauseEventForResume, matchesResumePayment
 import { expiredTrialNeedsResolution, isTrialResolution, trialResolutionTransition } from "@/lib/trialResolution";
 import type { BillingRenewalActivity, BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
 import type { ResumeSubscriptionResult, SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
+import type { CurrentBillingRevision, UpdateCurrentBillingInput, UpdateCurrentBillingResult } from "@/types/currentBillingChange";
+import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent";
 import type { BillingTransaction } from "@/types/billingTransaction";
 import {
   createToolRecord,
@@ -245,6 +254,7 @@ type ToolAccountDetail = {
   billingHistoryEntries: BillingHistoryEntry[];
   billingType: BillingType;
   convertedDate: string;
+  currentBillingRevision?: CurrentBillingRevision | null;
   currency: string;
   lastTopUpDate: string;
   nextChargeDate: string;
@@ -1022,6 +1032,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [billingRelationshipDetails, setBillingRelationshipDetails] = useState<Awaited<ReturnType<typeof getToolLinkDetailRecords>>>([]);
   const [billingRenewalPeriods, setBillingRenewalPeriods] = useState<BillingRenewalPeriod[]>([]);
   const [subscriptionLifecycleEvents, setSubscriptionLifecycleEvents] = useState<SubscriptionLifecycleEvent[]>([]);
+  const [subscriptionBillingEvents, setSubscriptionBillingEvents] = useState<SubscriptionBillingEvent[]>([]);
   const [deletingAccount, setDeletingAccount] = useState<Account | null>(null);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [deletingProvider, setDeletingProvider] = useState<string | null>(null);
@@ -1551,6 +1562,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       setBillingRenewalPeriods([]);
       setBillingRenewalActivities([]);
       setSubscriptionLifecycleEvents([]);
+      setSubscriptionBillingEvents([]);
       return;
     }
 
@@ -1566,13 +1578,15 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         refreshedRelationships: dueComponents.length ? await getToolLinkDetailRecords({ includeUnlinked: true }) : null,
         activities: await getBillingRenewalActivitiesByRelationships(historyRelationshipIds),
         lifecycleEvents: await getSubscriptionLifecycleEventsByRelationships(historyRelationshipIds),
+        billingEvents: await getSubscriptionBillingEventsByRelationships(historyRelationshipIds),
         periods: await getBillingRenewalPeriodsByRelationships(historyRelationshipIds),
       }))
-      .then(({ activities, lifecycleEvents, periods, refreshedRelationships }) => {
+      .then(({ activities, billingEvents, lifecycleEvents, periods, refreshedRelationships }) => {
         if (isCancelled) return;
         setBillingRenewalPeriods(periods);
         setBillingRenewalActivities(activities);
         setSubscriptionLifecycleEvents(lifecycleEvents);
+        setSubscriptionBillingEvents(billingEvents);
         if (refreshedRelationships) {
           setBillingRelationshipDetails(refreshedRelationships);
           setToolAccountDetails((current) => {
@@ -1585,6 +1599,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 [detail.accountLabel]: {
                   ...existing,
                   billingAmounts: detail.billingAmounts.map((component) => ({ ...component, id: billingAmountId(component.id) })),
+                  currentBillingRevision: detail.currentBillingRevision,
                   nextChargeDate: detail.nextChargeDate,
                 },
               };
@@ -1598,6 +1613,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         setBillingRenewalPeriods([]);
         setBillingRenewalActivities([]);
         setSubscriptionLifecycleEvents([]);
+        setSubscriptionBillingEvents([]);
         setToolDataError(error instanceof Error ? error.message : "Could not detect overdue renewals.");
       });
 
@@ -1707,6 +1723,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               billingHistoryEntries: detail.billingHistoryEntries,
               billingType: normaliseBillingType(detail.billingType),
               convertedDate: detail.convertedDate,
+              currentBillingRevision: detail.currentBillingRevision,
               currency: normaliseCurrency(detail.currency),
               lastTopUpDate: detail.lastTopUpDate,
               nextChargeDate: detail.nextChargeDate,
@@ -3610,6 +3627,20 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   ) => {
     if (!draft.accountLabel || !draft.plan) return null;
     const currentDetail = toolAccountDetails[tool.id]?.[draft.accountLabel];
+    const exactRelationshipId = relationshipId ?? currentDetail?.relationshipId;
+    const protectedCurrentBilling = protectedToolDetailCurrentBillingPlan(
+      billingRelationshipDetails,
+      tool.id,
+      draft.accountLabel,
+      exactRelationshipId,
+      currentDetail?.relationshipId ? {
+        accountLabel: draft.accountLabel,
+        currentBillingRevision: currentDetail.currentBillingRevision,
+        planName: currentDetail.planName,
+        relationshipId: currentDetail.relationshipId,
+        toolId: tool.id,
+      } : undefined,
+    );
     const selectedPlan: ToolStatus = draft.plan;
     const nextDetail: ToolAccountDetail = {
       amount: currentDetail?.amount ?? "",
@@ -3621,8 +3652,9 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       lastTopUpDate: currentDetail?.lastTopUpDate ?? "",
       nextChargeDate: currentDetail?.nextChargeDate ?? "",
       purchaseDate: currentDetail?.purchaseDate ?? "",
-      relationshipId: relationshipId ?? currentDetail?.relationshipId,
-      planName: draft.plan === "Active" ? draft.planName.trim() : "",
+      relationshipId: exactRelationshipId,
+      planName: protectedCurrentBilling?.planName
+        ?? (draft.plan === "Active" ? draft.planName.trim() : ""),
       startDate: currentDetail?.startDate ?? "",
       status: draft.status,
       trialExpiryDate: draft.plan === "Trial" ? draft.trialExpiryDate : "",
@@ -3663,7 +3695,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           billingHistoryEntries: hasTransitionHistoryEntry ? nextDetail.billingHistoryEntries : undefined,
           convertedDate: nextDetail.convertedDate,
           plan: draft.plan,
-          planName: nextDetail.planName,
+          planName: protectedCurrentBilling ? undefined : nextDetail.planName,
           status: nextDetail.status,
           trialExpiryDate: nextDetail.trialExpiryDate,
           trialResolution: undefined,
@@ -3941,92 +3973,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     }
 
     closeManageAccountModal();
-  };
-
-  const updateBillingField = async (
-    toolId: string,
-    accountLabel: string,
-    patch: Partial<Pick<ToolAccountDetail, "amount" | "billingType" | "currency" | "lastTopUpDate" | "nextChargeDate" | "planName" | "purchaseDate">>,
-  ) => {
-    const currentDetail = toolAccountDetails[toolId]?.[accountLabel];
-    const nextChargeDate = patch.nextChargeDate ?? currentDetail?.nextChargeDate ?? "";
-    const purchaseDate = patch.purchaseDate ?? currentDetail?.purchaseDate ?? "";
-    const lastTopUpDate = patch.lastTopUpDate ?? currentDetail?.lastTopUpDate ?? "";
-    const billingAmounts = (currentDetail?.billingAmounts ?? []).map((entry) => ({
-      ...entry,
-      lastTopUpDate: entry.billingType === "Top-up" ? lastTopUpDate : "",
-      nextRenewalDate:
-        entry.billingType === "Monthly" || entry.billingType === "Yearly" ? nextChargeDate : "",
-      purchaseDate:
-        entry.billingType === "Lifetime" || entry.billingType === "One-time" ? purchaseDate : "",
-    }));
-    const nextDetail: ToolAccountDetail = {
-      amount: patch.amount ?? currentDetail?.amount ?? "",
-      billingAmounts,
-      billingHistoryEntries: currentDetail?.billingHistoryEntries ?? [],
-      billingType: normaliseBillingType(patch.billingType ?? currentDetail?.billingType ?? ""),
-      convertedDate: currentDetail?.convertedDate ?? "",
-      currency: normaliseCurrency(patch.currency ?? currentDetail?.currency),
-      lastTopUpDate,
-      nextChargeDate,
-      purchaseDate,
-      planName: patch.planName ?? currentDetail?.planName ?? toolAccountPlanNames[toolId]?.[accountLabel] ?? "",
-      startDate: immutableStartDate(currentDetail, patch.nextChargeDate ?? ""),
-      status: currentDetail?.status ?? "Active",
-      trialExpiryDate: currentDetail?.trialExpiryDate ?? "",
-      trialResolution: currentDetail?.trialResolution ?? "",
-      trialResolutionHistory: currentDetail?.trialResolutionHistory ?? [],
-      trialResolved: currentDetail?.trialResolved ?? false,
-    };
-    const previousDetails = toolAccountDetails;
-    const previousPlanNames = toolAccountPlanNames;
-
-    setToolAccountDetails((currentDetails) => ({
-      ...currentDetails,
-      [toolId]: {
-        ...(currentDetails[toolId] ?? {}),
-        [accountLabel]: nextDetail,
-      },
-    }));
-
-    if (patch.planName !== undefined) {
-      setToolAccountPlanNames((currentPlanNames) => ({
-        ...currentPlanNames,
-        [toolId]: {
-          ...(currentPlanNames[toolId] ?? {}),
-          [accountLabel]: nextDetail.planName,
-        },
-      }));
-    }
-
-    if (shouldUseSupabase) {
-      try {
-        await updateToolLinkDetails(toolId, accountLabel, accountList, {
-          amount: nextDetail.amount,
-          billingAmounts: nextDetail.billingAmounts,
-          billingHistoryEntries: undefined,
-          billingType: nextDetail.billingType,
-          convertedDate: nextDetail.convertedDate,
-          currency: nextDetail.currency,
-          lastTopUpDate: nextDetail.lastTopUpDate,
-          nextChargeDate: nextDetail.nextChargeDate,
-          purchaseDate: nextDetail.purchaseDate,
-          startDate: nextDetail.startDate,
-          plan: "Active",
-          planName: nextDetail.planName,
-          status: nextDetail.status,
-          trialExpiryDate: "",
-          trialResolution: undefined,
-          trialResolutionHistory: undefined,
-          trialResolved: undefined,
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Could not update billing details.";
-        setToolDataError(message);
-        setToolAccountDetails(previousDetails);
-        setToolAccountPlanNames(previousPlanNames);
-      }
-    }
   };
 
   const updateLinkedManageStatus = async (tool: ToolItem, accountLabel: string, status: ManageStatus, expectedRelationshipId?: string) => {
@@ -5346,6 +5292,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       ...stored, ...detail, toolId, accountLabel,
       plan: toolAccountStatuses[toolId]?.[accountLabel] ?? stored?.plan ?? "",
       billingAmounts: detail.billingAmounts ?? stored?.billingAmounts ?? [],
+      currentBillingRevision: detail.currentBillingRevision ?? stored?.currentBillingRevision ?? null,
       retiredBillingAmounts: stored?.retiredBillingAmounts ?? [],
       currency: detail.currency ?? stored?.currency ?? "",
       startDate: detail.startDate ?? stored?.startDate ?? "",
@@ -5377,6 +5324,8 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         status: requireRelationshipLifecycleStatus(detail.status, detail.relationshipId), billing: subscriptionBillingSummary(components), state: subscriptionState(components),
         planName: detail.planName,
         billingComponents: components,
+        billingEvents: subscriptionBillingEvents.filter((event) => event.relationshipId === detail.relationshipId),
+        currentBillingRevision: detail.currentBillingRevision ?? null,
         retiredBillingComponents: detail.retiredBillingAmounts,
         payments: billingTransactions.filter((transaction) => transaction.relationshipId === detail.relationshipId),
         renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === detail.relationshipId),
@@ -5563,62 +5512,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     return accountLabels.filter((accountLabel) => relationPlan(tool, accountLabel) === linkedPlanFilter);
   };
 
-  const allBillingRows = toolsWithValidAccountLinks
-    .filter((tool) => !tool.archived)
-    .flatMap((tool) =>
-      tool.accounts.flatMap((accountLabel) => {
-        if (relationPlan(tool, accountLabel) !== "Paid") return [];
-
-        const detail = toolAccountDetails[tool.id]?.[accountLabel];
-        const billingAmounts = detail?.billingAmounts ?? [];
-        const hasRecurringBilling = billingAmounts.some(
-          (billingAmount) => {
-            const billingType = normaliseBillingType(billingAmount.billingType);
-            return billingType === "Monthly" || billingType === "Yearly";
-          },
-        );
-        const hasPurchaseBilling = billingAmounts.some(
-          (billingAmount) => {
-            const billingType = normaliseBillingType(billingAmount.billingType);
-            return billingType === "Lifetime" || billingType === "One-time";
-          },
-        );
-        const billingGroupDate = hasRecurringBilling
-          ? detail?.nextChargeDate || detail?.lastTopUpDate || ""
-          : hasPurchaseBilling
-            ? detail?.purchaseDate || detail?.lastTopUpDate || ""
-            : detail?.lastTopUpDate || "";
-        return billingAmounts.map((billingAmount) => {
-          const billingType = normaliseBillingType(billingAmount.billingType);
-          const isTopUp = billingType === "Top-up";
-          const isPurchase = billingType === "Lifetime" || billingType === "One-time";
-          const billingDate = isTopUp
-            ? billingAmount.lastTopUpDate || detail?.lastTopUpDate || ""
-            : isPurchase
-              ? billingAmount.purchaseDate || detail?.purchaseDate || ""
-              : billingAmount.nextRenewalDate || detail?.nextChargeDate || "";
-          return {
-            accountLabel,
-            amount: billingAmount.amount,
-            billingDate,
-            billingDateField: isTopUp
-              ? "lastTopUpDate" as const
-              : isPurchase
-                ? "purchaseDate" as const
-                : "nextChargeDate" as const,
-            billingGroupDate,
-            billingDateLabel: isTopUp ? "Last topped up" : isPurchase ? "Purchased on" : "Next Charge",
-            billingType,
-            currency: normaliseOptionalCurrency(billingAmount.currency),
-            id: billingAmount.id,
-            planName: capitaliseFirstLetter(
-              detail?.planName ?? toolAccountPlanNames[tool.id]?.[accountLabel] ?? "",
-            ),
-            tool,
-          };
-        });
-      }),
-    );
   const futureRenewalItems: BillingUpcomingItem[] = toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
     .flatMap((tool) => tool.accounts.flatMap((accountLabel): BillingUpcomingItem[] => {
@@ -5669,30 +5562,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       transaction,
     }))
     .sort((left, right) => right.billingDate.localeCompare(left.billingDate) || left.id.localeCompare(right.id));
-  const billingRows = allBillingRows
-    .filter((row) => {
-      const query = billingSearchTerm.toLowerCase();
-      if (!query) return true;
-
-      return [
-        row.tool.name,
-        row.accountLabel,
-        row.planName,
-        row.billingType,
-        row.currency,
-        row.amount,
-      ].some((value) => value.toLowerCase().includes(query));
-    })
-    .sort((firstRow, secondRow) =>
-      (selectedBillingView === "Month"
-        ? (firstRow.billingGroupDate || "9999-12-31").localeCompare(secondRow.billingGroupDate || "9999-12-31")
-        : 0) ||
-      firstRow.tool.name.localeCompare(secondRow.tool.name) ||
-      firstRow.accountLabel.localeCompare(secondRow.accountLabel) ||
-      (secondRow.billingDate ?? "").localeCompare(firstRow.billingDate ?? "") ||
-      firstRow.billingType.localeCompare(secondRow.billingType),
-    );
-
   const billingDirectoryGroups: BillingDirectoryGroup[] = toolsWithValidAccountLinks
     .filter((tool) => !tool.archived)
     .map((tool) => {
@@ -5837,10 +5706,11 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const refreshSubscriptionRenewalData = async (relationshipId: string) => {
     if (!shouldUseSupabase) throw new Error("Sign in to review renewal periods.");
     const { row } = subscriptionTarget(relationshipId);
-    const [periods, activities, lifecycleEvents, transactions, allLinkDetails] = await Promise.all([
+    const [periods, activities, lifecycleEvents, billingEvents, transactions, allLinkDetails] = await Promise.all([
       getBillingRenewalPeriodsByRelationship(relationshipId),
       getBillingRenewalActivitiesByRelationship(relationshipId),
       getSubscriptionLifecycleEventsByRelationship(relationshipId),
+      getSubscriptionBillingEventsByRelationship(relationshipId),
       getBillingTransactionsByRelationship(relationshipId),
       getToolLinkDetailRecords({ includeUnlinked: true }),
     ]);
@@ -5858,6 +5728,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       ...current.filter((event) => event.relationshipId !== relationshipId),
       ...lifecycleEvents,
     ]);
+    setSubscriptionBillingEvents((current) => replaceRelationshipBillingEvents(current, relationshipId, billingEvents));
     setBillingTransactions((current) => [
       ...current.filter((transaction) => transaction.relationshipId !== relationshipId),
       ...transactions,
@@ -5874,6 +5745,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             ...existing,
             amount: refreshedDetail.amount,
             billingAmounts: refreshedDetail.billingAmounts.map((component) => ({ ...component, id: billingAmountId(component.id) })),
+            currentBillingRevision: refreshedDetail.currentBillingRevision,
             billingType: normaliseBillingType(refreshedDetail.billingType),
             currency: normaliseCurrency(refreshedDetail.currency),
             nextChargeDate: refreshedDetail.nextChargeDate,
@@ -5923,17 +5795,44 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     return result;
   };
 
-  const saveSubscriptionBilling = async (relationshipId: string, planName: string, components: BillingAmount[]) => {
-    const { row, tool, detail } = subscriptionTarget(relationshipId);
-    const patch = subscriptionBillingPatch(planName, components);
-    // Explicit component dates must not borrow another component's date through
-    // the legacy relationship-level fallbacks in the existing persistence API.
-    if (shouldUseSupabase) await updateToolLinkDetails(tool.id, row.accountLabel, accountList,
-      { ...patch, nextChargeDate: "", purchaseDate: "", lastTopUpDate: "" }, { expectedRelationshipId: relationshipId });
-    setToolAccountDetails((current) => ({ ...current, [tool.id]: { ...current[tool.id], [row.accountLabel]: { ...detail, ...patch } } }));
-    setToolAccountPlanNames((current) => ({ ...current, [tool.id]: { ...current[tool.id], [row.accountLabel]: patch.planName } }));
-    setBillingRelationshipDetails((current) => current.map((item) => item.relationshipId === relationshipId ? { ...item, ...patch } : item));
-    showToast("Current Billing updated");
+  const updateSubscriptionCurrentBilling = async (input: UpdateCurrentBillingInput): Promise<UpdateCurrentBillingResult> => {
+    const { row, detail } = subscriptionTarget(input.relationshipId);
+    if (!shouldUseSupabase) throw new Error("Sign in to update Current Billing.");
+    const result = await saveAuditedCurrentBilling(input, {
+      canManageBilling: row.canManageBilling,
+      lifecycleStatus: detail.status,
+      planStatus: row.planStatus,
+      subscriptionState: row.state,
+    }, {
+      persist: updateCurrentBilling,
+      refresh: refreshSubscriptionRenewalData,
+    });
+    showToast(result.wasNoOp
+      ? "Current Billing already matches"
+      : result.wasAlreadyApplied
+        ? "Current Billing update confirmed"
+        : "Current Billing updated");
+    return result;
+  };
+
+  const saveSubscriptionBillingSetup = async (input: UpdateCurrentBillingInput): Promise<UpdateCurrentBillingResult> => {
+    const { row, detail } = subscriptionTarget(input.relationshipId);
+    if (!shouldUseSupabase) throw new Error("Sign in to set up Current Billing.");
+    const result = await saveAuditedCurrentBillingSetup(input, {
+      canManageBilling: row.canManageBilling,
+      lifecycleStatus: detail.status,
+      planStatus: row.planStatus,
+      subscriptionState: row.state,
+    }, {
+      persist: updateCurrentBilling,
+      refresh: refreshSubscriptionRenewalData,
+    });
+    showToast(result.wasNoOp
+      ? "Current Billing already matches"
+      : result.wasAlreadyApplied
+        ? "Current Billing setup confirmed"
+        : "Current Billing set up");
+    return result;
   };
 
   const pauseSubscriptionRelationship = async (relationshipId: string, requestId: string, input: PauseSubscriptionInput) => {
@@ -6093,11 +5992,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     );
   };
 
-  const renderBillingAccountCell = (accountLabel: string) => {
-    const tagClass = accountTag(accountLabel, accountList);
-    return <BillingAccountCell accountLabel={accountLabel} tagClass={tagClass} />;
-  };
-
   function linkedPlanName(tool: ToolItem, accountLabel: string) {
     return (
       toolAccountDetails[tool.id]?.[accountLabel]?.planName ??
@@ -6125,105 +6019,6 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const daysRemaining = linkedTrialDaysRemaining(tool, accountLabel);
     return daysRemaining !== null && daysRemaining <= 3 ? "status-trial-danger" : "status-trial";
   };
-
-  const updateBillingAmountEntry = (
-    row: (typeof billingRows)[number],
-    patch: Partial<Pick<BillingAmount, "amount" | "currency">>,
-  ) => {
-    const detail = toolAccountDetails[row.tool.id]?.[row.accountLabel];
-    if (!detail) return;
-    const billingAmounts = (detail.billingAmounts ?? []).map((entry) =>
-      entry.billingType === row.billingType ? { ...entry, ...patch } : entry);
-    const nextDetail = { ...detail, billingAmounts };
-
-    setToolAccountDetails((currentDetails) => ({
-      ...currentDetails,
-      [row.tool.id]: {
-        ...(currentDetails[row.tool.id] ?? {}),
-        [row.accountLabel]: nextDetail,
-      },
-    }));
-
-    if (shouldUseSupabase) {
-      void updateToolLinkDetails(row.tool.id, row.accountLabel, accountList, {
-        amount: billingAmounts[0]?.amount ?? "",
-        billingAmounts,
-        currency: billingAmounts[0]?.currency,
-      }).catch((error: unknown) => {
-        setToolDataError(error instanceof Error ? error.message : "Could not update billing amount.");
-      });
-    }
-  };
-
-  const updateBillingComponentDate = (
-    row: (typeof billingRows)[number],
-    value: string,
-  ) => {
-    const detail = toolAccountDetails[row.tool.id]?.[row.accountLabel];
-    if (!detail) return;
-    const componentDateField = row.billingDateField === "nextChargeDate"
-      ? "nextRenewalDate"
-      : row.billingDateField;
-    const billingAmounts = (detail.billingAmounts ?? []).map((entry) =>
-      entry.billingType === row.billingType ? { ...entry, [componentDateField]: value } : entry);
-    const nextDetail = { ...detail, billingAmounts, [row.billingDateField]: value };
-
-    setToolAccountDetails((currentDetails) => ({
-      ...currentDetails,
-      [row.tool.id]: {
-        ...(currentDetails[row.tool.id] ?? {}),
-        [row.accountLabel]: nextDetail,
-      },
-    }));
-
-    if (shouldUseSupabase) {
-      void updateToolLinkDetails(row.tool.id, row.accountLabel, accountList, {
-        billingAmounts,
-        [row.billingDateField]: value,
-      }).catch((error: unknown) => {
-        setToolDataError(error instanceof Error ? error.message : "Could not update billing date.");
-      });
-    }
-  };
-
-  const renderBillingRow = (
-    row: (typeof billingRows)[number],
-    options: BillingRowOptions = {},
-  ) => (
-    <BillingRow
-      displayToolName={displayToolName(row.tool.name)}
-      formatDate={formatBillingDate}
-      logoText={toolInitials(row.tool.name)}
-      onAmountChange={(amount) => updateBillingAmountEntry(row, { amount })}
-      onBillingDateChange={(_field, value) => updateBillingComponentDate(row, value)}
-      onEdit={() => openManageAccountModal(row.tool, row.accountLabel)}
-      onOpenHistory={() => {
-        const relationshipId = toolAccountDetails[row.tool.id]?.[row.accountLabel]?.relationshipId;
-        if (!relationshipId) {
-          setToolDataError("Could not open billing history because this relationship has no durable ID.");
-          return;
-        }
-        setBillingHistoryTarget({ accountLabel: row.accountLabel, relationshipId, toolId: row.tool.id });
-      }}
-      onPlanNameChange={(planName) => updateBillingField(row.tool.id, row.accountLabel, {
-        planName: capitaliseFirstLetter(planName),
-      })}
-      options={options}
-      renderAccount={() => renderBillingAccountCell(row.accountLabel)}
-      renderCurrency={() => renderDropdown({
-        ariaLabel: `${row.tool.name} ${row.accountLabel} currency`,
-        className: "billing-currency-dropdown",
-        id: `billing-currency-${row.tool.id}-${row.accountLabel}-${row.billingType}`,
-        onChange: (nextCurrency) => updateBillingAmountEntry(row, {
-          currency: normaliseCurrency(nextCurrency),
-        }),
-        options: currencyOptions,
-        placeholder: "Currency",
-        value: row.currency,
-      })}
-      row={row}
-    />
-  );
 
   const renderExpiredTrialResolutionControl = (
     tool: ToolItem,
@@ -7012,7 +6807,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               onMarkRenewalNotCharged={markSubscriptionRenewalNotCharged}
               onUndoRenewalResolution={undoSubscriptionRenewalResolution}
               onUpdateRenewalPeriodSnapshot={editSubscriptionRenewalPeriod}
-              onSaveBilling={saveSubscriptionBilling} onPauseSubscription={pauseSubscriptionRelationship}
+              onSaveBilling={saveSubscriptionBillingSetup} onUpdateCurrentBilling={updateSubscriptionCurrentBilling} onPauseSubscription={pauseSubscriptionRelationship}
               onResumeSubscription={resumeSubscriptionRelationship} onRecordResumePayment={recordResumePayment} onPaymentsChanged={() => {
               if (shouldUseSupabase) void getBillingTransactions().then(setBillingTransactions).catch((error: unknown) => setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions."));
             }} />
@@ -7656,6 +7451,14 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           onArchive={archiveManagedLinkTool}
           onClose={closeManageAccountModal}
           onCloseDropdowns={() => setOpenDropdownId(null)}
+          onOpenCurrentBilling={(relationshipId) => {
+            closeManageAccountModal();
+            setSubscriptionDetailsTarget(relationshipId);
+            setSelectedSubscriptionView("Subscriptions");
+            setActiveSection("subscriptions");
+            setActiveCategory("");
+            setShowRecoveryPanel(false);
+          }}
           onSave={() => saveAllToolDetailAccounts(managedTool, orderedToolDetailDrafts)}
           onUnlink={(draft) => {
             const draftId = draft.draftId ?? draft.accountLabel;
@@ -7666,6 +7469,22 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             });
           }}
           onUpdateDraft={updateToolDetailDraft}
+          currentBillingPlan={(draft) => {
+            const detail = toolAccountDetails[managedTool.id]?.[draft.accountLabel];
+            return protectedToolDetailCurrentBillingPlan(
+              billingRelationshipDetails,
+              managedTool.id,
+              draft.accountLabel,
+              detail?.relationshipId,
+              detail?.relationshipId ? {
+                accountLabel: draft.accountLabel,
+                currentBillingRevision: detail.currentBillingRevision,
+                planName: detail.planName,
+                relationshipId: detail.relationshipId,
+                toolId: managedTool.id,
+              } : undefined,
+            );
+          }}
           renderAccountSelector={(draft) => {
             const draftId = draft.draftId ?? draft.accountLabel;
             const selectedByOtherDrafts = new Set(

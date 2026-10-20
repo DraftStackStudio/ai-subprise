@@ -94,24 +94,8 @@ assert.equal(subscriptionState(subscriptionBillingPatch('', [{ ...monthly, amoun
 assert.throws(() => subscriptionBillingPatch('', [monthly, { ...monthly, billingType: 'Yearly' }]));
 assert.throws(() => subscriptionBillingPatch('', [{ ...monthly, nextRenewalDate: '2026-02-30' }]));
 
-// Run the actual page save wiring with state and persistence spies.
 const page = read('app/dashboard/page.tsx');
 const saves = page.slice(page.indexOf('  const subscriptionTarget ='), page.indexOf('  const saveCurrentBillingSettings ='));
-const context = `
-let toolAccountDetails = { tool: { Personal: { relationshipId: 'r1', billingAmounts: saved }, Work: { relationshipId: 'r2', planName: 'Other' } } };
-let planNames = {}; let details = [{ relationshipId: 'r1' }, { relationshipId: 'r2' }];
-const subscriptionRows = [{ relationshipId: 'r1', toolId: 'tool', accountLabel: 'Personal' }];
-const subscriptionCandidates = new Map([['r1', { unlinkedAt: '' }]]);
-const toolList = [{ id: 'tool' }]; const accountList = []; const shouldUseSupabase = true;
-const writes = []; const transactions = [{ id: 'p1', relationshipId: 'r1', amount: '20' }, { id: 'p2', relationshipId: 'r2' }];
-const updateToolLinkDetails = async (...args) => { writes.push(args); };
-const setToolAccountDetails = (fn) => { toolAccountDetails = fn(toolAccountDetails); };
-const setToolAccountPlanNames = (fn) => { planNames = fn(planNames); };
-const setBillingRelationshipDetails = (fn) => { details = fn(details); };
-const showToast = () => {}; const updateLinkedManageStatus = async () => {};
-${saves}
-module.exports = { saveSubscriptionBilling, writes, transactions, get: () => ({ toolAccountDetails, planNames, details }) };`;
-const wiring = compile(`const { subscriptionBillingPatch } = require('helper'); const saved = ${JSON.stringify(saved)};\n${context}`, { helper: { subscriptionBillingPatch } });
 
 async function main() {
   // Exercise the actual payment save/review handlers without network access.
@@ -144,6 +128,9 @@ async function main() {
       const setupRenewalDate = '2020-09-25';
       const periodDraftRows = [{ ...draft, paymentDate: '2020-08-25', sourceKey: 'stable-period-key' }];
       const previewDates = ['2020-08-25'];
+      const periodBillingDecision = null, selectedPeriodBillingChoice = '', onRequestCurrentBillingUpdate = undefined;
+      const persistPeriodPayments = async (rows, id, create, refresh) => { await Promise.all(rows.map((row) => create({ amount: row.amount, billingTypeSnapshot: row.billingType, currency: row.currency, note: row.note, paymentDate: row.paymentDate, planNameSnapshot: row.planName, relationshipId: id, sourceKey: row.sourceKey, status: row.status }))); await refresh(); };
+      const onPaymentsSaved = undefined;
       let isSaving = false, error = '', reviewed = false, singleCurrencyError = '';
       const setPeriodValidationAttempted = () => {}; const setPeriodRowsValidationAttempted = () => {};
       const setError = (value) => { error = value; }; const setIsSaving = (value) => { isSaving = value; };
@@ -238,17 +225,8 @@ async function main() {
   const amountDisplay = compile(panelSource.slice(panelSource.indexOf('function displayAmount('), panelSource.indexOf('function componentDate(')) + '\nmodule.exports = displayAmount;');
   assert.equal(amountDisplay({ amount: '', currency: 'SGD' }), '—');
   assert.equal(amountDisplay({ amount: '0', currency: 'SGD' }), 'SGD 0');
-  const history = JSON.stringify(wiring.transactions);
-  await wiring.saveSubscriptionBilling('r1', 'Max', changed.billingAmounts);
-  assert.equal(wiring.writes[0][4].expectedRelationshipId, 'r1');
-  assert.equal(wiring.get().toolAccountDetails.tool.Personal.planName, 'Max');
-  assert.equal(wiring.get().planNames.tool.Personal, 'Max');
-  assert.equal(wiring.get().toolAccountDetails.tool.Work.planName, 'Other');
-  await wiring.saveSubscriptionBilling('r1', 'Max', []);
-  assert.deepEqual(wiring.writes[1][3].billingAmounts, []);
-  assert.equal(JSON.stringify(wiring.transactions), history);
-  await assert.rejects(wiring.saveSubscriptionBilling('r2', 'Wrong', []));
-  assert.equal(wiring.writes.length, 2);
+  assert(!page.includes('const saveSubscriptionBilling ='));
+  assert(!page.includes('onSavePaymentAssistedBilling='));
 
   const statusSource = page.slice(page.indexOf('  const updateLinkedManageStatus ='), page.indexOf('  const saveToolLink ='));
   const statusWiring = compile(`
@@ -276,8 +254,13 @@ async function main() {
   // Render the actual editor with a small hook harness; Cancel must never call Save.
   let hooks = [], cursor = 0, calls = 0;
   const react = { useState(initial) { const i = cursor++; if (!(i in hooks)) hooks[i] = initial; return [hooks[i], (value) => { hooks[i] = typeof value === 'function' ? value(hooks[i]) : value; }]; }, useRef(initial) { const i = cursor++; return hooks[i] ?? (hooks[i] = { current: initial }); } };
-  const Editor = load('components/SubscriptionBillingEditor.tsx', { react, '@/components/DateFieldControl': { default: () => null }, '@/components/DropdownControls': { DropdownControl: () => null } }).default;
-  const props = { account: { relationshipId: 'r1', state: 'Complete', planName: 'Pro', billingComponents: saved }, currencyOptions: [], onSaveBilling: async () => { calls++; }, onClose: () => { hooks = []; } };
+  const Editor = load('components/SubscriptionBillingEditor.tsx', {
+    react,
+    '@/components/DateFieldControl': { default: () => null },
+    '@/components/DropdownControls': { DropdownControl: () => null },
+    '@/lib/currentBillingChange': { compareCurrentBilling: () => null, isTrustedCurrentBillingRevision: (value) => Boolean(value) },
+  }).default;
+  const props = { account: { relationshipId: 'r1', state: 'Complete', planName: 'Pro', billingComponents: saved, currentBillingRevision: { planName: 'Pro', components: {} } }, currencyOptions: [], onSaveBilling: async () => { calls++; }, onUpdateCurrentBilling: async () => {}, onClose: () => { hooks = []; } };
   const render = () => { cursor = 0; return Editor(props); };
   const nodes = (node) => !node || typeof node !== 'object' ? [] : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
   const button = (tree, text) => nodes(tree).find((node) => node.type === 'button' && node.props.children === text);
@@ -346,7 +329,7 @@ async function main() {
   delete props.onSaved;
   // Leaving the edit view unmounts the draft; there is no effect or autosave path.
   assert(!read('components/SubscriptionBillingEditor.tsx').includes('useEffect'));
-  const currentBillingSave = saves.slice(saves.indexOf('  const saveSubscriptionBilling ='), saves.indexOf('  const pauseSubscriptionRelationship ='));
+  const currentBillingSave = saves.slice(saves.indexOf('  const updateSubscriptionCurrentBilling ='), saves.indexOf('  const pauseSubscriptionRelationship ='));
   assert(!currentBillingSave.includes('createBillingTransaction'));
   hooks = [];
   const AccountView = load('components/SubscriptionAccountView.tsx', {
@@ -361,7 +344,7 @@ async function main() {
     '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
     '@/lib/subscriptionPause': { canPauseSubscription: ({ canManageBilling, lifecycleStatus, planStatus }) => canManageBilling && lifecycleStatus === 'Active' && planStatus === 'Paid' },
   }).default;
-  assert(read('components/SubscriptionAccountView.tsx').includes('const shouldUpdateCurrentBilling = firstTimeSetup || paymentMode === "period";'));
+  assert(!read('components/SubscriptionAccountView.tsx').includes('shouldUpdateCurrentBilling'));
   const account = { ...props.account, plan: 'Paid', planStatus: 'Paid', planTone: 'status-running', planName: '', canManageBilling: true, toolName: 'Test Tool', status: 'Active', payments: [
     { id: 'p1', relationshipId: 'r1', paymentDate: '2026-08-10', planNameSnapshot: 'Historical', billingTypeSnapshot: 'Monthly', currency: 'SGD', amount: '20', status: 'Paid' },
     { id: 'p2', relationshipId: 'r2', paymentDate: '2026-08-11' },
@@ -370,34 +353,36 @@ async function main() {
   hooks = [];
   hooks[5] = 'period';
   hooks[7] = false;
-  let periodCurrentBillingSave;
   const savedBillingHandler = props.onSaveBilling;
-  props.onSaveBilling = async (...args) => { periodCurrentBillingSave = args; };
   const ordinaryPeriodPanel = nodes(renderAccount()).find((node) => node.props?.initialEntryMode === 'period');
-  assert.equal(typeof ordinaryPeriodPanel.props.onEstablishCurrentBilling, 'function');
-  await assert.rejects(ordinaryPeriodPanel.props.onEstablishCurrentBilling('r2', 'Max', unknownAmountComponent));
-  await ordinaryPeriodPanel.props.onEstablishCurrentBilling('r1', 'Max', unknownAmountComponent);
-  assert.equal(periodCurrentBillingSave[0], 'r1');
-  assert.equal(periodCurrentBillingSave[1], 'Max');
-  assert.equal(periodCurrentBillingSave[2][0].amount, '');
-  props.onSaveBilling = savedBillingHandler;
+  assert.equal(ordinaryPeriodPanel.props.onEstablishCurrentBilling, undefined);
+  assert.equal(typeof ordinaryPeriodPanel.props.onRequestCurrentBillingUpdate, 'function');
+  ordinaryPeriodPanel.props.onRequestCurrentBillingUpdate('r2', 'Monthly', 'SGD', '35', 'change');
+  assert(!nodes(renderAccount()).some((node) => node.type === Editor));
+  ordinaryPeriodPanel.props.onRequestCurrentBillingUpdate('r1', 'Monthly', 'SGD', '35', 'change');
+  let periodEditor = nodes(renderAccount()).find((node) => node.type === Editor);
+  assert(periodEditor);
+  assert.equal(periodEditor.props.preparedUpdate.initialMode, 'change');
+  assert.equal(periodEditor.props.preparedUpdate.initialComponents[0].amount, '35');
+  periodEditor.props.onClose();
   hooks = [];
   account.planName = 'Max';
-  let syncedCurrentBilling;
-  props.onSaveBilling = async (...args) => { syncedCurrentBilling = args; };
   tree = renderAccount();
   assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip status-muted subscription-current-plan-pill' && node.props.children === 'Max'));
   assert(!read('components/SubscriptionAccountView.tsx').includes('tool-status-chip current-plan-pill'));
   assert(read('components/SubscriptionAccountView.tsx').includes('className="subscription-lifecycle-dropdown"'));
-  const paymentProps = nodes(tree).find((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.onUpdateCurrentBillingAmount === 'function').props;
-  await assert.rejects(paymentProps.onUpdateCurrentBillingAmount('r2', 'Monthly', 'SGD', '30.84'));
-  await assert.rejects(paymentProps.onUpdateCurrentBillingAmount('r1', 'Weekly', 'SGD', '30.84'));
-  await paymentProps.onUpdateCurrentBillingAmount('r1', 'Monthly', 'SGD', '30.84');
-  assert.equal(syncedCurrentBilling[0], 'r1');
-  assert.equal(syncedCurrentBilling[1], 'Max');
-  assert.equal(syncedCurrentBilling[2][0].amount, '30.84');
-  assert.equal(syncedCurrentBilling[2][0].currency, 'SGD');
-  assert.deepEqual(syncedCurrentBilling[2][1], saved[1]);
+  const paymentProps = nodes(tree).find((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.onRequestCurrentBillingUpdate === 'function').props;
+  paymentProps.onRequestCurrentBillingUpdate('r2', 'Monthly', 'SGD', '30.84', 'correction');
+  paymentProps.onRequestCurrentBillingUpdate('r1', 'Weekly', 'SGD', '30.84', 'correction');
+  assert(!nodes(renderAccount()).some((node) => node.type === Editor));
+  paymentProps.onRequestCurrentBillingUpdate('r1', 'Monthly', 'SGD', '30.84', 'correction');
+  const assistedEditor = nodes(renderAccount()).find((node) => node.type === Editor);
+  assert(assistedEditor);
+  assert.equal(assistedEditor.props.preparedUpdate.initialMode, 'correction');
+  assert.equal(assistedEditor.props.preparedUpdate.initialComponents[0].amount, '30.84');
+  assert.equal(assistedEditor.props.preparedUpdate.initialComponents[0].currency, 'SGD');
+  assert.deepEqual(assistedEditor.props.preparedUpdate.initialComponents[1], saved[1]);
+  assistedEditor.props.onClose();
   props.onSaveBilling = savedBillingHandler;
   account.planName = '';
   hooks = [];
@@ -454,6 +439,9 @@ async function main() {
   hooks = [];
   account.billingComponents = [];
   account.state = 'Not started';
+  account.currentBillingRevision = { planName: '', components: {} };
+  const initialSetupInputs = [];
+  props.onSaveBilling = async (input) => { initialSetupInputs.push(input); };
   button(renderAccount(), 'Set up billing').props.onClick();
   tree = renderAccount();
   assert(!nodes(tree).some((node) => node.type === Editor));
@@ -463,6 +451,15 @@ async function main() {
   const firstPanel = nodes(renderAccount()).find((node) => node.props?.initialEntryMode === 'single');
   assert.equal(typeof firstPanel.props.onEstablishCurrentBilling, 'function');
   await assert.rejects(firstPanel.props.onEstablishCurrentBilling('r2', '', setupComponents));
+  await firstPanel.props.onEstablishCurrentBilling('r1', '', unknownAmountComponent);
+  await firstPanel.props.onEstablishCurrentBilling('r1', '', unknownAmountComponent);
+  assert.equal(initialSetupInputs.length, 2);
+  assert.equal(initialSetupInputs[0].requestId, initialSetupInputs[1].requestId);
+  assert.equal(initialSetupInputs[0].relationshipId, 'r1');
+  assert.deepEqual(initialSetupInputs[0].expectedRevision, account.currentBillingRevision);
+  assert.equal(initialSetupInputs[0].components[0].amount, '');
+  assert.equal(initialSetupInputs[0].mode, 'change');
+  props.onSaveBilling = savedBillingHandler;
   hooks = [];
   account.state = 'Incomplete';
   account.billingComponents = [{ ...monthly, amount: '' }, topup];
@@ -479,10 +476,9 @@ async function main() {
   assert(incompleteEditor);
   assert.deepEqual(incompleteEditor.props.account.billingComponents, account.billingComponents);
   const newlyCompleted = [{ ...monthly, amount: '30.84', currency: 'SGD' }, topup];
-  await incompleteEditor.props.onSaveBilling('r1', 'Max', newlyCompleted);
-  assert.equal(completedSave[0], 'r1');
-  assert.equal(completedSave[1], 'Max');
-  assert.deepEqual(completedSave[2], newlyCompleted);
+  const incompleteInput = { components: newlyCompleted, effectiveDate: '2026-08-31', expectedRevision: account.currentBillingRevision, localDate: '2026-08-31', mode: 'change', planName: 'Max', reason: null, relationshipId: 'r1', requestId: 'a0350000-0000-0000-0000-000000000701' };
+  await incompleteEditor.props.onSaveBilling(incompleteInput);
+  assert.deepEqual(completedSave[0], incompleteInput);
   assert.equal(JSON.stringify(account.payments), paymentsBefore);
   assert(!nodes(renderAccount()).some((node) => node.props?.lockedRelationshipId === 'r1'));
   incompleteEditor.props.onSaved('Max', newlyCompleted);
@@ -495,9 +491,9 @@ async function main() {
   assert.deepEqual(incompleteChoice.props.billingComponents, newlyCompleted);
   incompleteChoice.props.onCancel();
   assert(!nodes(renderAccount()).some((node) => node.props?.lockedRelationshipId === 'r1'));
-  assert.deepEqual(completedSave[2], newlyCompleted);
+  assert.deepEqual(completedSave[0].components, newlyCompleted);
   assert.equal(JSON.stringify(account.payments), paymentsBefore);
-  assert.notEqual(JSON.stringify(completedSave[2]), incompleteBefore);
+  assert.notEqual(JSON.stringify(completedSave[0].components), incompleteBefore);
 
   hooks = [];
   button(renderAccount(), 'Complete setup').props.onClick();
@@ -545,7 +541,14 @@ async function main() {
   account.billingComponents = setupComponents;
   account.payments = [historical, { ...historical, id: 'legacy', source: 'legacy_json' }, { ...historical, id: 'api', source: 'api' }, { ...historical, id: 'other-account', relationshipId: 'r2' }];
   const billingBefore = JSON.stringify(account.billingComponents);
-  const renderPayments = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: ['USD', 'SGD', 'EUR'].map((value) => ({ label: value, value })), onUpdateCurrentBillingAmount: async (...args) => currentBillingWrites.push(args) }); };
+  const renderPayments = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: ['USD', 'SGD', 'EUR'].map((value) => ({ label: value, value })), onRequestCurrentBillingUpdate: (...args) => currentBillingWrites.push(args) }); };
+  const paymentButton = (text) => {
+    const tree = renderPayments();
+    const direct = button(tree, text);
+    if (direct) return direct;
+    const choice = nodes(tree).find((node) => typeof node.type === 'function' && node.type.name === 'PaymentBillingDifferenceChoiceField');
+    return choice ? button(choice.type(choice.props), text) : undefined;
+  };
   const field = (label) => nodes(renderPayments()).find((node) => (node.props?.['aria-label'] ?? node.props?.ariaLabel) === label);
   const row = (id) => nodes(renderPayments()).find((node) => node.props?.['data-transaction-id'] === id);
   const editPayment = (id) => nodes(row(id)).find((node) => node.props?.className === 'subscription-payment-edit-button');
@@ -569,7 +572,9 @@ async function main() {
   assert.equal(historical.amount, '8');
   editPayment('p1').props.onClick();
   field('Amount').props.onChange({ target: { value: '9' } });
-  assert.equal(field('Update Current Billing amount to USD 9 too?').props.checked, false);
+  assert(paymentButton('Previous entry mistake'));
+  assert(paymentButton('Provider changed subscription price'));
+  paymentButton('Not sure why').props.onClick();
   await button(renderPayments(), 'Save').props.onClick();
   assert.equal(writes[0].id, 'p1');
   assert.equal(writes[0].values.amount, '9');
@@ -598,6 +603,11 @@ async function main() {
   assert.equal(writes.length, 3);
   account.payments.push({ ...historical, id: 'p2', amount: '12', currency: '' }, { ...historical, id: 'p3', amount: '15', currency: '' });
   const rowField = (id, label) => nodes(row(id)).find((node) => (node.props?.['aria-label'] ?? node.props?.ariaLabel) === label);
+  const decisionButtons = (text) => {
+    const tree = renderPayments();
+    return nodes(tree).filter((node) => typeof node.type === 'function' && node.type.name === 'PaymentBillingDifferenceChoiceField')
+      .map((node) => button(node.type(node.props), text)).filter(Boolean);
+  };
   editPayment('p1').props.onClick();
   rowField('p1', 'Plan Name').props.onChange({ target: { value: 'Draft A' } });
   editPayment('p2').props.onClick();
@@ -637,28 +647,35 @@ async function main() {
   assert(nodes(feedback('p1')).some((node) => node.props?.role === 'alert'));
   assert(!feedback('p2'));
   delayUpdate = true;
+  decisionButtons('Not sure why')[1].props.onClick();
   const saveB = button(row('p2'), 'Save').props.onClick();
   await button(row('p2'), 'Save').props.onClick(); // Same-row double Save is ignored.
   assert.equal(writes.length, 4);
   assert.equal(button(row('p2'), 'Save').props.disabled, true);
   assert.equal(button(row('p1'), 'Save').props.disabled, false);
   rowField('p1', 'Amount').props.onChange({ target: { value: '17' } });
-  field('Update Current Billing amount to USD 17 too?').props.onChange({ target: { checked: true } });
+  decisionButtons('Previous entry mistake')[0].props.onClick();
   delayUpdate = false;
   await button(row('p1'), 'Save').props.onClick();
   assert.equal(writes[4].id, 'p1');
   assert.equal(writes[4].values.amount, '17');
-  assert.deepEqual(currentBillingWrites[0], ['r1', 'Monthly', 'USD', '17']);
+  assert.deepEqual(currentBillingWrites[0], ['r1', 'Monthly', 'USD', '17', 'correction']);
   assert.equal(rowField('p2', 'Amount').props.value, '42');
   releaseUpdate();
   await saveB;
   assert.equal(writes[3].id, 'p2');
   assert.equal(writes[3].values.amount, '42');
+  editPayment('p1').props.onClick();
+  rowField('p1', 'Amount').props.onChange({ target: { value: '18' } });
+  decisionButtons('Provider changed subscription price')[0].props.onClick();
+  await button(row('p1'), 'Save').props.onClick();
+  assert.equal(writes[5].values.amount, '18');
+  assert.deepEqual(currentBillingWrites[1], ['r1', 'Monthly', 'USD', '18', 'change']);
   assert(newRow());
   button(newRow(), 'Cancel').props.onClick();
   button(row('p3'), 'Cancel').props.onClick();
   assert.equal(JSON.stringify(account.billingComponents), billingBefore);
-  assert.equal(writes.length, 5);
+  assert.equal(writes.length, 6);
   }
   // Render the real inline editor and use the real update API serializer with an
   // in-memory database boundary. Verify SQL null rather than just a blank draft.
@@ -684,7 +701,7 @@ async function main() {
       '@/lib/supabase/billingTransactions': api,
     }).default;
     const raw = { id: 'unknown', tool_email_link_id: 'r1', source: 'manual', payment_date: '2020-01-10', plan_name_snapshot: 'Old plan', billing_type_snapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: null, note: 'Keep this note' };
-    const renderInline = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: [], onUpdateCurrentBillingAmount: async () => { syncWrites++; } }); };
+    const renderInline = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: [], onRequestCurrentBillingUpdate: () => { syncWrites++; } }); };
     const inlineField = (label) => nodes(renderInline()).find(node => (node.props?.['aria-label'] ?? node.props?.ariaLabel) === label);
     const begin = (amount) => {
       hooks = []; writes = []; syncWrites = 0;

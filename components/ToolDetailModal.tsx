@@ -9,6 +9,11 @@ import type {
 
 type ToolDetailModalProps = {
   accountTagClass: (accountLabel: string) => string;
+  currentBillingPlan: (draft: ToolDetailAccountDraft) => {
+    planName: string;
+    relationshipId: string;
+    trusted: boolean;
+  } | null;
   drafts: ToolDetailAccountDraft[];
   formatPlanName: (value: string) => string;
   hasUnsavedChanges: boolean;
@@ -16,6 +21,7 @@ type ToolDetailModalProps = {
   onArchive: () => void;
   onClose: () => void;
   onCloseDropdowns: () => void;
+  onOpenCurrentBilling: (relationshipId: string) => void;
   onSave: () => void;
   onUnlink: (draft: ToolDetailAccountDraft) => void;
   onUpdateDraft: (draftId: string, updates: Partial<ToolDetailAccountDraft>) => void;
@@ -123,6 +129,7 @@ function assignmentsMatch(
 
 export default function ToolDetailModal({
   accountTagClass,
+  currentBillingPlan,
   drafts,
   formatPlanName,
   hasUnsavedChanges,
@@ -130,6 +137,7 @@ export default function ToolDetailModal({
   onArchive,
   onClose,
   onCloseDropdowns,
+  onOpenCurrentBilling,
   onSave,
   onUnlink,
   onUpdateDraft,
@@ -227,6 +235,7 @@ export default function ToolDetailModal({
   const renderAccountCard = (draft: ToolDetailAccountDraft) => {
     const draftId = draft.draftId ?? draft.accountLabel;
     const outcomeState = trialOutcomeState(draft);
+    const establishedCurrentBilling = currentBillingPlan(draft);
 
     return (
       <div
@@ -276,13 +285,29 @@ export default function ToolDetailModal({
             <div className="tool-detail-field-row tool-detail-plan-status-row">
               <label className="form-field">
                 <span>Plan Name</span>
-                <input
-                  className="field-input"
-                  onChange={(event) => onUpdateDraft(draftId, { planName: formatPlanName(event.target.value) })}
-                  placeholder="Basic, Plus, Pro, Team, Business..."
-                  type="text"
-                  value={draft.planName}
-                />
+                {establishedCurrentBilling ? <>
+                  <input
+                    aria-label="Current Billing plan name"
+                    className="field-input"
+                    readOnly
+                    title={establishedCurrentBilling.trusted
+                      ? "Edit established Current Billing in Subscriptions."
+                      : "Current Billing could not be verified and cannot be edited here."}
+                    type="text"
+                    value={establishedCurrentBilling.planName}
+                  />
+                  <button
+                    className="linked-text-action"
+                    onClick={() => onOpenCurrentBilling(establishedCurrentBilling.relationshipId)}
+                    type="button"
+                  >Edit in Subscriptions</button>
+                </> : <input
+                    className="field-input"
+                    onChange={(event) => onUpdateDraft(draftId, { planName: formatPlanName(event.target.value) })}
+                    placeholder="Basic, Plus, Pro, Team, Business..."
+                    type="text"
+                    value={draft.planName}
+                  />}
               </label>
               <label className="form-field">
                 <span>Status</span>

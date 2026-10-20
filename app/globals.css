@@ -5685,67 +5685,6 @@ p {
   color: var(--tag-teal-text);
 }
 
-.billing-account-cell {
-  align-items: center;
-  background: transparent !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  display: inline-flex;
-  gap: 7px;
-  min-width: 0;
-  padding: 0 !important;
-}
-
-.billing-account-cell strong {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.billing-account-cell.tag-gray strong {
-  color: var(--tag-gray-text);
-}
-
-.billing-account-cell.tag-brown strong {
-  color: var(--tag-brown-text);
-}
-
-.billing-account-cell.tag-orange strong {
-  color: var(--tag-orange-text);
-}
-
-.billing-account-cell.tag-yellow strong {
-  color: var(--tag-yellow-text);
-}
-
-.billing-account-cell.tag-green strong {
-  color: var(--tag-green-text);
-}
-
-.billing-account-cell.tag-cyan strong {
-  color: var(--tag-cyan-text);
-}
-
-.billing-account-cell.tag-blue strong {
-  color: var(--tag-blue-text);
-}
-
-.billing-account-cell.tag-purple strong {
-  color: var(--tag-purple-text);
-}
-
-.billing-account-cell.tag-pink strong {
-  color: var(--tag-pink-text);
-}
-
-.billing-account-cell.tag-red strong {
-  color: var(--tag-red-text);
-}
-
-.billing-account-cell.tag-teal strong {
-  color: var(--tag-teal-text);
-}
-
 .linked-account-address {
   color: var(--text-3);
   display: block;
@@ -11839,7 +11778,6 @@ select:focus-visible {
   overflow: hidden;
 }
 
-.subscriptions-toolbar { justify-content: flex-end; margin-bottom: 24px; }
 .subscriptions-view-tabs { margin-bottom: 24px; }
 .subscriptions-view-tabs .category-view-action-row { justify-content: space-between; }
 .subscriptions-renewal-decision-database { --subscriptions-renewal-decision-columns: 44px 44px minmax(180px, 1.1fr) minmax(180px, 1fr) minmax(130px, .8fr) 88px; }
@@ -11886,6 +11824,12 @@ select:focus-visible {
 .subscription-billing-editor { width: 100%; box-sizing: border-box; }
 .subscription-billing-editor .tool-detail-field-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .subscription-billing-editor .form-field { min-width: 0; }
+.subscription-current-update-fields { border-bottom: 1px solid var(--border); display: grid; gap: 14px; margin-bottom: 16px; padding-bottom: 16px; }
+.subscription-current-update-mode { gap: 0; }
+.subscription-current-update-helper { color: var(--text-3); font-size: 11px; line-height: 1.45; margin: 0; }
+.subscription-current-update-reason { background: var(--surface-raised); border: 1px solid var(--border); border-radius: var(--r-md); box-sizing: border-box; color: var(--text-1); font: inherit; min-height: 68px; padding: 10px 12px; resize: vertical; width: 100%; }
+.subscription-current-update-reason:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(240, 200, 70, .18); outline: 0; }
+.subscription-current-update-reason::placeholder { color: var(--text-3); }
 .subscription-add-billing-type { width: max-content; max-width: 100%; }
 .subscription-add-billing-type .custom-select-trigger { min-height: 32px; padding: 6px 12px; font-size: 12px; }
 .subscription-add-billing-type .custom-select-options { min-width: 190px; }
@@ -12046,9 +11990,9 @@ select:focus-visible {
 .subscription-payment-table .subscription-payment-feedback-row td { height: auto; padding: 6px 12px; }
 .subscription-payment-feedback-row .field-feedback { margin: 0; }
 .subscription-payment-table .subscription-payment-sync-row td { background: rgba(255, 255, 255, .015); height: auto; padding: 7px 12px; }
-.subscription-payment-sync-option { align-items: center; color: var(--text-2); cursor: pointer; display: inline-flex; font-size: 12px; gap: 8px; }
-.subscription-payment-sync-option input { accent-color: var(--accent); cursor: pointer; margin: 0; }
-.subscription-payment-sync-option input:disabled { cursor: default; }
+.subscription-payment-difference-choice { width: 100%; }
+.subscription-payment-decision-buttons { display: grid; gap: 8px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.subscription-payment-decision-buttons .category-view-tab { min-height: 36px; white-space: normal; }
 .subscription-payment-amount-inputs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 4px; }
 .subscription-payment-row-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .subscription-payment-add-area { align-items: flex-end; display: grid; justify-items: end; min-height: 54px; }

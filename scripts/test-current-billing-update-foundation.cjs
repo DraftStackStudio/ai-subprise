@@ -41,6 +41,15 @@ assert(sql.includes("revoke all on function public.current_billing_revision(uuid
 assert(sql.includes("grant execute on function public.update_current_billing"));
 assert(sql.includes("grant execute on function public.sync_due_billing_renewal_periods"));
 
+// Initial setup uses the existing change contract: an empty current component
+// set is a valid revision, and the before snapshot makes setup presentation
+// inferable without adding a new event mode or classification.
+assert(sql.includes("'components', coalesce(("));
+assert(sql.includes("), '{}'::jsonb)"));
+assert(sql.includes("case when v_before is null then 'component_added' else 'component_removed' end"));
+assert(sql.includes("insert into public.subscription_billing_events"));
+assert(sql.includes("v_before_snapshot, v_after_snapshot"));
+
 // PostgreSQL cannot safely combine the prior DISTINCT/window-order form. Keep
 // the grouped first-position de-duplication that is parser/type compatible.
 assert(sql.includes("group by item.value"));
@@ -108,8 +117,31 @@ assert(postcheck.includes("sync_cross_version_conflict_safe"));
 
 const harness = read("scripts/test-current-billing-update-contract.sql").toLowerCase();
 assert(harness.trimStart().startsWith("-- rollback-only behavioural verification"));
-assert(harness.includes("begin;") && harness.trimEnd().endsWith("rollback;"));
+const executableHarness = harness.replace(/^\s*--.*$/gm, "").trim();
+assert.match(
+  executableHarness,
+  /^begin\s*;\s*set transaction isolation level repeatable read\s*;/,
+);
+assert(executableHarness.endsWith("rollback;"));
 assert.doesNotMatch(harness, /^\s*commit\s*;/m);
+assert(!harness.includes("select id into v_user_id from auth.users order by created_at limit 1"));
+assert(harness.includes("'00000000-0000-0000-0000-000000000000'::uuid"));
+assert(harness.includes("replace_with_dedicated_test_auth_email"));
+assert(harness.includes("the exact confirmed 0034 test auth user was not found"));
+assert(harness.includes("fixture_user.email_confirmed_at is not null"));
+assert(harness.includes("the 0034 fixture ai tool name already exists for the approved test owner"));
+assert(harness.includes("the 0034 fixture payment source key already exists for the approved test owner"));
+assert(harness.includes("a 0034 fixture login address already exists for the approved test owner"));
+const firstFixtureWrite = harness.indexOf("insert into billing_0034_context");
+for (const precondition of [
+  "the exact confirmed 0034 test auth user was not found",
+  "disposable a035 fixture ids already exist",
+  "the 0034 fixture ai tool name already exists for the approved test owner",
+  "the 0034 fixture payment source key already exists for the approved test owner",
+  "a 0034 fixture login address already exists for the approved test owner",
+]) {
+  assert(harness.indexOf(precondition) > -1 && harness.indexOf(precondition) < firstFixtureWrite);
+}
 for (const expected of [
   "genuine multi-field update did not create exactly one event",
   "renewals on/after the effective date were not excluded with exact provenance",
@@ -127,6 +159,14 @@ for (const expected of [
 ]) assert(harness.includes(expected));
 assert(harness.includes("set local role authenticated"));
 assert(harness.includes("reset role;"));
+const authenticatedRoleIndex = harness.indexOf("set local role authenticated");
+const negativeGuardsIndex = harness.indexOf("do $negative_guards$");
+const resetRoleIndex = harness.indexOf("reset role;");
+const contractAssertionsIndex = harness.indexOf("do $contract_assertions$");
+assert(authenticatedRoleIndex > -1 && authenticatedRoleIndex < negativeGuardsIndex);
+assert(negativeGuardsIndex < resetRoleIndex);
+assert(resetRoleIndex < contractAssertionsIndex);
+assert.equal((harness.match(/^\s*reset role\s*;/gm) || []).length, 1);
 assert(harness.includes("all disposable changes will now roll back"));
 
 console.log("PASS: Migration 0034 schema, RPC, read-only verification, and rollback-harness source contracts verified.");

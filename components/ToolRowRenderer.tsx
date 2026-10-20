@@ -262,15 +262,6 @@ export function LinkedAccountCell({
   );
 }
 
-export function BillingAccountCell({ accountLabel, tagClass }: { accountLabel: string; tagClass: string }) {
-  return (
-    <span className={`billing-account-cell ${tagClass}`}>
-      <span className={`tag-dot ${tagClass}`} />
-      <strong>{accountLabel}</strong>
-    </span>
-  );
-}
-
 function ToolUrlGlobeIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24">

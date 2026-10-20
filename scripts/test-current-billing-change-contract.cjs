@@ -25,7 +25,13 @@ function load(relativePath) {
   return module.exports;
 }
 
-const { billingConfigurationForRenewalDate, compareCurrentBilling } = load("lib/currentBillingChange.ts");
+const {
+  billingConfigurationForRenewalDate,
+  buildCurrentBillingRevision,
+  canonicalCurrentBillingAmount,
+  compareCurrentBilling,
+  isTrustedCurrentBillingRevision,
+} = load("lib/currentBillingChange.ts");
 
 const component = (overrides = {}) => ({
   id: "component-old",
@@ -50,6 +56,71 @@ assert.equal(compare({
   previousComponents: [component({ amount: "030.8400" })],
   editedComponents: [component({ amount: "30.84" })],
 }), null, "equivalent decimal representations must compare equal");
+
+assert.equal(canonicalCurrentBillingAmount(" 00030.8400004 "), "30.84");
+assert.equal(canonicalCurrentBillingAmount("30.8400005"), "30.840001");
+assert.equal(canonicalCurrentBillingAmount("0.0000005"), "0.000001");
+assert.equal(canonicalCurrentBillingAmount("0.0000004"), "0");
+assert.equal(canonicalCurrentBillingAmount(""), null);
+assert.throws(() => canonicalCurrentBillingAmount("1000000000000"), /supported range/);
+assert.throws(() => canonicalCurrentBillingAmount("999999999999.9999995"), /supported range/);
+
+const primaryId = "a0350000-0000-0000-0000-000000000401";
+const topUpId = "a0350000-0000-0000-0000-000000000402";
+const revision = buildCurrentBillingRevision("  Max  ", [
+  component({ id: primaryId, amount: "030.8400004", currency: "sgd" }),
+  component({
+    id: topUpId,
+    billingType: "Top-up",
+    currency: "usd",
+    amount: "0.0000005",
+    nextRenewalDate: undefined,
+    lastTopUpDate: "2026-10-01",
+  }),
+]);
+assert.deepEqual(revision, {
+  planName: "Max",
+  components: {
+    primary: {
+      id: primaryId,
+      billingType: "Monthly",
+      currency: "SGD",
+      amount: "30.84",
+      nextRenewalDate: "2026-11-16",
+      purchaseDate: null,
+      lastTopUpDate: null,
+    },
+    top_up: {
+      id: topUpId,
+      billingType: "Top-up",
+      currency: "USD",
+      amount: "0.000001",
+      nextRenewalDate: null,
+      purchaseDate: null,
+      lastTopUpDate: "2026-10-01",
+    },
+  },
+});
+assert.equal(isTrustedCurrentBillingRevision(revision), true);
+assert.equal(isTrustedCurrentBillingRevision(null), false);
+assert.equal(isTrustedCurrentBillingRevision({ ...revision, planName: " Max " }), false);
+assert.equal(isTrustedCurrentBillingRevision({ ...revision, components: { primary: { ...revision.components.primary, id: "" } } }), false);
+assert.equal(isTrustedCurrentBillingRevision({ ...revision, components: { primary: { ...revision.components.primary, amount: "30.840000" } } }), false);
+assert.equal(isTrustedCurrentBillingRevision({ ...revision, unexpected: true }), false);
+assert.deepEqual(buildCurrentBillingRevision("", []), { planName: "", components: {} });
+assert.equal(buildCurrentBillingRevision("Max", [component({ id: primaryId, amount: "" })]).components.primary.amount, null);
+assert.equal(buildCurrentBillingRevision("Max", [component({ id: primaryId, amount: "0.000000" })]).components.primary.amount, "0");
+assert.equal(buildCurrentBillingRevision("Max", [component({ id: "" })]), null, "missing persisted identity must fail closed");
+assert.equal(buildCurrentBillingRevision("Max", [component({ id: "not-a-uuid" })]), null, "invalid persisted identity must fail closed");
+assert.equal(buildCurrentBillingRevision("Max", [component(), component({ id: topUpId, billingType: "Yearly" })]), null, "multiple primary components must fail closed");
+assert.equal(buildCurrentBillingRevision("Max", [component({ amount: "not-a-number" })]), null, "invalid persisted amounts must fail closed");
+assert.equal(buildCurrentBillingRevision("Max", [component({ amount: "1000000000000" })]), null, "out-of-range persisted amounts must fail closed");
+assert.equal(buildCurrentBillingRevision("Max", [component({ nextRenewalDate: "2026-02-30" })]), null, "invalid persisted dates must fail closed");
+
+const toolsSource = fs.readFileSync(path.join(root, "lib/supabase/tools.ts"), "utf8");
+assert.match(toolsSource, /const hasTrustedComponentRead = Array\.isArray\(rawLink\.tool_link_billing_components\)/);
+assert.match(toolsSource, /const currentBillingRevision = hasTrustedComponentRead\s*\?[\s\S]*?buildCurrentBillingRevision\([\s\S]*?\)\s*:\s*null;/, "legacy component-query fallback must not invent a revision");
+assert.match(toolsSource, /currentBillingRevision,/);
 
 const increase = compare({ editedComponents: [component({ amount: "35" })] });
 assert.deepEqual(increase.classifications, ["price_increased"]);

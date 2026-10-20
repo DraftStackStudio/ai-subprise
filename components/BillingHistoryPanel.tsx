@@ -10,6 +10,7 @@ import { validSubscriptionBillingTypes } from "@/lib/subscriptions";
 import { addMonthsSafely, validBillingDate, localBillingToday } from "@/lib/currentBilling";
 import { DropdownControl, type DropdownOption } from "@/components/DropdownControls";
 import DateFieldControl from "@/components/DateFieldControl";
+import PaymentBillingDifferenceChoiceField, { type PaymentBillingDifferenceChoice } from "@/components/PaymentBillingDifferenceChoice";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { BillingAmount } from "@/types/toolDetail";
@@ -54,6 +55,8 @@ type PanelProps = {
   initialEntryMode?: Exclude<EntryMode, "">;
   prefillCurrentBilling?: boolean;
   onEstablishCurrentBilling?: (relationshipId: string, planName: string, components: BillingAmount[]) => Promise<void>;
+  onRequestCurrentBillingUpdate?: (relationshipId: string, billingType: string, currency: string, amount: string, choice: Exclude<PaymentBillingDifferenceChoice, "unknown">) => void;
+  onPaymentsSaved?: () => void;
   onSetupComplete?: () => void;
   selectedBillingType?: string;
   initialRelationshipId: string;
@@ -68,6 +71,8 @@ type AccountSectionProps = BillingHistoryAccount & {
   initialEntryMode?: Exclude<EntryMode, "">;
   prefillCurrentBilling?: boolean;
   onEstablishCurrentBilling?: (relationshipId: string, planName: string, components: BillingAmount[]) => Promise<void>;
+  onRequestCurrentBillingUpdate?: (relationshipId: string, billingType: string, currency: string, amount: string, choice: Exclude<PaymentBillingDifferenceChoice, "unknown">) => void;
+  onPaymentsSaved?: () => void;
   onSetupComplete?: () => void;
   selectedBillingType?: string;
   isExpanded: boolean;
@@ -132,6 +137,32 @@ function compactSummary(billingAmounts: BillingAmount[]) {
   }).join("  +  ");
 }
 
+const canonicalAmount = (value: string) => {
+  const [whole, fraction = ""] = value.trim().split(".");
+  const normalizedWhole = whole.replace(/^0+(?=\d)/, "") || "0";
+  const normalizedFraction = fraction.replace(/0+$/, "");
+  return normalizedFraction ? `${normalizedWhole}.${normalizedFraction}` : normalizedWhole;
+};
+
+export function periodPaymentBillingDecision(rows: PeriodDraftRow[], currentComponents: BillingAmount[], billingType: string, currency: string, amount: string) {
+  const component = currentComponents.find((candidate) => candidate.billingType === billingType);
+  const generatedRows = rows.filter((row) => row.origin === "generated");
+  const signature = JSON.stringify({ amount, billingType, currency, rows: generatedRows.map((row) => [row.id, row.billingType, row.currency, row.amount]) });
+  if (!component) return { kind: "unsupported" as const, message: "No matching Current Billing component was found. These payments will be saved without changing Current Billing.", signature };
+  if (!amount.trim() || !component.amount.trim()) return { kind: "unsupported" as const, message: "An unknown payment or Current Billing amount cannot be treated as a price change. These payments will be saved without changing Current Billing.", signature };
+  if (!/^[A-Z]{3}$/.test(currency.trim().toUpperCase()) || currency.trim().toUpperCase() !== component.currency.trim().toUpperCase()) return { kind: "unsupported" as const, message: "The payment currency does not match Current Billing. These payments will be saved without changing Current Billing.", signature };
+  if (!generatedRows.length || generatedRows.some((row) => row.billingType !== billingType || row.currency.trim().toUpperCase() !== currency.trim().toUpperCase() || row.amount !== amount)) return { kind: "unsupported" as const, message: "The generated period contains different billing details. These payments will be saved without inferring a Current Billing change.", signature };
+  return canonicalAmount(amount) === canonicalAmount(component.amount)
+    ? { kind: "match" as const, signature }
+    : { kind: "difference" as const, signature };
+}
+
+export async function persistPeriodPayments(rows: PeriodDraftRow[], relationshipId: string, create: typeof createBillingTransaction, refresh: () => Promise<void>) {
+  const saved = await Promise.all(rows.map((row) => create({ amount: row.amount, billingTypeSnapshot: row.billingType, currency: row.currency, note: row.note, paymentDate: row.paymentDate, planNameSnapshot: row.planName, relationshipId, sourceKey: row.sourceKey, status: row.status })));
+  await refresh();
+  return saved;
+}
+
 function InvoiceUploadField({ fileName, onChange }: { fileName: string; onChange: (fileName: string) => void }) {
   return <>
     <label className="form-field billing-past-invoice-field">
@@ -157,7 +188,7 @@ function PastBillingAccountSummary({ accountEmail, accountLabel, accountTag, onC
   </div>;
 }
 
-function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
+function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
   const prefill = prefillCurrentBilling && initialEntryMode ? subscriptionPaymentPrefill(billingAmounts, initialEntryMode, selectedBillingType) : null;
   const [setupRenewalDate, setSetupRenewalDate] = useState(prefill?.nextRenewalDate ?? "");
   const [setupBillingSaved, setSetupBillingSaved] = useState(false);
@@ -187,6 +218,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const [periodValidationAttempted, setPeriodValidationAttempted] = useState(false);
   const [periodRowsValidationAttempted, setPeriodRowsValidationAttempted] = useState(false);
   const [periodEditValidationAttempted, setPeriodEditValidationAttempted] = useState(false);
+  const [periodBillingChoice, setPeriodBillingChoice] = useState<{ choice: PaymentBillingDifferenceChoice; signature: string } | null>(null);
   const periodErrors = periodValidationAttempted ? periodHeaderErrors(draft, setupRenewalDate, Boolean(onEstablishCurrentBilling), localBillingToday(), billingAmounts.map((component) => component.billingType)) : {};
   const periodEditErrors = periodEditValidationAttempted ? periodPaymentErrors({ ...periodEditDraft, currency: draft.currency }, Boolean(onEstablishCurrentBilling)) : {};
   const fieldError = (errors: BillingFieldErrors, key: keyof BillingFieldErrors) => errors[key]
@@ -238,13 +270,17 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   }, {}), [periodDraftRows]);
   const previewTotal = Object.entries(previewTotals).map(([currency, total]) => `${currency === "Amount" ? "" : `${currency} `}${total.toFixed(2).replace(/\.00$/, "")}`).join(" + ");
   const reviewPeriodDraftRows = useMemo(() => [...periodDraftRows].sort((left, right) => right.paymentDate.localeCompare(left.paymentDate)), [periodDraftRows]);
+  const periodBillingDecision = onRequestCurrentBillingUpdate
+    ? periodPaymentBillingDecision(periodDraftRows, billingAmounts, draft.billingType, draft.currency, draft.amount)
+    : null;
+  const selectedPeriodBillingChoice = periodBillingChoice && periodBillingChoice.signature === periodBillingDecision?.signature ? periodBillingChoice.choice : "";
   const activity = restoredDate
     ? [{ date: restoredDate, event: "Restored", id: `restored-${relationshipId}`, note: "Restored by you" }, ...accountActivity]
     : accountActivity;
   const visibleTransactions = showAllPayments ? transactions : transactions.slice(0, 5);
   const hiddenPaymentCount = Math.max(0, transactions.length - visibleTransactions.length);
 
-  const closeForm = () => { resetPeriodValidation(); setShowPastBillingModal(false); setShowDeleteConfirmation(false); setEntryMode(""); setEditingId(""); setDraft(initialDraft()); setPeriodDraftRows([]); setPeriodGenerationKey(""); setPeriodEditId(""); setPeriodEditDraft(initialDraft()); setPeriodDraftDeleteId(""); setError(""); setOpenDropdownId(null); setInvoiceFileName(""); setShowPeriodPreview(false); setSinglePaymentBillingDrafts([]); setSinglePaymentKey(localDraftId()); setAdditionalTopUpDrafts([]); setSingleCurrencyError(""); };
+  const closeForm = () => { resetPeriodValidation(); setShowPastBillingModal(false); setShowDeleteConfirmation(false); setEntryMode(""); setEditingId(""); setDraft(initialDraft()); setPeriodDraftRows([]); setPeriodGenerationKey(""); setPeriodEditId(""); setPeriodEditDraft(initialDraft()); setPeriodDraftDeleteId(""); setError(""); setOpenDropdownId(null); setInvoiceFileName(""); setShowPeriodPreview(false); setSinglePaymentBillingDrafts([]); setSinglePaymentKey(localDraftId()); setAdditionalTopUpDrafts([]); setSingleCurrencyError(""); setPeriodBillingChoice(null); };
   const returnToEntrySelector = () => { resetPeriodValidation(); closeForm(); onChangeRelationship?.(); };
   const openForm = () => { onChangeRelationship?.(); };
   const field = (key: keyof TransactionDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
@@ -363,6 +399,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
     if (Object.keys(headerErrors).length) { setShowPeriodPreview(false); return; }
     if (!periodDraftRows.length || periodDraftRows.some((row) => Object.keys(periodPaymentErrors(row, Boolean(onEstablishCurrentBilling))).length)) return;
     if (!relationshipId) return setError("The account relationship could not be identified. Reopen Add Payment.");
+    if (periodBillingDecision?.kind === "difference" && !selectedPeriodBillingChoice) return setError("Choose why these payment amounts differ from Current Billing.");
     setIsSaving(true); setError("");
     try {
       if (onEstablishCurrentBilling) {
@@ -370,8 +407,12 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
         await onEstablishCurrentBilling(relationshipId, draft.planName, components);
         setSetupBillingSaved(true);
       }
-      await Promise.all(periodDraftRows.map((row) => createBillingTransaction({ amount: row.amount, billingTypeSnapshot: row.billingType, currency: row.currency, note: row.note, paymentDate: row.paymentDate, planNameSnapshot: row.planName, relationshipId, sourceKey: row.sourceKey, status: row.status })));
-      await reload(); closeForm();
+      await persistPeriodPayments(periodDraftRows, relationshipId, createBillingTransaction, reload);
+      onPaymentsSaved?.();
+      closeForm();
+      if (periodBillingDecision?.kind === "difference" && (selectedPeriodBillingChoice === "correction" || selectedPeriodBillingChoice === "change")) {
+        onRequestCurrentBillingUpdate?.(relationshipId, draft.billingType, draft.currency, draft.amount, selectedPeriodBillingChoice);
+      }
       if (onEstablishCurrentBilling) onSetupComplete?.();
     } catch (caught: unknown) { setError(caught instanceof Error ? caught.message : "Could not save subscription period."); }
     finally { setIsSaving(false); }
@@ -523,6 +564,8 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
               {reviewPeriodDraftRows.length ? <div className="billing-period-draft-table"><div className="billing-period-draft-head"><span>Date</span><span>Type</span><span>Amount</span><span>Status</span><span>Action</span></div>{reviewPeriodDraftRows.map((row) => <div className="billing-period-draft-row" key={row.id}><span data-label="Date"><DateFieldControl ariaLabel={`Payment date for ${billingHistoryDisplayDate(row.paymentDate)}`} className="field-input billing-period-inline-date" onChange={(value) => updatePeriodDraft(row.id, { paymentDate: value })} value={row.paymentDate}/>{fieldError(rowErrors(row), "paymentDate")}</span><span data-label="Type">{renderPastDropdown(`period-row-type-${row.id}`, row.billingType, "Select type", draftBillingTypeOptions, (value) => updatePeriodDraft(row.id, { billingType: value as BillingTransactionType }))}{fieldError(rowErrors(row), "billingType")}</span><span className="billing-period-inline-amount" data-label="Amount"><span className="billing-period-inline-currency">{row.currency || "—"}</span><input aria-label={`Amount for ${billingHistoryDisplayDate(row.paymentDate)}`} inputMode="decimal" onChange={(event) => updatePeriodDraft(row.id, { amount: event.target.value })} placeholder="—" value={row.amount}/>{fieldError(rowErrors(row), "currency")}{fieldError(rowErrors(row), "amount")}</span><span data-label="Status">{renderPastDropdown(`period-row-status-${row.id}`, row.status, "Status", statusOptions, (value) => updatePeriodDraft(row.id, { status: value as BillingTransactionStatus }))}{fieldError(rowErrors(row), "status")}</span><span data-label="Action"><button aria-label={`Edit ${billingHistoryDisplayDate(row.paymentDate)} draft`} className="billing-history-details-button" onClick={() => beginPeriodDraftEdit(row)} type="button">•••</button></span></div>)}</div> : <p className="billing-period-draft-empty">Choose a valid start date, next renewal and Monthly or Yearly billing type to generate records.</p>}
               {periodRowsValidationAttempted && !periodDraftRows.length ? fieldError({ rows: "Add at least one payment before saving." }, "rows") : null}
               <p className="billing-period-review-order">Payments are generated from newest to oldest.</p>
+              {periodBillingDecision?.kind === "difference" ? <PaymentBillingDifferenceChoiceField disabled={isSaving} onChange={(choice) => setPeriodBillingChoice({ choice, signature: periodBillingDecision.signature })} value={selectedPeriodBillingChoice} /> : null}
+              {periodBillingDecision?.kind === "unsupported" ? <p className="billing-period-current-billing-note" role="status">{periodBillingDecision.message}</p> : null}
               </> : <>
               <h4 className="billing-past-section-heading category-view-title">Payment Details</h4>
               <InvoiceUploadField fileName={invoiceFileName} onChange={setInvoiceFileName}/>
@@ -547,7 +590,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   </section>;
 }
 
-export default function BillingHistoryPanel({ accounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onSetupComplete, selectedBillingType, initialRelationshipId, onChangeRelationship, onClose, restoredDate, toolLogo, toolLogoBackground, toolName }: PanelProps) {
+export default function BillingHistoryPanel({ accounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, initialRelationshipId, onChangeRelationship, onClose, restoredDate, toolLogo, toolLogoBackground, toolName }: PanelProps) {
   const [expandedRelationshipIds, setExpandedRelationshipIds] = useState(() => new Set([initialRelationshipId]));
   const toggleRelationship = (relationshipId: string) => setExpandedRelationshipIds((current) => {
     const next = new Set(current);
@@ -559,6 +602,6 @@ export default function BillingHistoryPanel({ accounts, initialEntryMode, prefil
     <div className="billing-history-panel-actions"><button aria-label="Close billing history" className="modal-close-button" onClick={onClose} type="button">x</button></div>
     <h2 className="billing-history-heading">Billing History</h2>
     <div className="billing-history-tool-row"><h3 className="billing-history-tool-heading">{toolName}</h3>{accounts.length > 1 ? <div className="billing-history-expand-controls"><button onClick={() => setExpandedRelationshipIds(new Set(accounts.map((account) => account.relationshipId)))} type="button">Expand all</button><button onClick={() => setExpandedRelationshipIds(new Set())} type="button">Collapse all</button></div> : null}</div>
-    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} onEstablishCurrentBilling={account.relationshipId === initialRelationshipId ? onEstablishCurrentBilling : undefined} onSetupComplete={onSetupComplete} prefillCurrentBilling={account.relationshipId === initialRelationshipId && prefillCurrentBilling} selectedBillingType={account.relationshipId === initialRelationshipId ? selectedBillingType : undefined} initialEntryMode={account.relationshipId === initialRelationshipId ? initialEntryMode : undefined} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onChangeRelationship={onChangeRelationship} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>)}</div>
+    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} onEstablishCurrentBilling={account.relationshipId === initialRelationshipId ? onEstablishCurrentBilling : undefined} onRequestCurrentBillingUpdate={account.relationshipId === initialRelationshipId ? onRequestCurrentBillingUpdate : undefined} onPaymentsSaved={account.relationshipId === initialRelationshipId ? onPaymentsSaved : undefined} onSetupComplete={onSetupComplete} prefillCurrentBilling={account.relationshipId === initialRelationshipId && prefillCurrentBilling} selectedBillingType={account.relationshipId === initialRelationshipId ? selectedBillingType : undefined} initialEntryMode={account.relationshipId === initialRelationshipId ? initialEntryMode : undefined} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onChangeRelationship={onChangeRelationship} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>)}</div>
   </aside></div>;
 }

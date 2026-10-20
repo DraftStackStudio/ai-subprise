@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import { isTrialResolution } from "@/lib/trialResolution";
 import { requireRelationshipLifecycleStatus } from "@/lib/relationshipLifecycle";
+import { buildCurrentBillingRevision } from "@/lib/currentBillingChange";
 import type { BillingAmount, ManageStatus, RetiredBillingAmount, TrialResolution, TrialResolutionHistoryEntry } from "@/types/toolDetail";
 
 export type SupabaseToolStatus = "Active" | "Trial" | "Free Tier" | "Paused" | "Considering" | "Cancelled" | "Paid" | "Free";
@@ -92,7 +93,7 @@ function billingAmountFromRecord(component: Record<string, unknown>): BillingAmo
     amount: typeof component.amount === "string" ? component.amount : "",
     billingType: typeof component.billing_type === "string" ? component.billing_type : "",
     currency: typeof component.currency === "string" ? component.currency : "",
-    id: String(component.id ?? crypto.randomUUID()),
+    id: typeof component.id === "string" ? component.id : "",
     lastTopUpDate: typeof component.last_top_up_date === "string" ? component.last_top_up_date : "",
     nextRenewalDate: typeof component.next_renewal_date === "string" ? component.next_renewal_date : "",
     purchaseDate: typeof component.purchase_date === "string" ? component.purchase_date : "",
@@ -211,6 +212,7 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
     const rawComponents = Array.isArray(rawLink.tool_link_billing_components)
       ? rawLink.tool_link_billing_components
       : [];
+    const hasTrustedComponentRead = Array.isArray(rawLink.tool_link_billing_components);
     const componentRecords = rawComponents
       .filter((component): component is Record<string, unknown> => Boolean(component) && typeof component === "object");
     const billingAmounts = componentRecords
@@ -221,6 +223,14 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
       })
       .map(billingAmountFromRecord)
       .filter((component) => component.billingType);
+    const currentBillingRevision = hasTrustedComponentRead
+      ? buildCurrentBillingRevision(
+          typeof rawLink.plan_name === "string" ? rawLink.plan_name : "",
+          componentRecords
+            .filter((component) => component.retired_at === null || component.retired_at === undefined)
+            .map(billingAmountFromRecord),
+        )
+      : null;
     const retiredBillingAmounts = componentRecords
       .filter((component) => (
         (component.billing_type === "Monthly" || component.billing_type === "Yearly")
@@ -268,6 +278,7 @@ export async function getToolLinkDetailRecords(options: { includeUnlinked?: bool
       billingHistoryEntries,
       billingType: componentBillingType || (typeof rawLink.billing_type === "string" ? rawLink.billing_type : ""),
       convertedDate: typeof rawLink.converted_date === "string" ? rawLink.converted_date : "",
+      currentBillingRevision,
       currency: typeof rawLink.currency === "string" && rawLink.currency ? rawLink.currency : "USD",
       lastTopUpDate: topUpComponent?.lastTopUpDate || (typeof rawLink.last_top_up_date === "string" ? rawLink.last_top_up_date : ""),
       nextChargeDate: recurringComponent?.nextRenewalDate || (typeof rawLink.next_charge_date === "string" ? rawLink.next_charge_date : ""),

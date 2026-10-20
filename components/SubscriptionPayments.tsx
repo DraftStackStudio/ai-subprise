@@ -8,13 +8,21 @@ import { subscriptionPaymentPrefill } from "@/lib/subscriptionPaymentPrefill";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { validBillingDate } from "@/lib/currentBilling";
 import DateFieldControl from "@/components/DateFieldControl";
+import PaymentBillingDifferenceChoiceField, { type PaymentBillingDifferenceChoice } from "@/components/PaymentBillingDifferenceChoice";
 
 const types: BillingTransactionType[] = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"];
-type Draft = Pick<BillingTransaction, "paymentDate" | "planNameSnapshot" | "billingTypeSnapshot" | "currency" | "amount" | "status"> & { id?: string; sourceKey: string; relationshipId: string; syncCurrency: boolean; syncCurrentBillingAmount: boolean };
+export type { PaymentBillingDifferenceChoice } from "@/components/PaymentBillingDifferenceChoice";
+type Draft = Pick<BillingTransaction, "paymentDate" | "planNameSnapshot" | "billingTypeSnapshot" | "currency" | "amount" | "status"> & {
+  billingDifferenceChoice: PaymentBillingDifferenceChoice | "";
+  id?: string;
+  sourceKey: string;
+  relationshipId: string;
+  syncCurrency: boolean;
+};
 
-export default function SubscriptionPayments({ account, canAdd, currencyOptions, onChanged, onUpdateCurrentBillingAmount }: {
+export default function SubscriptionPayments({ account, canAdd, currencyOptions, onChanged, onRequestCurrentBillingUpdate }: {
   account: SubscriptionRow; canAdd: boolean; currencyOptions: DropdownOption[]; onChanged?: () => void;
-  onUpdateCurrentBillingAmount?: (relationshipId: string, billingType: string, currency: string, amount: string) => Promise<void>;
+  onRequestCurrentBillingUpdate?: (relationshipId: string, billingType: string, currency: string, amount: string, choice: Exclude<PaymentBillingDifferenceChoice, "unknown">) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -39,7 +47,7 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     const prefill = subscriptionPaymentPrefill(account.billingComponents, "single");
     setDrafts((current) => ({ ...current, new: { relationshipId: account.relationshipId, sourceKey: `single-payment:${account.relationshipId}:${crypto.randomUUID()}`,
       planNameSnapshot: account.planName, billingTypeSnapshot: prefill?.billingType ?? "", currency: entryCurrency || prefill?.currency || "",
-      amount: prefill?.amount ?? "", paymentDate: prefill?.paymentDate ?? "", status: "Paid", syncCurrency: true, syncCurrentBillingAmount: false } }));
+      amount: prefill?.amount ?? "", billingDifferenceChoice: "", paymentDate: prefill?.paymentDate ?? "", status: "Paid", syncCurrency: true } }));
   };
   const save = async (key: string) => {
     const draft = drafts[key];
@@ -53,19 +61,25 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
       || !/^[A-Z]{3}$/.test(draft.currency.trim()) || (draft.amount.trim() && !/^\d+(\.\d+)?$/.test(draft.amount.trim()))) {
       setError("Enter a valid payment date, billing type, three-letter currency and non-negative amount."); return;
     }
+    const originalPayment = draft.id ? rows.find((row) => row.id === draft.id) : undefined;
+    const hasMatchingCurrentComponent = account.billingComponents.some((component) => component.billingType === draft.billingTypeSnapshot);
+    const requiresBillingDecision = Boolean(draft.id && onRequestCurrentBillingUpdate && originalPayment
+      && draft.amount !== originalPayment.amount && hasMatchingCurrentComponent);
+    if (requiresBillingDecision && !draft.billingDifferenceChoice) {
+      setError("Choose why this payment amount differs from Current Billing."); return;
+    }
     saving.current.add(key); setBusyRows((current) => ({ ...current, [key]: true }));
     try {
-      const { id, sourceKey, relationshipId, paymentDate, planNameSnapshot, billingTypeSnapshot, currency, amount, status, syncCurrentBillingAmount } = draft;
+      const { id, sourceKey, relationshipId, paymentDate, planNameSnapshot, billingTypeSnapshot, currency, amount, status } = draft;
       const values = { paymentDate, planNameSnapshot, billingTypeSnapshot, currency, amount, status };
       const result = id ? await updateBillingTransaction(id, values) : await createBillingTransaction({ ...values, relationshipId, sourceKey });
-      const originalPayment = id ? rows.find((row) => row.id === id) : undefined;
-      const hasMatchingCurrentComponent = account.billingComponents.some((component) => component.billingType === billingTypeSnapshot);
-      if (id && syncCurrentBillingAmount && originalPayment && amount !== originalPayment.amount && hasMatchingCurrentComponent) {
-        await onUpdateCurrentBillingAmount?.(relationshipId, billingTypeSnapshot, currency, amount);
-      }
       setSaved((current) => [...current.filter((row) => row.id !== result.id), result]);
       clearDraft(key);
       onChanged?.();
+      const billingChoice = draft.billingDifferenceChoice;
+      if (requiresBillingDecision && (billingChoice === "correction" || billingChoice === "change")) {
+        onRequestCurrentBillingUpdate?.(relationshipId, billingTypeSnapshot, currency, amount, billingChoice);
+      }
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not save payment. Please retry."); }
     finally { saving.current.delete(key); setBusyRows((current) => ({ ...current, [key]: false })); }
   };
@@ -74,7 +88,7 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     const busy = Boolean(busyRows[key]);
     const originalPayment = value.id ? rows.find((row) => row.id === value.id) : undefined;
     const matchingCurrentComponent = value.id ? account.billingComponents.find((component) => component.billingType === value.billingTypeSnapshot) : undefined;
-    const canSyncCurrentBillingAmount = Boolean(onUpdateCurrentBillingAmount && matchingCurrentComponent && originalPayment && value.amount !== originalPayment.amount);
+    const needsBillingDecision = Boolean(onRequestCurrentBillingUpdate && matchingCurrentComponent && originalPayment && value.amount !== originalPayment.amount);
     const patch = (updates: Partial<Draft>) => {
       if (updates.currency) setEntryCurrency(updates.currency);
       setDrafts((current) => {
@@ -92,16 +106,16 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     <td><fieldset className="subscription-payment-dropdown" disabled={busy}><DropdownControl ariaLabel="Billing Type" id={`payment-type-${key}`} isOpen={!busy && openDropdown === `payment-type-${key}`} onOpenChange={setOpenDropdown} value={value.billingTypeSnapshot} placeholder="Select billing type" options={types.map((type) => ({ value: type, label: type === "Top-up" ? "Top-up credit" : type === "One-time" ? "One-time payment" : type }))} onChange={(selected) => {
       const type = selected as BillingTransactionType;
       const prefill = !value.id ? subscriptionPaymentPrefill(account.billingComponents, "single", type) : null;
-      patch({ billingTypeSnapshot: type, ...(!value.id ? { currency: entryCurrency || prefill?.currency || value.currency, amount: prefill?.amount ?? "", paymentDate: prefill?.paymentDate ?? "" } : {}) });
+      patch({ billingDifferenceChoice: "", billingTypeSnapshot: type, ...(!value.id ? { currency: entryCurrency || prefill?.currency || value.currency, amount: prefill?.amount ?? "", paymentDate: prefill?.paymentDate ?? "" } : {}) });
     }} /></fieldset></td>
-    <td><div className="subscription-payment-amount-inputs"><fieldset className="subscription-payment-dropdown" disabled={busy}><DropdownControl ariaLabel="Currency" id={`payment-currency-${key}`} isOpen={!busy && openDropdown === `payment-currency-${key}`} onOpenChange={setOpenDropdown} value={value.currency} placeholder="Currency" options={currencyOptions} onChange={(currency) => patch({ currency })} /></fieldset><input aria-label="Amount" className="field-input" inputMode="decimal" disabled={busy} value={value.amount} onChange={(event) => patch({ amount: event.target.value })} /></div></td>
+    <td><div className="subscription-payment-amount-inputs"><fieldset className="subscription-payment-dropdown" disabled={busy}><DropdownControl ariaLabel="Currency" id={`payment-currency-${key}`} isOpen={!busy && openDropdown === `payment-currency-${key}`} onOpenChange={setOpenDropdown} value={value.currency} placeholder="Currency" options={currencyOptions} onChange={(currency) => patch({ billingDifferenceChoice: "", currency })} /></fieldset><input aria-label="Amount" className="field-input" inputMode="decimal" disabled={busy} value={value.amount} onChange={(event) => patch({ amount: event.target.value, billingDifferenceChoice: "" })} /></div></td>
     <td><fieldset className="subscription-payment-dropdown" disabled={busy}><DropdownControl ariaLabel="Payment Status" id={`payment-status-${key}`} isOpen={!busy && openDropdown === `payment-status-${key}`} onOpenChange={setOpenDropdown} value={value.status} options={["Paid", "Pending", "Failed", "Refunded"].map((status) => ({ value: status, label: status }))} onChange={(status) => patch({ status: status as BillingTransactionStatus })} /></fieldset></td>
     <td><div className="subscription-payment-row-actions"><button className="btn-sm" disabled={busy} type="button" onClick={() => { if (!saving.current.has(key)) clearDraft(key); }}>Cancel</button><button className="btn-sm" disabled={busy} type="button" onClick={() => save(key)}>Save</button></div></td>
-  </tr>{canSyncCurrentBillingAmount ? <tr className="subscription-payment-sync-row"><td colSpan={6}><label className="subscription-payment-sync-option"><input aria-label={`Update Current Billing amount to ${value.currency.trim() && value.amount.trim() ? `${value.currency.trim()} ${value.amount.trim()}` : "—"} too?`} checked={value.syncCurrentBillingAmount} disabled={busy} type="checkbox" onChange={(event) => patch({ syncCurrentBillingAmount: event.target.checked })}/><span>Update Current Billing amount to {value.currency.trim() && value.amount.trim() ? `${value.currency.trim()} ${value.amount.trim()}` : "—"} too?</span></label></td></tr> : null}{errors[key] ? <tr className="subscription-payment-feedback-row" data-error-key={key}><td colSpan={6}><small className="field-feedback error" role="alert">{errors[key]}</small></td></tr> : null}</Fragment>;
+  </tr>{needsBillingDecision ? <tr className="subscription-payment-sync-row"><td colSpan={6}><PaymentBillingDifferenceChoiceField disabled={busy} onChange={(billingDifferenceChoice) => patch({ billingDifferenceChoice })} value={value.billingDifferenceChoice} /></td></tr> : null}{errors[key] ? <tr className="subscription-payment-feedback-row" data-error-key={key}><td colSpan={6}><small className="field-feedback error" role="alert">{errors[key]}</small></td></tr> : null}</Fragment>;
   };
   const beginEdit = (payment: BillingTransaction) => {
     if (!canAdd || payment.source !== "manual") return;
-    setDrafts((current) => current[payment.id] ? current : { ...current, [payment.id]: { ...payment, currency: payment.currency.trim() || entryCurrency, syncCurrency: !payment.currency.trim(), syncCurrentBillingAmount: false } });
+    setDrafts((current) => current[payment.id] ? current : { ...current, [payment.id]: { ...payment, billingDifferenceChoice: "", currency: payment.currency.trim() || entryCurrency, syncCurrency: !payment.currency.trim() } });
   };
   const cell = (text: string) => <td>{text}</td>;
   return <section className="subscription-account-section" aria-labelledby="subscription-payments">

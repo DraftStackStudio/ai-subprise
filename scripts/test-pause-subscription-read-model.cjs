@@ -66,7 +66,8 @@ const subscriptionAccount = read('components/SubscriptionAccountView.tsx');
 assert.match(subscriptionAccount, /showLastBillingSetup/);
 assert.match(subscriptionAccount, /"Last Billing Setup" : "Current Billing"/);
 assert.match(subscriptionAccount, /isLastBillingSetup \? "Last recorded renewal" : "Next renewal"/);
-assert.match(subscriptionAccount, /!showLastBillingSetup && account\.state === "Complete"/);
+assert.match(subscriptionAccount, /const currentBillingUpdateEligible = account\.canManageBilling[\s\S]*?account\.state === "Complete"/);
+assert.match(subscriptionAccount, /!showLastBillingSetup && currentBillingUpdateEligible/);
 assert.match(subscriptionAccount, /periods=\{account\.renewalPeriods\}/);
 
 const billingDetails = read('components/BillingDetailsView.tsx');
