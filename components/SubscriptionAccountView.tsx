@@ -17,6 +17,7 @@ import { canPauseSubscription } from "@/lib/subscriptionPause";
 import { canResumeSubscription, currentPauseEventForResume, type ResumeBillingType } from "@/lib/subscriptionResume";
 import { isTrustedCurrentBillingRevision } from "@/lib/currentBillingChange";
 import { localBillingToday } from "@/lib/currentBilling";
+import { subscriptionBillingActivityItems } from "@/lib/subscriptionBillingActivity";
 import type { UpdateCurrentBillingInput } from "@/types/currentBillingChange";
 
 function displayAmount(currency: string, amount: string) {
@@ -233,7 +234,8 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
     order: new Date(entry.createdAt).getTime() || 0,
     title: entry.kind === "billing_schedule_changed" ? "Billing date updated" : "Billing details updated",
   }));
-  const activity = [...groupedLifecycleActivity, ...decisionActivity, ...correctionActivity].filter((entry) => entry.date)
+  const billingActivity: AccountActivityItem[] = subscriptionBillingActivityItems(account.billingEvents ?? [], account.relationshipId);
+  const activity = [...groupedLifecycleActivity, ...decisionActivity, ...correctionActivity, ...billingActivity].filter((entry) => entry.date)
     .sort((a, b) => b.date.localeCompare(a.date) || b.order - a.order);
 
   return <div className="subscription-account-view" data-relationship-id={account.relationshipId}>
@@ -300,7 +302,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
           <ActivityMetadata parts={entry.details} />
           {entry.note ? <p className="subscription-activity-note">{entry.note}</p> : null}
         </div>
-      </li>)}</ul> : <p className="subscription-detail-empty subscription-activity-empty">No recorded lifecycle changes for this account.</p>}
+      </li>)}</ul> : <p className="subscription-detail-empty subscription-activity-empty">No recorded account activity for this account.</p>}
     </section>
     {paymentPrompt ? <div className="welcome-modal-overlay" role="presentation"><section className="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-payment-prompt">
       <h2 id="subscription-payment-prompt">Record a payment?</h2>
