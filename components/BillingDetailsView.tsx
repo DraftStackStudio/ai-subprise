@@ -8,6 +8,11 @@ import type { BillingCurrentActions } from "@/components/BillingCurrentEditor";
 import { billingRelationshipSelectorLabel } from "@/lib/billingRelationshipPresentation";
 import { planPillTone } from "@/lib/planPresentation";
 import type { LastBillingSetup } from "@/types/subscriptionLifecycleEvent";
+import type { SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
+import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent";
+import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
+import AccountActivityTable from "@/components/AccountActivityTable";
+import BillingUnconfirmedSummary from "@/components/BillingUnconfirmedSummary";
 
 export type BillingDetailsAccount = {
   accountActivity: BillingHistoryEntry[];
@@ -15,12 +20,16 @@ export type BillingDetailsAccount = {
   accountLabel: string;
   accountTag: string;
   billingAmounts: BillingAmount[];
+  billingEvents?: SubscriptionBillingEvent[];
   canEditCurrentBilling: boolean;
   isHistorical: boolean;
   lastBillingSetup: LastBillingSetup | null;
+  lifecycleEvents?: SubscriptionLifecycleEvent[];
   plan: string;
   planName: string;
   relationshipId: string;
+  renewalActivities?: BillingRenewalActivity[];
+  renewalPeriods?: BillingRenewalPeriod[];
   status: ManageStatus;
   transactions: BillingTransaction[];
 };
@@ -28,6 +37,7 @@ export type BillingDetailsAccount = {
 type BillingDetailsViewProps = BillingCurrentActions & {
   accounts: BillingDetailsAccount[];
   onOpenBillingHistory: (relationshipId: string) => void;
+  onReviewUnconfirmedBilling: (relationshipId: string) => void;
   onSelectRelationship: (relationshipId: string | null) => void;
   selectedRelationshipId: string | null;
   toolName: string;
@@ -51,7 +61,7 @@ function DetailsSection({ action, children, title, className = "" }: { action?: 
   </section>;
 }
 
-function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDetailsAccount; onOpenBillingHistory: (relationshipId: string) => void }) {
+function AccountDetails({ account, onOpenBillingHistory, onReviewUnconfirmedBilling }: { account: BillingDetailsAccount; onOpenBillingHistory: (relationshipId: string) => void; onReviewUnconfirmedBilling: (relationshipId: string) => void }) {
   const accountPlan = account.planName;
   const showLastBillingSetup = Boolean(account.lastBillingSetup) && (account.isHistorical || account.status !== "Active");
   const displayedBillingAmounts = showLastBillingSetup
@@ -61,8 +71,6 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
     if (component.billingType !== "Monthly" && component.billingType !== "Yearly") return false;
     return Boolean(component.nextRenewalDate && component.nextRenewalDate >= new Date().toISOString().slice(0, 10));
   }).map((component) => ({ id: component.id, date: component.nextRenewalDate!, billingType: componentType(component.billingType), amount: component.amount ? [component.currency, component.amount].filter(Boolean).join(" ") : "—" })) : [];
-  const activity = [...account.accountActivity].sort((first, second) => second.date.localeCompare(first.date));
-
   return <article className="billing-history-account-card billing-details-account">
     <header className="billing-details-account-header">
       <LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail} nameSuffix={accountPlan ? <span className={`tool-status-chip current-plan-pill ${planPillTone(account.plan)}`}>{accountPlan}</span> : null} tagClass={account.accountTag} />
@@ -74,6 +82,12 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
       {displayedBillingAmounts.length ? <div className="billing-details-components">{displayedBillingAmounts.map((component) => { const date = componentDate(component, account.isHistorical || showLastBillingSetup); return <div className="billing-details-stat-row billing-details-current-row" key={component.id}><span className="billing-details-stat"><span><small>{date.label}</small><strong>{date.value ? billingHistoryDisplayDate(date.value) : "Not recorded"}</strong></span></span><span className="billing-details-stat"><span><small>Billing type</small><strong>{componentType(component.billingType)}</strong></span></span><span className="billing-details-stat"><span><small>Amount</small><strong>{component.amount ? [component.currency, component.amount].filter(Boolean).join(" ") : "—"}</strong></span></span></div>; })}</div>
         : <div className="billing-details-empty billing-details-setup-empty"><strong>{account.isHistorical || showLastBillingSetup ? "No billing setup was recorded." : "No billing set up yet."}</strong><span>{account.isHistorical || showLastBillingSetup ? "No saved billing setup is available for this historical relationship." : "Current billing details for this account will appear here."}</span></div>}
     </DetailsSection>
+
+    <BillingUnconfirmedSummary
+      onReview={onReviewUnconfirmedBilling}
+      periods={account.renewalPeriods ?? []}
+      relationshipId={account.relationshipId}
+    />
 
     {account.status === "Active" && !account.isHistorical ? <DetailsSection title="Upcoming">
       {upcoming.length ? <div className="billing-details-upcoming-list">{upcoming.map((event) => <div className="billing-details-stat-row billing-details-upcoming-row" key={event.id}>
@@ -91,22 +105,23 @@ function AccountDetails({ account, onOpenBillingHistory }: { account: BillingDet
     </DetailsSection>
 
     <DetailsSection title="Account Activity">
-      {activity.length ? <div className="billing-details-activity-list">{activity.map((entry) => {
-        const details = [
-          entry.planName?.trim(),
-          entry.billingType?.trim(),
-          entry.amount?.trim() ? [entry.currency?.trim(), entry.amount.trim()].filter(Boolean).join(" ") : undefined,
-        ].filter((detail): detail is string => Boolean(detail));
-        return <div key={entry.id}><span><strong>{entry.event}</strong><small>{billingHistoryDisplayDate(entry.date)}</small></span>{details.length ? <p>{details.join(" · ")}</p> : null}{entry.note ? <p>{entry.note}</p> : null}</div>;
-      })}</div>
-        : <div className="billing-details-empty"><strong>No account activity recorded yet.</strong><span>Persisted lifecycle changes will appear here.</span></div>}
+      <AccountActivityTable
+        billingEvents={account.billingEvents}
+        emptyMessage="No account activity recorded yet."
+        historicalEntries={account.accountActivity}
+        lifecycleEvents={account.lifecycleEvents}
+        relationshipId={account.relationshipId}
+        renewalActivities={account.renewalActivities}
+        renewalPeriods={account.renewalPeriods}
+        transactions={account.transactions}
+      />
     </DetailsSection>
 
     </div>
   </article>;
 }
 
-export default function BillingDetailsView({ accounts, onOpenBillingHistory, onSelectRelationship, selectedRelationshipId, toolName }: BillingDetailsViewProps) {
+export default function BillingDetailsView({ accounts, onOpenBillingHistory, onReviewUnconfirmedBilling, onSelectRelationship, selectedRelationshipId, toolName }: BillingDetailsViewProps) {
   const visibleAccounts = selectedRelationshipId ? accounts.filter((account) => account.relationshipId === selectedRelationshipId) : accounts;
   return <div className="billing-details-view">
     <header className="billing-details-header"><h2>{toolName}</h2><p>Billing Details</p></header>
@@ -114,6 +129,6 @@ export default function BillingDetailsView({ accounts, onOpenBillingHistory, onS
       <button className={`category-view-tab${!selectedRelationshipId ? " active" : ""}`} onClick={() => onSelectRelationship(null)} type="button">All accounts</button>
       {accounts.map((account) => <button className={`category-view-tab${selectedRelationshipId === account.relationshipId ? " active" : ""}`} key={account.relationshipId} onClick={() => onSelectRelationship(account.relationshipId)} type="button">{billingRelationshipSelectorLabel(account.accountLabel, account.planName, account.isHistorical)}</button>)}
     </div> : null}
-    <div className="billing-details-account-list">{visibleAccounts.map((account) => <AccountDetails account={account} key={account.relationshipId} onOpenBillingHistory={onOpenBillingHistory} />)}</div>
+    <div className="billing-details-account-list">{visibleAccounts.map((account) => <AccountDetails account={account} key={account.relationshipId} onOpenBillingHistory={onOpenBillingHistory} onReviewUnconfirmedBilling={onReviewUnconfirmedBilling} />)}</div>
   </div>;
 }

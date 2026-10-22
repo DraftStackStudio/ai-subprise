@@ -102,8 +102,12 @@ import type { LinkToolAccountBlock } from "@/types/linkTool";
 import { createBillingTransaction, getBillingTransactions, getBillingTransactionsByRelationship } from "@/lib/supabase/billingTransactions";
 import { estimateCurrentPayment, hasCurrentPayment, localBillingToday, validBillingDate, type CurrentPaymentEstimate, type RecurringBillingSettings } from "@/lib/currentBilling";
 import { unresolvedRenewalReviewGroups } from "@/lib/renewalPeriods";
-import { saveAuditedCurrentBilling, saveAuditedCurrentBillingSetup } from "@/lib/currentBillingSave";
+import { currentBillingUpdateSuccessMessage, saveAuditedCurrentBilling, saveAuditedCurrentBillingSetup } from "@/lib/currentBillingSave";
 import { protectedToolDetailCurrentBillingPlan } from "@/lib/toolDetailCurrentBilling";
+import {
+  protectedToolDetailLifecycleStatus,
+  toolDetailLifecycleStatusSave,
+} from "@/lib/toolDetailLifecycleStatus";
 import {
   confirmBillingRenewalPaid,
   getBillingRenewalActivitiesByRelationships,
@@ -3642,6 +3646,22 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       } : undefined,
     );
     const selectedPlan: ToolStatus = draft.plan;
+    const protectedLifecycleStatus = protectedToolDetailLifecycleStatus({
+      plan: relationPlanStatusValue(tool, draft.accountLabel),
+      relationshipId: currentDetail?.relationshipId,
+      status: currentDetail?.status,
+    });
+    let lifecycleStatusSave: ReturnType<typeof toolDetailLifecycleStatusSave>;
+    try {
+      lifecycleStatusSave = toolDetailLifecycleStatusSave({
+        expectedRelationshipId: exactRelationshipId,
+        protectedStatus: protectedLifecycleStatus,
+        requestedStatus: draft.status,
+      });
+    } catch (error) {
+      setToolDataError(error instanceof Error ? error.message : "Could not update linked account status.");
+      return null;
+    }
     const nextDetail: ToolAccountDetail = {
       amount: currentDetail?.amount ?? "",
       billingAmounts: currentDetail?.billingAmounts?.map((entry) => ({ ...entry })) ?? [],
@@ -3656,17 +3676,17 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       planName: protectedCurrentBilling?.planName
         ?? (draft.plan === "Active" ? draft.planName.trim() : ""),
       startDate: currentDetail?.startDate ?? "",
-      status: draft.status,
+      status: lifecycleStatusSave.status,
       trialExpiryDate: draft.plan === "Trial" ? draft.trialExpiryDate : "",
       trialResolution: currentDetail?.trialResolution ?? "",
       trialResolutionHistory: currentDetail?.trialResolutionHistory ?? [],
       trialResolved: currentDetail?.trialResolved ?? false,
     };
     let hasTransitionHistoryEntry = false;
-    if (currentDetail && draft.plan === "Active" && currentDetail.status !== draft.status) {
+    if (currentDetail && draft.plan === "Active" && currentDetail.status !== lifecycleStatusSave.status) {
       const transitionEntry = statusLedgerEntry(
         currentDetail.status,
-        draft.status,
+        lifecycleStatusSave.status,
         nextDetail,
         todayInputValue(),
       );
@@ -3696,12 +3716,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           convertedDate: nextDetail.convertedDate,
           plan: draft.plan,
           planName: protectedCurrentBilling ? undefined : nextDetail.planName,
-          status: nextDetail.status,
+          status: lifecycleStatusSave.persistStatus,
           trialExpiryDate: nextDetail.trialExpiryDate,
           trialResolution: undefined,
           trialResolutionHistory: undefined,
           trialResolved: undefined,
-        });
+        }, exactRelationshipId ? { expectedRelationshipId: exactRelationshipId } : undefined);
       } catch (error) {
         setToolDataError(error instanceof Error ? error.message : "Could not update linked account.");
         return null;
@@ -5671,12 +5691,16 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           accountLabel: directoryAccount.accountLabel,
           accountTag: directoryAccount.accountTag,
           billingAmounts,
+          billingEvents: subscriptionBillingEvents.filter((event) => event.relationshipId === directoryAccount.relationshipId),
           canEditCurrentBilling: Boolean(activeDetail && relationPlan(billingDetailsTool, directoryAccount.accountLabel) === "Paid"),
           isHistorical: directoryAccount.isHistorical,
           lastBillingSetup,
+          lifecycleEvents: subscriptionLifecycleEvents.filter((event) => event.relationshipId === directoryAccount.relationshipId),
           plan: activeDetail ? relationPlan(billingDetailsTool, directoryAccount.accountLabel) : storedRelationship?.plan ?? "",
           planName: directoryAccount.planName,
           relationshipId: directoryAccount.relationshipId,
+          renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === directoryAccount.relationshipId),
+          renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === directoryAccount.relationshipId),
           status: directoryAccount.status,
           transactions: billingTransactions.filter((transaction) => transaction.relationshipId === directoryAccount.relationshipId),
         };
@@ -5807,11 +5831,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       persist: updateCurrentBilling,
       refresh: refreshSubscriptionRenewalData,
     });
-    showToast(result.wasNoOp
-      ? "Current Billing already matches"
-      : result.wasAlreadyApplied
-        ? "Current Billing update confirmed"
-        : "Current Billing updated");
+    showToast(currentBillingUpdateSuccessMessage(result));
     return result;
   };
 
@@ -6045,14 +6065,18 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     value: "",
   });
 
+  const openRenewalDecision = (relationshipId: string) => {
+    setSubscriptionDetailsTarget(relationshipId);
+    setSelectedSubscriptionView("Renewal Decision");
+    setActiveSection("subscriptions");
+    setActiveCategory("");
+    setShowRecoveryPanel(false);
+  };
+
   const renderActionNeededResolutionControl = (item: ActionNeededItem) => {
     if (item.kind === "renewal") return <div className="custom-select billing-type-dropdown linked-manage-status-dropdown linked-trial-status-dropdown">
       <button aria-label={`Review billing periods for ${item.toolName} ${item.accountLabel}`} className="custom-select-trigger is-placeholder" onClick={() => {
-        setSubscriptionDetailsTarget(item.relationshipId);
-        setSelectedSubscriptionView("Renewal Decision");
-        setActiveSection("subscriptions");
-        setActiveCategory("");
-        setShowRecoveryPanel(false);
+        openRenewalDecision(item.relationshipId);
       }} type="button"><span className="dropdown-option-label"><span>{item.statusLabel}</span></span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" /></svg></button>
     </div>;
     const tool = toolsWithValidAccountLinks.find((candidate) => candidate.id === item.toolId);
@@ -6353,8 +6377,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             accountLabel,
             accountTag: accountTag(accountLabel, accountList),
             billingAmounts: detail.billingAmounts ?? [],
+            billingEvents: subscriptionBillingEvents.filter((event) => event.relationshipId === detail.relationshipId),
+            lifecycleEvents: subscriptionLifecycleEvents.filter((event) => event.relationshipId === detail.relationshipId),
             planName: capitaliseFirstLetter(detail.planName ?? ""),
             relationshipId: detail.relationshipId,
+            renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === detail.relationshipId),
+            renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === detail.relationshipId),
           }];
         })
     : [];
@@ -6374,8 +6402,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             accountLabel: account.accountLabel,
             accountTag: account.accountTag,
             billingAmounts: relationship?.billingAmounts ?? [],
+            billingEvents: subscriptionBillingEvents.filter((event) => event.relationshipId === account.relationshipId),
+            lifecycleEvents: subscriptionLifecycleEvents.filter((event) => event.relationshipId === account.relationshipId),
             planName: account.planName,
             relationshipId: account.relationshipId,
+            renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === account.relationshipId),
+            renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === account.relationshipId),
           };
         })
     : [];
@@ -6915,6 +6947,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                         if (!accountLabel) return;
                         setBillingHistoryTarget({ accountLabel, relationshipId, toolId: billingDetailsTool.id });
                       }}
+                      onReviewUnconfirmedBilling={openRenewalDecision}
                       onSelectRelationship={(relationshipId) => setBillingDetailsTarget({ relationshipId, toolId: billingDetailsTool.id })}
                       selectedRelationshipId={billingDetailsTarget.relationshipId}
                       toolName={displayToolName(billingDetailsTool.name)}
@@ -7509,6 +7542,14 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             <DateFieldControl className="field-input" ariaLabel={ariaLabel} onChange={onChange} value={value} />
           )}
           renderPlanSelector={(value, onChange) => renderPlanSelector(value, onChange, managedTool)}
+          protectedLifecycleStatus={(draft) => {
+            const detail = toolAccountDetails[managedTool.id]?.[draft.accountLabel];
+            return protectedToolDetailLifecycleStatus({
+              plan: relationPlanStatusValue(managedTool, draft.accountLabel),
+              relationshipId: detail?.relationshipId,
+              status: detail?.status,
+            });
+          }}
           renderStatusSelector={(draft) => renderDropdown({
             className: "modal-dropdown field-dropdown",
             id: `detail-status-${managedTool.id}-${draft.draftId ?? draft.accountLabel}`,

@@ -44,7 +44,8 @@ assert.match(accountView, /onClose=\{\(\) => \{ setEditingBilling\(false\); setC
   "cancelling the Current Billing editor must only close that editor");
 
 assert.match(editor, /preparedUpdate\?\.initialComponents \?\? account\.billingComponents/);
-assert.match(editor, /preparedUpdate\?\.initialMode \?\? "change"/);
+assert.match(editor, /preparedUpdate\?\.initialMode \?\? null/,
+  "ordinary edits must require an explicit choice while payment-assisted edits preserve their supplied mode");
 assert.match(editor, /effectiveDate: comparison\.effectiveDate/);
 assert.match(editor, /expectedRevision: openedRevision\.current/);
 assert.match(editor, /requestId: requestId\.current/);

@@ -35,6 +35,7 @@ function asPeriod(record: Record<string, unknown>): BillingRenewalPeriod {
     createdAt: text(record.created_at),
     currencySnapshot: text(record.currency_snapshot),
     excludedAt: text(record.excluded_at),
+    excludedByBillingEventId: text(record.excluded_by_billing_event_id),
     excludedByLifecycleEventId: text(record.excluded_by_lifecycle_event_id),
     id: text(record.id),
     notChargedNote: text(record.not_charged_note),

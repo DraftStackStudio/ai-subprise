@@ -2,6 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type {
+  ManageStatus,
   ToolDetailAccountDraft,
   ToolStatus,
   TrialResolution,
@@ -35,6 +36,10 @@ type ToolDetailModalProps = {
     value: ToolStatus | "",
     onChange: (nextPlan: ToolStatus | "") => void,
   ) => ReactNode;
+  protectedLifecycleStatus: (draft: ToolDetailAccountDraft) => {
+    relationshipId: string;
+    status: ManageStatus;
+  } | null;
   renderStatusSelector: (draft: ToolDetailAccountDraft) => ReactNode;
   renderTrialOutcomeSelector: (
     draft: ToolDetailAccountDraft,
@@ -144,6 +149,7 @@ export default function ToolDetailModal({
   renderAccountSelector,
   renderDateField,
   renderPlanSelector,
+  protectedLifecycleStatus,
   renderStatusSelector,
   renderTrialOutcomeSelector,
   trialOutcomeState,
@@ -236,6 +242,7 @@ export default function ToolDetailModal({
     const draftId = draft.draftId ?? draft.accountLabel;
     const outcomeState = trialOutcomeState(draft);
     const establishedCurrentBilling = currentBillingPlan(draft);
+    const establishedLifecycleStatus = protectedLifecycleStatus(draft);
 
     return (
       <div
@@ -309,10 +316,25 @@ export default function ToolDetailModal({
                     value={draft.planName}
                   />}
               </label>
-              <label className="form-field">
+              <div className="form-field">
                 <span>Status</span>
-                {renderStatusSelector(draft)}
-              </label>
+                {establishedLifecycleStatus ? <>
+                  <input
+                    aria-label="Lifecycle status"
+                    className="field-input"
+                    readOnly
+                    title="Pause and resume paid subscriptions under Subscriptions."
+                    type="text"
+                    value={establishedLifecycleStatus.status}
+                  />
+                  <small className="field-feedback">Pause and resume under Subscriptions.</small>
+                  <button
+                    className="linked-text-action"
+                    onClick={() => onOpenCurrentBilling(establishedLifecycleStatus.relationshipId)}
+                    type="button"
+                  >Manage in Subscriptions</button>
+                </> : renderStatusSelector(draft)}
+              </div>
             </div>
           </>
         ) : null}

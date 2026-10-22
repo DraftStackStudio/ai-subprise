@@ -1,0 +1,75 @@
+.modeOptions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.modeOption {
+  align-items: start;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-sizing: border-box;
+  color: var(--text-1);
+  cursor: pointer;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  min-width: 0;
+  padding: 10px 12px;
+  transition: background .12s, border-color .12s, box-shadow .12s;
+  width: 100%;
+}
+
+.modeOption:hover {
+  background: var(--sidebar-hover);
+  border-color: var(--border-strong);
+}
+
+.modeOption:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(240, 200, 70, .18);
+  outline: 0;
+}
+
+.modeOption input {
+  accent-color: var(--accent);
+  cursor: pointer;
+  height: 16px;
+  margin: 2px 0 0;
+  width: 16px;
+}
+
+.selected {
+  background: rgba(240, 200, 70, .08);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(240, 200, 70, .12);
+}
+
+.modeCopy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.modeCopy strong {
+  color: var(--text-1);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.modeCopy > span {
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 520px) {
+  .modeOption {
+    gap: 8px;
+    padding: 9px 10px;
+  }
+}

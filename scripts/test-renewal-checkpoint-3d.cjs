@@ -68,29 +68,22 @@ assert.match(unconfirmed, />Billing Date</);
 assert.match(unconfirmed, /This billing period only/);
 assert.match(unconfirmed, /This and future billing periods/);
 assert.match(unconfirmed, /Billing period Billing Type[\s\S]*disabled/);
-for (const label of ['Payment confirmed', 'Payment not charged', 'Subscription cancelled', 'Subscription restarted', 'Billing details updated', 'Billing date updated', 'Plan changed']) {
-  assert(account.includes(label));
+const activityModel = read('lib/accountActivity.ts');
+assert.match(account, /AccountActivityTable/);
+assert.match(account, /renewalActivities=\{account\.renewalActivities\}/);
+assert.match(account, /renewalPeriods=\{account\.renewalPeriods\}/);
+for (const label of ['Subscription period — Paid', 'Subscription period — Not charged', 'Subscription cancelled', 'Subscription restarted', 'Billing details updated', 'Billing date updated', 'Plan changed']) {
+  assert(activityModel.includes(label));
 }
-assert.match(account, /compactActivityDetails/);
-assert.match(account, /visibleLifecycleNote/);
-assert.match(account, /combineSameDayCancellationRestart/);
-assert.match(account, /Cancelled and restarted on the same day/);
-assert.match(account, /candidate\.date === entry\.date[\s\S]*candidate\.lifecycleEvent === "Cancelled"/);
-assert.match(account, /b\.date\.localeCompare\(a\.date\) \|\| b\.order - a\.order/);
-assert.match(account, /entry\.kind === "billing_schedule_changed" \? "Billing date updated" : "Billing details updated"/);
-assert.match(account, /period\.resolution === "paid" \? "Payment confirmed" : "Payment not charged"/);
-assert.doesNotMatch(account, /title: period\.resolution === "paid" \? "Payment confirmed" : "Not charged"/);
-assert.match(account, /renewalPeriodsById\.get\(entry\.periodId\)\?\.scheduledRenewalDate/);
-assert.match(account, /subscription-activity-date/);
-assert.doesNotMatch(account, /subscription-activity-emphasis/);
-assert.doesNotMatch(account, /compactBillingDateChange/);
-assert.doesNotMatch(account, /activityGroups/);
+assert.match(activityModel, /period\.resolution === "paid" \? "Subscription period — Paid" : "Subscription period — Not charged"/);
+assert.match(activityModel, /const periodsById = new Map\(periods\.map\(\(period\) => \[period\.id, period\]\)\)/);
+assert.match(activityModel, /period\?\.scheduledRenewalDate \|\| activity\.billingDate \|\| activity\.activityDate/);
 assert.doesNotMatch(account, /previewActivity|preview-payment|preview-not-charged/);
 
 const styles = read('app/globals.css');
-assert.match(styles, /\.subscription-activity-list li \{[^}]*grid-template-columns: 124px minmax\(0, 1fr\)/);
-assert.match(styles, /\.subscription-account-view \.subscription-activity-date,\s*\.subscription-account-view \.subscription-activity-list strong \{[^}]*color: var\(--table-secondary-text\)/);
-assert.match(styles, /\.subscription-activity-date \{[^}]*font-weight: 400/);
+assert.match(styles, /\.account-activity-entry \{[^}]*grid-template-columns: minmax\(0, 1fr\) 190px/);
+assert.match(styles, /\.account-activity-effective-date \{[^}]*font-weight: 600/);
+assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.account-activity-entry \{ grid-template-columns: minmax\(0, 1fr\)/);
 assert.match(styles, /\.subscription-activity-list strong \{[^}]*font-weight: 600/);
 assert.match(styles, /\.subscription-activity-details span \+ span::before \{[^}]*content: "·";[^}]*margin: 0 6px/);
 assert.doesNotMatch(styles, /\.subscription-activity-emphasis/);

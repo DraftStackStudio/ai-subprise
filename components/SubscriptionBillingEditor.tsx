@@ -12,7 +12,9 @@ import type { BillingRenewalMutationResult, BillingRenewalPeriod, MarkBillingRen
 import type { CurrentBillingChangeMode, CurrentBillingRevision, UpdateCurrentBillingInput, UpdateCurrentBillingResult } from "@/types/currentBillingChange";
 import { localBillingToday } from "@/lib/currentBilling";
 import { compareCurrentBilling, isTrustedCurrentBillingRevision } from "@/lib/currentBillingChange";
+import { currentBillingComparisonActivityItem } from "@/lib/accountActivity";
 import { validSubscriptionBillingTypes } from "@/lib/subscriptions";
+import styles from "./SubscriptionBillingEditor.module.css";
 
 export type SubscriptionActions = {
   currencyOptions: DropdownOption[];
@@ -54,7 +56,7 @@ export default function SubscriptionBillingEditor({ account, currencyOptions, on
   const [planName, setPlanName] = useState(account.planName);
   const initialComponents = preparedUpdate?.initialComponents ?? account.billingComponents;
   const [draft, setDraft] = useState<BillingAmount[]>(initialComponents.map((item) => ({ ...item, currency: item.currency.trim() ? item.currency : initialComponents.find((component) => component.currency.trim())?.currency ?? "" })));
-  const [updateMode, setUpdateMode] = useState<CurrentBillingChangeMode>(preparedUpdate?.initialMode ?? "change");
+  const [updateMode, setUpdateMode] = useState<CurrentBillingChangeMode | null>(preparedUpdate?.initialMode ?? null);
   const [effectiveDate, setEffectiveDate] = useState(localBillingToday());
   const [reason, setReason] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -81,7 +83,7 @@ export default function SubscriptionBillingEditor({ account, currencyOptions, on
   };
   let comparisonError = "";
   let comparison: ReturnType<typeof compareCurrentBilling> = null;
-  if (preparedUpdate) {
+  if (preparedUpdate && updateMode) {
     try {
       comparison = compareCurrentBilling({
         editedComponents: draft,
@@ -98,6 +100,10 @@ export default function SubscriptionBillingEditor({ account, currencyOptions, on
       comparisonError = caught instanceof Error ? caught.message : "Review the Current Billing changes.";
     }
   }
+  const activityPreview = comparison
+    ? currentBillingComparisonActivityItem(comparison, account.relationshipId)
+    : null;
+  const previewDetails = activityPreview?.details.map((detail) => detail.replace(/^(Plan|Billing type|Price|Renewal date): /, "")) ?? [];
   const trustedRevision = !preparedUpdate || isTrustedCurrentBillingRevision(openedRevision.current);
   const preparedSaveReady = Boolean(preparedUpdate?.onSubmit && trustedRevision && comparison && !comparisonError);
   const save = async () => {
@@ -106,6 +112,7 @@ export default function SubscriptionBillingEditor({ account, currencyOptions, on
     try {
       const savedPlanName = planName.trim();
       if (preparedUpdate) {
+        if (!updateMode) throw new Error("Choose why you are updating these details before saving.");
         if (!trustedRevision || !openedRevision.current) throw new Error("Current Billing could not be verified. Reopen the editor before saving.");
         if (!comparison) throw new Error(comparisonError || "Make a change before saving.");
         if (!preparedUpdate.onSubmit) throw new Error("Current Billing update persistence is not enabled yet.");
@@ -153,9 +160,7 @@ export default function SubscriptionBillingEditor({ account, currencyOptions, on
   return <form className="modal-form billing-current-editor subscription-billing-editor" onSubmit={(event) => { event.preventDefault(); void save(); }}>
     <fieldset className="billing-current-fields" disabled={busy}>
       {preparedUpdate ? <div className="subscription-current-update-fields">
-        <fieldset className="subscription-pause-choice subscription-current-update-mode"><legend>Update type</legend><div className="subscription-pause-choice-buttons"><button aria-pressed={updateMode === "change"} className={updateMode === "change" ? "category-view-tab active" : "category-view-tab"} onClick={() => { resetPreparedRequest(); setUpdateMode("change"); }} type="button">Genuine change</button><button aria-pressed={updateMode === "correction"} className={updateMode === "correction" ? "category-view-tab active" : "category-view-tab"} onClick={() => { resetPreparedRequest(); setUpdateMode("correction"); }} type="button">Correction</button></div></fieldset>
-        {updateMode === "change" ? <label className="form-field"><span>Effective date</span><DateFieldControl ariaLabel="Current Billing effective date" className={comparisonError ? "field-input input-error" : "field-input"} value={effectiveDate} onChange={(value) => { resetPreparedRequest(); setEffectiveDate(value); }} /></label> : <p className="subscription-current-update-helper">Corrections use the save date.</p>}
-        <label className="form-field"><span>Reason <small>(optional)</small></span><textarea aria-label="Current Billing update reason" className="field-input subscription-current-update-reason" onChange={(event) => { resetPreparedRequest(); setReason(event.target.value); }} placeholder="Add context for this update" value={reason} /></label>
+        <fieldset className="subscription-pause-choice subscription-current-update-mode"><legend>Why are you updating these details?</legend><div className={styles.modeOptions}><label className={`${styles.modeOption}${updateMode === "change" ? ` ${styles.selected}` : ""}`}><input aria-label="My subscription details have changed" checked={updateMode === "change"} name="current-billing-update-mode" onChange={() => { resetPreparedRequest(); setUpdateMode("change"); }} type="radio" value="change" /><span className={styles.modeCopy}><strong>My subscription details have changed</strong><span>An actual change to my subscription, such as plan, price, billing type or renewal date.</span></span></label><label className={`${styles.modeOption}${updateMode === "correction" ? ` ${styles.selected}` : ""}`}><input aria-label="I'm correcting incorrect information" checked={updateMode === "correction"} name="current-billing-update-mode" onChange={() => { resetPreparedRequest(); setUpdateMode("correction"); }} type="radio" value="correction" /><span className={styles.modeCopy}><strong>I&apos;m correcting incorrect information</strong><span>Fix information previously entered incorrectly in AI Subprise.</span></span></label></div></fieldset>
       </div> : null}
       <label className="form-field"><span>Plan Name</span><input aria-label="Current Billing Plan Name" className="field-input" value={planName} placeholder="Not set" onChange={(event) => { resetPreparedRequest(); setPlanName(event.target.value); }} /></label>
       <div className="form-field"><span>Billing Type</span>
@@ -186,6 +191,14 @@ export default function SubscriptionBillingEditor({ account, currencyOptions, on
           </> : null}
         </div>;
       })}
+      {preparedUpdate ? <div className="subscription-current-update-footer">
+        {updateMode === "change" ? <label className="form-field"><span>Effective date</span><DateFieldControl ariaLabel="Current Billing effective date" className={comparisonError ? "field-input input-error" : "field-input"} value={effectiveDate} onChange={(value) => { resetPreparedRequest(); setEffectiveDate(value); }} /></label> : updateMode === "correction" ? <p className="subscription-current-update-helper">Corrections use the save date.</p> : null}
+        <label className="form-field"><span>Reason <small>(optional)</small></span><textarea aria-label="Current Billing update reason" className="field-input subscription-current-update-reason" onChange={(event) => { resetPreparedRequest(); setReason(event.target.value); }} placeholder={updateMode === "change" ? "Optional context for this subscription change" : updateMode === "correction" ? "Optional note about what was corrected" : "Optional context for this update"} value={reason} /></label>
+        <section aria-live="polite" className="subscription-current-activity-preview">
+          <span className="subscription-current-activity-preview-label">Account Activity preview</span>
+          {activityPreview ? <><strong>{activityPreview.title}</strong><p>{previewDetails.join(" · ")}</p>{updateMode === "correction" && activityPreview.correctionDetails?.length ? <small>Original values will remain available through View correction details in Account Activity.</small> : null}</> : <p>{updateMode ? "No changes detected yet." : "Choose why you are updating these details to see a preview."}</p>}
+        </section>
+      </div> : null}
     </fieldset>
     {preparedUpdate && !trustedRevision ? <small className="field-feedback error" role="alert">Current Billing could not be verified. Reopen the editor before saving.</small> : null}
     {preparedUpdate && comparisonError ? <small className="field-feedback error" role="alert">{comparisonError}</small> : null}

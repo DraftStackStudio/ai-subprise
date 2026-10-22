@@ -10,7 +10,8 @@ export type BillingHistoryEvent =
   | "Paused"
   | "Resumed"
   | "Restarted"
-  | "Cancelled";
+  | "Cancelled"
+  | "Restored";
 
 export type BillingHistoryEntry = {
   amount?: string;

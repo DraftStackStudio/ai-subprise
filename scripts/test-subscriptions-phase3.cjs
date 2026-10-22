@@ -259,6 +259,7 @@ async function main() {
     '@/components/DateFieldControl': { default: () => null },
     '@/components/DropdownControls': { DropdownControl: () => null },
     '@/lib/currentBillingChange': { compareCurrentBilling: () => null, isTrustedCurrentBillingRevision: (value) => Boolean(value) },
+    './SubscriptionBillingEditor.module.css': { default: { modeCopy: 'modeCopy', modeOption: 'modeOption', modeOptions: 'modeOptions', selected: 'selected' } },
   }).default;
   const props = { account: { relationshipId: 'r1', state: 'Complete', planName: 'Pro', billingComponents: saved, currentBillingRevision: { planName: 'Pro', components: {} } }, currencyOptions: [], onSaveBilling: async () => { calls++; }, onUpdateCurrentBilling: async () => {}, onClose: () => { hooks = []; } };
   const render = () => { cursor = 0; return Editor(props); };
@@ -339,6 +340,7 @@ async function main() {
     '@/components/SubscriptionBillingEditor': { default: Editor },
     '@/components/BillingPastEntryModal': { default: () => null },
     '@/components/BillingHistoryPanel': { default: () => null },
+    '@/components/AccountActivityTable': { default: 'account-activity-table' },
     '@/components/SubscriptionPayments': { default: () => null },
     '@/components/PauseSubscriptionModal': { default: () => null },
     '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
@@ -368,7 +370,7 @@ async function main() {
   hooks = [];
   account.planName = 'Max';
   tree = renderAccount();
-  assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip status-muted subscription-current-plan-pill' && node.props.children === 'Max'));
+  assert(nodes(tree).some((node) => node.props?.className === 'tool-status-chip' && node.props.children === 'Max'));
   assert(!read('components/SubscriptionAccountView.tsx').includes('tool-status-chip current-plan-pill'));
   assert(read('components/SubscriptionAccountView.tsx').includes('className="subscription-lifecycle-dropdown"'));
   const paymentProps = nodes(tree).find((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.onRequestCurrentBillingUpdate === 'function').props;
@@ -390,10 +392,11 @@ async function main() {
   assert(!nodes(tree).some((node) => node.props?.className === 'tool-status-chip' && node.props.children === 'Not set'));
   assert(nodes(tree).some((node) => node.props?.account?.relationshipId === 'r1' && typeof node.props?.canAdd === 'boolean'));
   assert(nodes(tree).some((node) => node.type === 'h3' && node.props.children === 'Account Activity'));
-  assert.equal(nodes(tree).filter((node) => node.type === 'li').length, 3);
-  assert.equal(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-event').length, 3);
-  assert.equal(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-date' && node.props.children === '2026-08-01').length, 2);
-  assert.deepEqual(nodes(tree).filter((node) => node.props?.className === 'subscription-activity-event').map((node) => nodes(node).find((child) => child.type === 'strong').props.children), ['Subscription cancelled', 'Paused', 'Trial Started']);
+  const accountActivityTable = nodes(tree).find((node) => node.type === 'account-activity-table');
+  assert(accountActivityTable);
+  assert.equal(accountActivityTable.props.relationshipId, 'r1');
+  assert.equal(accountActivityTable.props.historicalEntries, account.activity);
+  assert.equal(accountActivityTable.props.transactions, account.payments);
   const manageSubscription = nodes(tree).find((node) => node.props?.id === 'subscription-manage');
   assert(manageSubscription);
   assert.deepEqual(manageSubscription.props.options, [{ value: 'pause', label: 'Pause subscription' }]);

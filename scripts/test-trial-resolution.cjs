@@ -21,6 +21,7 @@ const {
   isTrialResolution,
   trialResolutionTransition,
 } = compile('lib/trialResolution.ts');
+const { buildAccountActivityReadModel } = compile('lib/accountActivity.ts');
 
 assert.deepEqual(trialResolutionTransition('converted'), {
   activityEvent: 'Trial Converted to Paid', label: 'Converted to paid', plan: 'Active', status: 'Active',
@@ -92,8 +93,45 @@ assert.match(undo, /startDate: undo\.outcome === ["']converted["'] \? undo\.prev
 const tools = read('lib/supabase/tools.ts');
 assert.match(tools, /trialResolution: isTrialResolution\(rawLink\.trial_resolution\)/);
 assert.doesNotMatch(read('types/toolDetail.ts'), /["']ended["']/);
+
+const relationshipOne = '11111111-1111-4111-8111-111111111111';
+const relationshipTwo = '22222222-2222-4222-8222-222222222222';
+const trialEntries = [
+  { amount: '0', billingType: 'Monthly', currency: 'SGD', date: '2026-10-18', event: 'Trial Started', id: 'trial-started', note: 'Trial opened', planName: 'Trial', saved: true, source: 'generated' },
+  { amount: '30', billingType: 'Monthly', currency: 'SGD', date: '2026-10-19', event: 'Trial Converted to Paid', id: 'trial-converted', note: 'Converted after trial', planName: 'Plus', saved: true, source: 'generated' },
+  { amount: '0', billingType: 'Monthly', currency: 'SGD', date: '2026-10-20', event: 'Moved to Free Tier', id: 'trial-free-tier', note: 'Free tier selected', planName: 'Free Tier', saved: true, source: 'generated' },
+  { date: '2026-10-21', event: 'Stopped Using', id: 'trial-stopped', note: 'Stopped after trial', planName: 'Trial', saved: true, source: 'generated' },
+];
+const trialActivity = buildAccountActivityReadModel({
+  historicalEntries: [...trialEntries, trialEntries[1]],
+  relationshipId: relationshipOne,
+}).flatMap((group) => group.items);
+assert.deepEqual(trialActivity.map((item) => item.title), [
+  'Stopped Using',
+  'Moved to Free Tier',
+  'Trial Converted to Paid',
+  'Trial Started',
+]);
+assert.deepEqual(trialActivity.map((item) => item.note), [
+  'Stopped after trial',
+  'Free tier selected',
+  'Converted after trial',
+  'Trial opened',
+]);
+assert.deepEqual(trialActivity.find((item) => item.title === 'Trial Converted to Paid').details, ['Plus', 'Monthly', 'SGD 30']);
+assert.equal(trialActivity.length, 4, 'duplicate stored trial entries must not create duplicate activity rows');
+assert(trialActivity.every((item) => item.relationshipId === relationshipOne), 'trial activity must retain the requested relationship identity');
+const otherRelationshipActivity = buildAccountActivityReadModel({
+  historicalEntries: [{ ...trialEntries[0], id: 'other-trial-started' }],
+  relationshipId: relationshipTwo,
+}).flatMap((group) => group.items);
+assert(otherRelationshipActivity.every((item) => item.relationshipId === relationshipTwo));
+
 const subscriptionAccount = read('components/SubscriptionAccountView.tsx');
-for (const label of ['Trial Converted to Paid', 'Moved to Free Tier', 'Stopped Using']) assert(subscriptionAccount.includes(label));
+assert.match(subscriptionAccount, /<AccountActivityTable/);
+assert.match(subscriptionAccount, /historicalEntries=\{account\.activity\}/);
+assert.match(subscriptionAccount, /relationshipId=\{account\.relationshipId\}/);
+assert.match(page, /activity: mergeSubscriptionLifecycleHistory\(\s*detail\.billingHistoryEntries \?\? \[\],\s*subscriptionLifecycleEvents,\s*detail\.relationshipId,/);
 
 const compatibilityMigration = read('supabase/migrations/0025_expand_trial_resolution_outcomes.sql');
 for (const value of ["'converted'", "'ended'", "'moved_to_free'", "'stopped_using'"]) assert(compatibilityMigration.includes(value));
@@ -112,4 +150,4 @@ const finalConstraint = finalMigration.slice(finalMigration.lastIndexOf('add con
 for (const value of ["'converted'", "'moved_to_free'", "'stopped_using'"]) assert(finalConstraint.includes(value));
 assert.equal(finalConstraint.includes("'ended'"), false);
 
-console.log('PASS: Three explicit trial outcomes, no-selection guard, reload model, Action Needed persistence, legacy reset, exact relationship isolation, guarded Undo, lifecycle activity, zero payment creation, and Current Billing isolation.');
+console.log('PASS: Four trial activity outcomes through the shared model, rendering-path wiring, deduplication, exact relationship isolation, no-selection guard, reload model, Action Needed persistence, legacy reset, guarded Undo, zero payment creation, and Current Billing isolation.');

@@ -136,8 +136,8 @@ const lifecycle = loadTypeScript('lib/supabase/subscriptionLifecycleEvents.ts', 
   assert.match(accountView, /subscription-callout-account/);
   assert.match(accountView, /subscription-callout-lifecycle/);
   assert.match(accountView, /subscription-callout-action/);
-  assert.match(accountView, /tool-status-chip status-muted subscription-lifecycle-pill/);
-  assert.match(accountView, /tool-status-chip status-muted subscription-current-plan-pill/);
+  assert.match(accountView, /<span className="tool-status-chip">\{account\.status\}<\/span>/);
+  assert.match(accountView, /<span className="tool-status-chip">\{account\.planName\.trim\(\)\}<\/span>/);
   assert.doesNotMatch(accountView, /<small>Lifecycle<\/small>/);
   assert.match(page, /result\.relationshipId !== relationshipId/);
   assert.match(page, /current\.filter\(\(period\) => period\.relationshipId !== relationshipId\)/);

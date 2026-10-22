@@ -28,6 +28,13 @@ export function canUseAuditedCurrentBillingSetup(eligibility: AuditedCurrentBill
     && eligibility.subscriptionState !== "Complete";
 }
 
+export function currentBillingUpdateSuccessMessage(result: UpdateCurrentBillingResult) {
+  if (result.wasNoOp) return "Current Billing already matches";
+  const message = result.wasAlreadyApplied ? "Current Billing update confirmed" : "Current Billing updated";
+  if (!result.excludedPeriodCount) return message;
+  return `${message}. ${result.excludedPeriodCount} unresolved renewal ${result.excludedPeriodCount === 1 ? "period" : "periods"} superseded.`;
+}
+
 async function persistAndRefreshCurrentBilling(
   input: UpdateCurrentBillingInput,
   dependencies: AuditedCurrentBillingDependencies,

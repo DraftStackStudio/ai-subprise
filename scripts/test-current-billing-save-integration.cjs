@@ -10,7 +10,7 @@ const output = ts.transpileModule(source, {
 }).outputText;
 const moduleRecord = { exports: {} };
 new Function("require", "module", "exports", output)(require, moduleRecord, moduleRecord.exports);
-const { canUseAuditedCurrentBillingSave, canUseAuditedCurrentBillingSetup, saveAuditedCurrentBilling, saveAuditedCurrentBillingSetup } = moduleRecord.exports;
+const { canUseAuditedCurrentBillingSave, canUseAuditedCurrentBillingSetup, currentBillingUpdateSuccessMessage, saveAuditedCurrentBilling, saveAuditedCurrentBillingSetup } = moduleRecord.exports;
 
 const relationshipId = "a0350000-0000-0000-0000-000000000301";
 const requestId = "a0350000-0000-0000-0000-000000000701";
@@ -43,6 +43,15 @@ const result = (overrides = {}) => ({
 });
 
 (async () => {
+  assert.equal(currentBillingUpdateSuccessMessage(result()), "Current Billing updated");
+  assert.equal(currentBillingUpdateSuccessMessage(result({ excludedPeriodCount: 1 })),
+    "Current Billing updated. 1 unresolved renewal period superseded.");
+  assert.equal(currentBillingUpdateSuccessMessage(result({ excludedPeriodCount: 3 })),
+    "Current Billing updated. 3 unresolved renewal periods superseded.");
+  assert.equal(currentBillingUpdateSuccessMessage(result({ excludedPeriodCount: 2, wasAlreadyApplied: true })),
+    "Current Billing update confirmed. 2 unresolved renewal periods superseded.");
+  assert.equal(currentBillingUpdateSuccessMessage(result({ billingEventId: null, excludedPeriodCount: 0, wasNoOp: true })),
+    "Current Billing already matches");
   assert.equal(canUseAuditedCurrentBillingSave(eligible), true);
   assert.equal(canUseAuditedCurrentBillingSetup(eligible), false);
   assert.equal(canUseAuditedCurrentBillingSetup({ ...eligible, subscriptionState: "Not started" }), true);
@@ -137,6 +146,7 @@ const result = (overrides = {}) => ({
     pageSource.indexOf("const saveSubscriptionBillingSetup"),
   );
   assert.match(auditedHandler, /saveAuditedCurrentBilling/);
+  assert.match(auditedHandler, /showToast\(currentBillingUpdateSuccessMessage\(result\)\)/);
   assert.doesNotMatch(auditedHandler, /updateToolLinkDetails/, "complete audited edits must never fall back to direct writes");
   assert.match(accountViewSource, /onSubmit: actions\.onUpdateCurrentBilling/);
   assert.match(accountViewSource, /const requestPaymentBillingUpdate[\s\S]*?setPaymentBillingUpdate/, "payment-assisted edits must open the audited editor");

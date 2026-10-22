@@ -45,6 +45,12 @@ const Editor = load("components/SubscriptionBillingEditor.tsx", {
   react,
   "@/components/DateFieldControl": { default: DateFieldControl },
   "@/components/DropdownControls": { DropdownControl, MultiSelectDropdownControl },
+  "./SubscriptionBillingEditor.module.css": { default: {
+    modeCopy: "modeCopy",
+    modeOption: "modeOption",
+    modeOptions: "modeOptions",
+    selected: "selected",
+  } },
 }).default;
 
 const primaryId = "a0350000-0000-0000-0000-000000000401";
@@ -95,7 +101,12 @@ const baseProps = {
 const nodes = (node) => !node || typeof node !== "object"
   ? []
   : Array.isArray(node) ? node.flatMap(nodes) : [node, ...nodes(node.props?.children)];
-const button = (tree, text) => nodes(tree).find((node) => node.type === "button" && node.props.children === text);
+const nodeText = (node) => typeof node === "string" ? node : !node || typeof node !== "object"
+  ? ""
+  : Array.isArray(node) ? node.map(nodeText).join("") : nodeText(node.props?.children);
+const button = (tree, text) => nodes(tree).find((node) => node.type === "button" && (node.props["aria-label"] === text || nodeText(node) === text));
+const choice = (tree, text) => nodes(tree).find((node) => node.type === "input" && node.props.type === "radio" && node.props["aria-label"] === text);
+const activityPreview = (tree) => nodes(tree).find((node) => node.props?.className === "subscription-current-activity-preview");
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 (async () => {
@@ -117,15 +128,32 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   const render = () => { cursor = 0; return Editor(props); };
 
   let tree = render();
-  assert(button(tree, "Genuine change").props["aria-pressed"]);
-  assert.equal(button(tree, "Correction").props["aria-pressed"], false);
-  assert(nodes(tree).some((node) => node.props?.ariaLabel === "Current Billing effective date"));
+  assert.equal(choice(tree, "My subscription details have changed").props.checked, false);
+  assert.equal(choice(tree, "I'm correcting incorrect information").props.checked, false);
+  assert(!nodes(tree).some((node) => node.props?.ariaLabel === "Current Billing effective date"));
   assert(nodes(tree).some((node) => node.type === "textarea" && node.props["aria-label"] === "Current Billing update reason"));
+  assert.match(nodeText(activityPreview(tree)), /Choose why you are updating these details/);
   assert.equal(button(tree, "Save changes").props.disabled, true, "unchanged drafts must not save");
+  let orderedNodes = nodes(tree);
+  assert(orderedNodes.indexOf(choice(tree, "My subscription details have changed")) < orderedNodes.findIndex((node) => node.props?.["aria-label"] === "Current Billing Plan Name"));
+  assert(orderedNodes.findIndex((node) => node.props?.inputMode === "decimal") < orderedNodes.findIndex((node) => node.props?.["aria-label"] === "Current Billing update reason"));
+  assert(orderedNodes.findIndex((node) => node.props?.["aria-label"] === "Current Billing update reason") < orderedNodes.indexOf(activityPreview(tree)));
+  assert(orderedNodes.indexOf(activityPreview(tree)) < orderedNodes.indexOf(button(tree, "Save changes")));
+
+  choice(tree, "My subscription details have changed").props.onChange();
+  tree = render();
+  assert.equal(choice(tree, "My subscription details have changed").props.checked, true);
+  assert(nodes(tree).some((node) => node.props?.ariaLabel === "Current Billing effective date"));
+  orderedNodes = nodes(tree);
+  assert(orderedNodes.findIndex((node) => node.props?.inputMode === "decimal") < orderedNodes.findIndex((node) => node.props?.ariaLabel === "Current Billing effective date"));
+  assert(orderedNodes.findIndex((node) => node.props?.ariaLabel === "Current Billing effective date") < orderedNodes.findIndex((node) => node.props?.["aria-label"] === "Current Billing update reason"));
+  assert.match(nodeText(activityPreview(tree)), /No changes detected yet/);
 
   nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal")
     .props.onChange({ target: { value: "35" } });
   tree = render();
+  assert.match(nodeText(activityPreview(tree)), /Price changed/);
+  assert.match(nodeText(activityPreview(tree)), /SGD 30\.84 → SGD 35/);
   assert.equal(button(tree, "Save changes").props.disabled, false);
   const openedRevision = props.preparedUpdate.revision;
   props.preparedUpdate.revision = {
@@ -165,17 +193,64 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   };
   const renderCorrection = () => { cursor = 0; return Editor(correctionProps); };
   tree = renderCorrection();
-  button(tree, "Correction").props.onClick();
+  choice(tree, "I'm correcting incorrect information").props.onChange();
   tree = renderCorrection();
-  assert.equal(button(tree, "Correction").props["aria-pressed"], true);
+  assert.equal(choice(tree, "I'm correcting incorrect information").props.checked, true);
   assert(!nodes(tree).some((node) => node.props?.ariaLabel === "Current Billing effective date"));
   assert(nodes(tree).some((node) => node.props?.className === "subscription-current-update-helper"));
   nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal")
     .props.onChange({ target: { value: "35" } });
-  renderCorrection().props.onSubmit({ preventDefault() {} });
+  tree = renderCorrection();
+  assert.match(nodeText(activityPreview(tree)), /Current Billing corrected/);
+  assert.match(nodeText(activityPreview(tree)), /Monthly · SGD 35/);
+  assert.match(nodeText(activityPreview(tree)), /Original values will remain available through View correction details/);
+  tree.props.onSubmit({ preventDefault() {} });
   await flush();
   assert.equal(correctionSubmissions[0].mode, "correction");
   assert.equal(correctionSubmissions[0].effectiveDate, correctionSubmissions[0].localDate);
+
+  hooks = [];
+  const renderMultiple = () => { cursor = 0; return Editor({
+    ...baseProps,
+    preparedUpdate: { revision, onSubmit: async () => {} },
+  }); };
+  tree = renderMultiple();
+  choice(tree, "My subscription details have changed").props.onChange();
+  tree = renderMultiple();
+  nodes(tree).find((node) => node.type === "input" && node.props["aria-label"] === "Current Billing Plan Name")
+    .props.onChange({ target: { value: "Business" } });
+  nodes(renderMultiple()).find((node) => node.type === "input" && node.props.inputMode === "decimal")
+    .props.onChange({ target: { value: "50" } });
+  tree = renderMultiple();
+  assert.match(nodeText(activityPreview(tree)), /Plan changed/);
+  assert.match(nodeText(activityPreview(tree)), /Pro → Business/);
+  assert.match(nodeText(activityPreview(tree)), /SGD 30\.84 → SGD 50/);
+
+  hooks = [];
+  const renderCycle = () => { cursor = 0; return Editor({
+    ...baseProps,
+    preparedUpdate: { revision, onSubmit: async () => {} },
+  }); };
+  tree = renderCycle();
+  choice(tree, "My subscription details have changed").props.onChange();
+  tree = renderCycle();
+  nodes(tree).find((node) => node.props?.ariaLabel === "Billing Type").props.onChange(["Yearly"]);
+  tree = renderCycle();
+  assert.match(nodeText(activityPreview(tree)), /Billing cycle changed/);
+  assert.match(nodeText(activityPreview(tree)), /Monthly → Yearly/);
+
+  hooks = [];
+  const renderType = () => { cursor = 0; return Editor({
+    ...baseProps,
+    preparedUpdate: { revision, onSubmit: async () => {} },
+  }); };
+  tree = renderType();
+  choice(tree, "My subscription details have changed").props.onChange();
+  tree = renderType();
+  nodes(tree).find((node) => node.props?.ariaLabel === "Billing Type").props.onChange(["Lifetime"]);
+  tree = renderType();
+  assert.match(nodeText(activityPreview(tree)), /Billing type changed/);
+  assert.match(nodeText(activityPreview(tree)), /Monthly → Lifetime/);
 
   hooks = [];
   const paymentPrefill = [{ ...account.billingComponents[0], amount: "42", currency: "USD" }];
@@ -190,7 +265,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   };
   const renderPaymentAssisted = () => { cursor = 0; return Editor(paymentAssistedProps); };
   tree = renderPaymentAssisted();
-  assert.equal(button(tree, "Correction").props["aria-pressed"], true);
+  assert.equal(choice(tree, "I'm correcting incorrect information").props.checked, true);
   assert.equal(nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal").props.value, "42");
   assert.equal(nodes(tree).find((node) => node.props?.id === "subscription-0-currency").props.value, "USD");
   assert(!nodes(tree).some((node) => node.props?.ariaLabel === "Current Billing effective date"));
@@ -201,7 +276,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
     preparedUpdate: { ...paymentAssistedProps.preparedUpdate, initialMode: "change" },
   }); };
   tree = renderPaymentChange();
-  assert.equal(button(tree, "Genuine change").props["aria-pressed"], true);
+  assert.equal(choice(tree, "My subscription details have changed").props.checked, true);
   assert(nodes(tree).some((node) => node.props?.ariaLabel === "Current Billing effective date"));
 
   hooks = [];
@@ -211,6 +286,8 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
     preparedUpdate: { revision: null, onSubmit: async () => { unavailableSubmissions++; } },
   };
   const renderUnavailable = () => { cursor = 0; return Editor(unavailableProps); };
+  tree = renderUnavailable();
+  choice(tree, "My subscription details have changed").props.onChange();
   tree = renderUnavailable();
   nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal")
     .props.onChange({ target: { value: "35" } });
@@ -236,6 +313,8 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   };
   const renderPending = () => { cursor = 0; return Editor(pendingProps); };
   tree = renderPending();
+  choice(tree, "My subscription details have changed").props.onChange();
+  tree = renderPending();
   nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal")
     .props.onChange({ target: { value: "35" } });
   tree = renderPending();
@@ -254,6 +333,8 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
     preparedUpdate: { revision },
   };
   const renderIsolated = () => { cursor = 0; return Editor(isolatedProps); };
+  tree = renderIsolated();
+  choice(tree, "My subscription details have changed").props.onChange();
   tree = renderIsolated();
   nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal")
     .props.onChange({ target: { value: "35" } });
@@ -284,7 +365,7 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   };
   const renderSetup = () => { cursor = 0; return Editor(setupProps); };
   tree = renderSetup();
-  assert(!button(tree, "Genuine change"), "initial setup must reuse its existing interface");
+  assert(!choice(tree, "My subscription details have changed"), "initial setup must reuse its existing interface");
   nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal")
     .props.onChange({ target: { value: "0" } });
   renderSetup().props.onSubmit({ preventDefault() {} });
@@ -308,6 +389,8 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   };
   const renderFuture = () => { cursor = 0; return Editor(futureProps); };
   tree = renderFuture();
+  choice(tree, "My subscription details have changed").props.onChange();
+  tree = renderFuture();
   nodes(tree).find((node) => node.type === "input" && node.props.inputMode === "decimal")
     .props.onChange({ target: { value: "35" } });
   nodes(renderFuture()).find((node) => node.props?.ariaLabel === "Current Billing effective date")
@@ -324,5 +407,5 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   assert.match(pageSource, /refresh: refreshSubscriptionRenewalData/);
   assert.match(fs.readFileSync(path.join(root, "app/globals.css"), "utf8"), /\.subscription-current-update-fields/);
 
-  console.log("PASS: Current Billing editor modes, audited initial setup, effective date, reason, no-op guard, trusted opening revision, stable retries, duplicate-submit prevention, and save isolation verified.");
+  console.log("PASS: Current Billing choices, live activity previews, audited initial setup, effective date, reason, no-op guard, trusted opening revision, stable retries, duplicate-submit prevention, and save isolation verified.");
 })().catch((error) => { console.error(error); process.exitCode = 1; });

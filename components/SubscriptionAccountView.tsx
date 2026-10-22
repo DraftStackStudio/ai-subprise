@@ -10,6 +10,7 @@ import PauseSubscriptionModal from "@/components/PauseSubscriptionModal";
 import ResumeSubscriptionModal from "@/components/ResumeSubscriptionModal";
 import BillingPastEntryModal from "@/components/BillingPastEntryModal";
 import BillingHistoryPanel from "@/components/BillingHistoryPanel";
+import AccountActivityTable from "@/components/AccountActivityTable";
 import SubscriptionPayments from "@/components/SubscriptionPayments";
 import type { PaymentBillingDifferenceChoice } from "@/components/PaymentBillingDifferenceChoice";
 import UnconfirmedBillingSection from "@/components/UnconfirmedBillingSection";
@@ -17,7 +18,6 @@ import { canPauseSubscription } from "@/lib/subscriptionPause";
 import { canResumeSubscription, currentPauseEventForResume, type ResumeBillingType } from "@/lib/subscriptionResume";
 import { isTrustedCurrentBillingRevision } from "@/lib/currentBillingChange";
 import { localBillingToday } from "@/lib/currentBilling";
-import { subscriptionBillingActivityItems } from "@/lib/subscriptionBillingActivity";
 import type { UpdateCurrentBillingInput } from "@/types/currentBillingChange";
 
 function displayAmount(currency: string, amount: string) {
@@ -33,78 +33,6 @@ function componentDate(component: BillingAmount, isLastBillingSetup = false) {
     case "Top-up": return { label: "Last top-up", value: component.lastTopUpDate };
     default: return { label: "Date", value: undefined };
   }
-}
-
-const lifecycleEvents = new Set(["Trial Started", "Trial Converted to Paid", "Moved to Free Tier", "Stopped Using", "Plan Changed", "Paused", "Resumed", "Restarted", "Cancelled"]);
-
-const notChargedReasonLabels = {
-  cancelled_subscription: "Cancelled subscription",
-  payment_failed: "Payment failed",
-  paused: "Paused / on a break",
-  free_or_waived: "Free / waived",
-  other: "Other",
-} as const;
-
-function localResolvedDate(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function compactActivityDetails(...parts: Array<string | undefined>) {
-  return parts.map((part) => part?.trim()).filter((part): part is string => Boolean(part));
-}
-
-function visibleLifecycleNote(title: string, note: string) {
-  const value = note.trim();
-  if ((title === "Subscription restarted" && value === "Explicitly restarted") ||
-      (title === "Subscription cancelled" && value === "Cancelled")) return "";
-  return value;
-}
-
-type AccountActivityItem = {
-  date: string;
-  details: string[];
-  description?: string;
-  id: string;
-  lifecycleEvent?: string;
-  note: string;
-  order: number;
-  title: string;
-};
-
-const activityDisplayLabels: Record<string, string> = {
-  "Plan Changed": "Plan changed",
-  Cancelled: "Subscription cancelled",
-  Restarted: "Subscription restarted",
-};
-
-function combineSameDayCancellationRestart(entries: AccountActivityItem[]) {
-  const hiddenCancellationIds = new Set<string>();
-  return entries.map((entry, index) => {
-    if (entry.lifecycleEvent !== "Restarted") return entry;
-    const cancellation = entries.slice(0, index).reverse().find((candidate) => (
-      candidate.date === entry.date &&
-      candidate.lifecycleEvent === "Cancelled" &&
-      !hiddenCancellationIds.has(candidate.id)
-    ));
-    if (!cancellation) return entry;
-    hiddenCancellationIds.add(cancellation.id);
-    const notes = [cancellation.note, entry.note].filter(Boolean);
-    return {
-      ...entry,
-      description: "Cancelled and restarted on the same day",
-      note: [...new Set(notes)].join(" · "),
-    };
-  }).filter((entry) => !hiddenCancellationIds.has(entry.id));
-}
-
-function ActivityMetadata({ parts }: { parts: string[] }) {
-  if (!parts.length) return null;
-  return <p className="subscription-activity-details">{parts.map((part, index) => <span key={`${part}-${index}`}>{part}</span>)}</p>;
 }
 
 export default function SubscriptionAccountView({ account, ...actions }: SubscriptionActions & { account: SubscriptionRow }) {
@@ -190,54 +118,6 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
   const displayedBillingComponents = showLastBillingSetup
     ? account.lastBillingSetup?.components ?? []
     : account.billingComponents;
-  // Keep history relationship-scoped even if callers later pass a broader collection.
-  const lifecycleActivity = account.activity.filter((entry) => entry.saved === true && lifecycleEvents.has(entry.event) && entry.date).map((entry, index): AccountActivityItem => {
-    const title = activityDisplayLabels[entry.event] ?? entry.event;
-    return {
-      date: entry.date,
-      details: compactActivityDetails(
-        entry.planName,
-        entry.billingType,
-        entry.amount?.trim() ? displayAmount(entry.currency ?? "", entry.amount) : undefined,
-      ),
-      id: entry.id,
-      lifecycleEvent: entry.event,
-      note: visibleLifecycleNote(title, entry.note || ""),
-      order: index,
-      title,
-    };
-  });
-  const groupedLifecycleActivity = combineSameDayCancellationRestart(lifecycleActivity);
-  const decisionActivity = (account.renewalPeriods ?? []).filter((period) => period.resolution && period.resolvedAt).map((period): AccountActivityItem => {
-    const amount = displayAmount(period.currencySnapshot, period.amountSnapshot);
-    const reason = period.notChargedReasonCode === "other" ? period.notChargedReasonText : period.notChargedReasonCode ? notChargedReasonLabels[period.notChargedReasonCode] : "";
-    return {
-      date: localResolvedDate(period.resolvedAt),
-      description: period.resolution === "not_charged" ? reason : undefined,
-      details: compactActivityDetails(period.planNameSnapshot, period.billingTypeSnapshot, amount),
-      id: `renewal-decision-${period.id}`,
-      note: period.resolution === "not_charged" ? period.notChargedNote.trim() : "",
-      order: new Date(period.resolvedAt).getTime() || 0,
-      title: period.resolution === "paid" ? "Payment confirmed" : "Payment not charged",
-    };
-  });
-  const renewalPeriodsById = new Map((account.renewalPeriods ?? []).map((period) => [period.id, period]));
-  const correctionActivity = (account.renewalActivities ?? []).map((entry): AccountActivityItem => ({
-    date: renewalPeriodsById.get(entry.periodId)?.scheduledRenewalDate || entry.billingDate || entry.activityDate,
-    details: compactActivityDetails(
-      entry.planNameSnapshot,
-      entry.billingTypeSnapshot,
-      displayAmount(entry.currencySnapshot, entry.amountSnapshot),
-    ),
-    id: entry.id,
-    note: "",
-    order: new Date(entry.createdAt).getTime() || 0,
-    title: entry.kind === "billing_schedule_changed" ? "Billing date updated" : "Billing details updated",
-  }));
-  const billingActivity: AccountActivityItem[] = subscriptionBillingActivityItems(account.billingEvents ?? [], account.relationshipId);
-  const activity = [...groupedLifecycleActivity, ...decisionActivity, ...correctionActivity, ...billingActivity].filter((entry) => entry.date)
-    .sort((a, b) => b.date.localeCompare(a.date) || b.order - a.order);
-
   return <div className="subscription-account-view" data-relationship-id={account.relationshipId}>
     <section className="subscription-account-card" aria-label="Account">
       <div className="subscription-account-header-section subscription-callout-tool">
@@ -248,7 +128,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
         <LinkedAccountCell accountLabel={account.accountLabel} login={account.accountEmail || "Not available"} tagClass={account.accountTag} />
       </div>
       <div className="subscription-account-header-section subscription-callout-lifecycle">
-        <span className="tool-status-chip status-muted subscription-lifecycle-pill">{account.status}</span>
+        <span className="tool-status-chip">{account.status}</span>
       </div>
       <div className="subscription-account-header-section subscription-callout-action">
         {account.canManageBilling ? pauseEligible || resumeEligible ? <DropdownControl ariaLabel="Manage Subscription" className="subscription-lifecycle-dropdown" id="subscription-manage" isOpen={manageOpen} onOpenChange={(id) => setManageOpen(Boolean(id))} onChange={(value) => { if (value === "pause") setPauseOpen(true); if (value === "resume" && currentPauseEvent && retiredResumeComponent) setResumeContext({ pauseEvent: currentPauseEvent, retiredComponent: retiredResumeComponent }); }} placeholder="Manage Subscription" selectedLabel="Manage Subscription" value="" options={pauseEligible ? [{ value: "pause", label: "Pause subscription" }] : [{ value: "resume", label: "Resume subscription" }]} />
@@ -269,7 +149,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
         {displayedBillingComponents.map((component, index) => {
           const date = componentDate(component, showLastBillingSetup);
           return <dl className="subscription-current-component" key={component.id || `${component.billingType}-${index}`}>
-            <div><dt>Plan Name</dt><dd>{account.planName.trim() ? <span className="tool-status-chip status-muted subscription-current-plan-pill">{account.planName.trim()}</span> : "Not set"}</dd></div>
+            <div><dt>Plan Name</dt><dd>{account.planName.trim() ? <span className="tool-status-chip">{account.planName.trim()}</span> : "Not set"}</dd></div>
             <div><dt>Billing Type</dt><dd>{component.billingType === "Top-up" ? "Top-up credit" : component.billingType === "One-time" ? "One-time payment" : component.billingType}</dd></div>
             <div><dt>Amount</dt><dd>{displayAmount(component.currency, component.amount)}</dd></div>
             <div><dt>{date.label}</dt><dd>{date.value ? billingHistoryDisplayDate(date.value) : "Not set"}</dd></div>
@@ -294,15 +174,15 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
 
     <section className="subscription-account-section" aria-labelledby="subscription-account-activity">
       <h3 id="subscription-account-activity">Account Activity</h3>
-      {activity.length ? <ul className="subscription-activity-list">{activity.map((entry) => <li key={entry.id}>
-        <span className="subscription-activity-date">{billingHistoryDisplayDate(entry.date)}</span>
-        <div className="subscription-activity-event">
-          <strong>{entry.title}</strong>
-          {entry.description ? <p className="subscription-activity-description">{entry.description}</p> : null}
-          <ActivityMetadata parts={entry.details} />
-          {entry.note ? <p className="subscription-activity-note">{entry.note}</p> : null}
-        </div>
-      </li>)}</ul> : <p className="subscription-detail-empty subscription-activity-empty">No recorded account activity for this account.</p>}
+      <AccountActivityTable
+        billingEvents={account.billingEvents}
+        historicalEntries={account.activity}
+        lifecycleEvents={account.lifecycleEvents}
+        relationshipId={account.relationshipId}
+        renewalActivities={account.renewalActivities}
+        renewalPeriods={account.renewalPeriods}
+        transactions={account.payments}
+      />
     </section>
     {paymentPrompt ? <div className="welcome-modal-overlay" role="presentation"><section className="welcome-modal" role="dialog" aria-modal="true" aria-labelledby="subscription-payment-prompt">
       <h2 id="subscription-payment-prompt">Record a payment?</h2>
@@ -343,7 +223,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
         return updated ? { ...updated, id: existing.id } : existing;
       });
       merged.push(...components.filter((component) => !paymentAccount.billingComponents.some((existing) => existing.billingType === component.billingType)));
-      await saveInitialCurrentBilling(relationshipId, planName, merged); } : undefined} onRequestCurrentBillingUpdate={!firstTimeSetup && paymentMode === "period" && currentBillingUpdateEligible && isTrustedCurrentBillingRevision(account.currentBillingRevision) ? requestPaymentBillingUpdate : undefined} onPaymentsSaved={!firstTimeSetup && paymentMode === "period" ? actions.onPaymentsChanged : undefined} onSetupComplete={firstTimeSetup ? finishPaymentFlow : undefined} accounts={[{ accountActivity: paymentAccount.activity, accountEmail: paymentAccount.accountEmail, accountLabel: paymentAccount.accountLabel, accountTag: paymentAccount.accountTag, billingAmounts: paymentAccount.billingComponents, planName: paymentAccount.planName, relationshipId: paymentAccount.relationshipId }]} initialRelationshipId={account.relationshipId} initialEntryMode={paymentMode} toolName={account.toolName} toolLogo={account.logo} toolLogoBackground={account.logoBackground}
+      await saveInitialCurrentBilling(relationshipId, planName, merged); } : undefined} onRequestCurrentBillingUpdate={!firstTimeSetup && paymentMode === "period" && currentBillingUpdateEligible && isTrustedCurrentBillingRevision(account.currentBillingRevision) ? requestPaymentBillingUpdate : undefined} onPaymentsSaved={!firstTimeSetup && paymentMode === "period" ? actions.onPaymentsChanged : undefined} onSetupComplete={firstTimeSetup ? finishPaymentFlow : undefined} accounts={[{ accountActivity: paymentAccount.activity, accountEmail: paymentAccount.accountEmail, accountLabel: paymentAccount.accountLabel, accountTag: paymentAccount.accountTag, billingAmounts: paymentAccount.billingComponents, billingEvents: paymentAccount.billingEvents, lifecycleEvents: paymentAccount.lifecycleEvents, planName: paymentAccount.planName, relationshipId: paymentAccount.relationshipId, renewalActivities: paymentAccount.renewalActivities, renewalPeriods: paymentAccount.renewalPeriods }]} initialRelationshipId={account.relationshipId} initialEntryMode={paymentMode} toolName={account.toolName} toolLogo={account.logo} toolLogoBackground={account.logoBackground}
       onClose={finishPaymentFlow}
       onChangeRelationship={() => { setPaymentMode(null); setPaymentChoice(true); }} /> : null}
   </div>;

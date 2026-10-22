@@ -12,9 +12,13 @@ import { DropdownControl, type DropdownOption } from "@/components/DropdownContr
 import DateFieldControl from "@/components/DateFieldControl";
 import PaymentBillingDifferenceChoiceField, { type PaymentBillingDifferenceChoice } from "@/components/PaymentBillingDifferenceChoice";
 import { LinkedAccountCell } from "@/components/ToolRowRenderer";
+import AccountActivityTable from "@/components/AccountActivityTable";
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { BillingAmount } from "@/types/toolDetail";
 import type { BillingTransaction, BillingTransactionStatus, BillingTransactionType } from "@/types/billingTransaction";
+import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
+import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent";
+import type { SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
 
 export type BillingHistoryAccount = {
   accountActivity: BillingHistoryEntry[];
@@ -22,8 +26,12 @@ export type BillingHistoryAccount = {
   accountLabel: string;
   accountTag: string;
   billingAmounts: BillingAmount[];
+  billingEvents?: SubscriptionBillingEvent[];
+  lifecycleEvents?: SubscriptionLifecycleEvent[];
   planName: string;
   relationshipId: string;
+  renewalActivities?: BillingRenewalActivity[];
+  renewalPeriods?: BillingRenewalPeriod[];
 };
 
 type EntryMode = "" | "single" | "period";
@@ -188,7 +196,7 @@ function PastBillingAccountSummary({ accountEmail, accountLabel, accountTag, onC
   </div>;
 }
 
-function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
+function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, billingEvents, initialEntryMode, lifecycleEvents, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, renewalActivities, renewalPeriods, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
   const prefill = prefillCurrentBilling && initialEntryMode ? subscriptionPaymentPrefill(billingAmounts, initialEntryMode, selectedBillingType) : null;
   const [setupRenewalDate, setSetupRenewalDate] = useState(prefill?.nextRenewalDate ?? "");
   const [setupBillingSaved, setSetupBillingSaved] = useState(false);
@@ -274,8 +282,8 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
     ? periodPaymentBillingDecision(periodDraftRows, billingAmounts, draft.billingType, draft.currency, draft.amount)
     : null;
   const selectedPeriodBillingChoice = periodBillingChoice && periodBillingChoice.signature === periodBillingDecision?.signature ? periodBillingChoice.choice : "";
-  const activity = restoredDate
-    ? [{ date: restoredDate, event: "Restored", id: `restored-${relationshipId}`, note: "Restored by you" }, ...accountActivity]
+  const activityEntries: BillingHistoryEntry[] = restoredDate
+    ? [{ date: restoredDate, event: "Restored", id: `restored-${relationshipId}`, note: "Restored by you", saved: true, source: "generated" }, ...accountActivity]
     : accountActivity;
   const visibleTransactions = showAllPayments ? transactions : transactions.slice(0, 5);
   const hiddenPaymentCount = Math.max(0, transactions.length - visibleTransactions.length);
@@ -502,21 +510,15 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
         {transactions.length > 5 ? <button className="billing-history-view-more" onClick={() => setShowAllPayments((value) => !value)} type="button">{showAllPayments ? "Show fewer payments" : `View ${hiddenPaymentCount} more payments`}</button> : null}
       </> : <div className="billing-history-empty-state"><strong>No payments recorded yet</strong><p>Add previous payments to build your billing history.</p><button className="billing-history-add-button" onClick={openForm} type="button">+ Add Payment</button></div>}
 
-      {activity.length ? <section className="billing-history-activity"><h3>Account Activity</h3><div className="billing-history-activity-list">{activity.map((entry) => {
-        const entryAmount = "amount" in entry ? entry.amount?.trim() : "";
-        const amount = entryAmount
-          ? ["currency" in entry ? entry.currency?.trim() : "", entryAmount].filter(Boolean).join(" ")
-          : "";
-        const details = [
-          "planName" in entry ? entry.planName : undefined,
-          "billingType" in entry ? entry.billingType : undefined,
-          amount,
-          entry.note,
-        ]
-          .map((value) => value?.trim())
-          .filter((value): value is string => Boolean(value));
-        return <div className="billing-history-activity-row" key={entry.id}><div><strong>{entry.event}</strong><span>{billingHistoryDisplayDate(entry.date)}</span></div>{details.length ? <p>{details.join(" · ")}</p> : null}</div>;
-      })}</div></section> : null}
+      <section className="billing-history-activity"><h3>Account Activity</h3><AccountActivityTable
+        billingEvents={billingEvents}
+        historicalEntries={activityEntries}
+        lifecycleEvents={lifecycleEvents}
+        relationshipId={relationshipId}
+        renewalActivities={renewalActivities}
+        renewalPeriods={renewalPeriods}
+        transactions={transactions}
+      /></section>
     </div> : null}
     {showPastBillingModal ? <div className="welcome-modal-overlay billing-past-modal-overlay"
       onClick={(event) => { if (modalBackdropPressStarted.current && event.target === event.currentTarget) closeForm(); modalBackdropPressStarted.current = false; }}

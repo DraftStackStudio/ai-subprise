@@ -86,7 +86,7 @@ assert.match(subscriptionAccount, /const pauseEligible = canPauseSubscription\(/
 assert.match(subscriptionAccount, /const resumeEligible = canResumeSubscription\(/);
 assert.match(subscriptionAccount, /pauseEligible \|\| resumeEligible \? <DropdownControl[\s\S]*options=\{pauseEligible \? \[\{ value: "pause", label: "Pause subscription" \}\] : \[\{ value: "resume", label: "Resume subscription" \}\]\}/);
 assert.match(subscriptionAccount, /disabled title="No lifecycle actions are currently available"/);
-assert.match(subscriptionAccount, /tool-status-chip status-muted subscription-lifecycle-pill/);
+assert.match(subscriptionAccount, /<span className="tool-status-chip">\{account\.status\}<\/span>/);
 assert.doesNotMatch(subscriptionAccount, /id="subscription-status"/);
 
 const subscriptionResume = read('lib/subscriptionResume.ts');
