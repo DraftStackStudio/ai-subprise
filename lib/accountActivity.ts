@@ -1,6 +1,7 @@
 import type { BillingHistoryEntry } from "@/types/billingHistory";
 import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
 import type { BillingTransaction } from "@/types/billingTransaction";
+import type { BillingPaymentCorrectionEvent, BillingPaymentCorrectionField } from "@/types/billingPaymentCorrectionEvent";
 import type {
   CurrentBillingComparison,
   CurrentBillingComponentSlot,
@@ -14,6 +15,7 @@ export type AccountActivitySource =
   | "current_billing"
   | "historical_subscription_period"
   | "legacy_history"
+  | "payment_correction"
   | "renewal_period"
   | "renewal_update"
   | "subscription_lifecycle";
@@ -21,7 +23,7 @@ export type AccountActivitySource =
 export type AccountActivityCorrectionDetail = {
   after: string;
   before: string;
-  field: CurrentBillingField;
+  field: CurrentBillingField | BillingPaymentCorrectionField;
   label: string;
 };
 
@@ -47,6 +49,7 @@ export type BuildAccountActivityInput = {
   billingEvents?: readonly SubscriptionBillingEvent[];
   historicalEntries?: readonly BillingHistoryEntry[];
   lifecycleEvents?: readonly SubscriptionLifecycleEvent[];
+  paymentCorrectionEvents?: readonly BillingPaymentCorrectionEvent[];
   relationshipId: string;
   renewalActivities?: readonly BillingRenewalActivity[];
   renewalPeriods?: readonly BillingRenewalPeriod[];
@@ -84,6 +87,23 @@ function recordedDate(value: string | null) {
   const month = String(parsed.getMonth() + 1).padStart(2, "0");
   const day = String(parsed.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function displayActivityDate(value: string) {
+  if (!validDate(value)) return value;
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(year, month - 1, day));
+}
+
+function displayActivityDateWithoutYear(value: string) {
+  if (!validDate(value)) return value;
+  const [year, month, day] = value.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short" })
+    .format(new Date(year, month - 1, day));
 }
 
 export function accountActivityRecordedDateValue(item: Pick<AccountActivityItem, "effectiveDate" | "recordedAt">) {
@@ -275,7 +295,9 @@ function subscriptionPeriodDetails(
 export function renewalPeriodAccountActivityItems(
   periods: readonly BillingRenewalPeriod[],
   relationshipId: string,
+  correctionEvents: readonly BillingPaymentCorrectionEvent[] = [],
 ) {
+  const originalSnapshots = originalPaymentSnapshots(correctionEvents, relationshipId);
   const seen = new Set<string>();
   return periods.flatMap((period): AccountActivityItem[] => {
     const effectiveDate = period.billingDate || period.scheduledRenewalDate;
@@ -286,12 +308,13 @@ export function renewalPeriodAccountActivityItems(
     const reason = period.notChargedReasonCode === "other"
       ? period.notChargedReasonText.trim()
       : period.notChargedReasonCode ? notChargedReasonLabels[period.notChargedReasonCode] : "";
+    const original = originalSnapshots.get(period.paymentTransactionId);
     return [{
       details: subscriptionPeriodDetails(
-        period.planNameSnapshot,
-        period.billingTypeSnapshot,
-        period.currencySnapshot,
-        period.amountSnapshot,
+        original?.planName ?? period.planNameSnapshot,
+        original?.billingType ?? period.billingTypeSnapshot,
+        original?.currency ?? period.currencySnapshot,
+        original?.amount ?? period.amountSnapshot,
       ),
       effectiveDate,
       id: `renewal-period-${period.id}`,
@@ -308,30 +331,112 @@ export function historicalSubscriptionPeriodActivityItems(
   transactions: readonly BillingTransaction[],
   relationshipId: string,
   excludedTransactionIds: ReadonlySet<string> = new Set(),
+  correctionEvents: readonly BillingPaymentCorrectionEvent[] = [],
 ) {
+  const originalSnapshots = originalPaymentSnapshots(correctionEvents, relationshipId);
   const seen = new Set<string>();
   return transactions.flatMap((transaction): AccountActivityItem[] => {
+    const original = originalSnapshots.get(transaction.id);
+    const snapshot = original ?? {
+      amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency,
+      note: transaction.note, paymentDate: transaction.paymentDate, planName: transaction.planNameSnapshot,
+      status: transaction.status,
+    };
     const match = transaction.sourceKey.match(historicalPeriodKey);
-    if (transaction.relationshipId !== relationshipId || transaction.source !== "manual" || transaction.status !== "Paid"
-      || !match || match[1] !== relationshipId || match[2] !== transaction.billingTypeSnapshot
-      || match[3] !== transaction.paymentDate || !recurringTypes.has(transaction.billingTypeSnapshot)
-      || !validDate(transaction.paymentDate) || !transaction.id || seen.has(transaction.id)
+    if (transaction.relationshipId !== relationshipId || transaction.source !== "manual" || snapshot.status !== "Paid"
+      || !match || match[1] !== relationshipId || match[2] !== snapshot.billingType
+      || match[3] !== snapshot.paymentDate || !recurringTypes.has(snapshot.billingType)
+      || !validDate(snapshot.paymentDate) || !transaction.id || seen.has(transaction.id)
       || excludedTransactionIds.has(transaction.id)) return [];
     seen.add(transaction.id);
     return [{
       details: subscriptionPeriodDetails(
-        transaction.planNameSnapshot,
-        transaction.billingTypeSnapshot,
-        transaction.currency,
-        transaction.amount,
+        snapshot.planName,
+        snapshot.billingType,
+        snapshot.currency,
+        snapshot.amount,
       ),
-      effectiveDate: transaction.paymentDate,
+      effectiveDate: snapshot.paymentDate,
       id: `historical-subscription-period-${transaction.id}`,
-      note: transaction.note.trim(),
+      note: snapshot.note.trim(),
       recordedAt: transaction.createdAt || null,
       relationshipId,
       source: "historical_subscription_period",
       title: "Subscription period — Paid",
+    }];
+  });
+}
+
+function originalPaymentSnapshots(events: readonly BillingPaymentCorrectionEvent[], relationshipId: string) {
+  const snapshots = new Map<string, BillingPaymentCorrectionEvent["beforeSnapshot"]>();
+  [...events]
+    .filter((event) => event.relationshipId === relationshipId && event.paymentTransactionId)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id))
+    .forEach((event) => {
+      if (!snapshots.has(event.paymentTransactionId)) snapshots.set(event.paymentTransactionId, event.beforeSnapshot);
+    });
+  return snapshots;
+}
+
+const paymentCorrectionLabels: Record<BillingPaymentCorrectionField, string> = {
+  amount: "Amount",
+  billing_type: "Billing type",
+  currency: "Currency",
+  note: "Note",
+  payment_date: "Payment date",
+  plan_name: "Plan",
+  status: "Payment status",
+};
+
+function paymentCorrectionValue(event: BillingPaymentCorrectionEvent, field: BillingPaymentCorrectionField, side: "before" | "after") {
+  const snapshot = side === "before" ? event.beforeSnapshot : event.afterSnapshot;
+  switch (field) {
+    case "payment_date": return displayActivityDate(snapshot.paymentDate);
+    case "plan_name": return displayValue(snapshot.planName);
+    case "billing_type": return displayBillingType(snapshot.billingType);
+    case "currency": return displayValue(snapshot.currency);
+    case "amount": return displayAmount(snapshot.currency, snapshot.amount);
+    case "status": return displayValue(snapshot.status);
+    case "note": return displayValue(snapshot.note);
+  }
+}
+
+export function paymentCorrectionAccountActivityItems(
+  events: readonly BillingPaymentCorrectionEvent[],
+  relationshipId: string,
+) {
+  const seen = new Set<string>();
+  return events.flatMap((event): AccountActivityItem[] => {
+    if (event.relationshipId !== relationshipId || !event.id || seen.has(event.id)
+      || !validDate(event.afterSnapshot.paymentDate)) return [];
+    seen.add(event.id);
+    const fields = [...new Set(event.changedFields)];
+    const dateOnly = fields.length === 1 && fields[0] === "payment_date";
+    const statusOnly = fields.length === 1 && fields[0] === "status";
+    const corrections = fields.map((field) => ({
+      after: paymentCorrectionValue(event, field, "after"),
+      before: paymentCorrectionValue(event, field, "before"),
+      field,
+      label: paymentCorrectionLabels[field],
+    }));
+    const note = dateOnly
+      ? `${displayActivityDateWithoutYear(event.beforeSnapshot.paymentDate)} → ${displayActivityDateWithoutYear(event.afterSnapshot.paymentDate)}`
+      : statusOnly ? `${displayValue(event.beforeSnapshot.status)} → ${displayValue(event.afterSnapshot.status)}` : "";
+    return [{
+      correctionDetails: corrections,
+      details: subscriptionPeriodDetails(
+        event.afterSnapshot.planName,
+        event.afterSnapshot.billingType,
+        event.afterSnapshot.currency,
+        event.afterSnapshot.amount,
+      ),
+      effectiveDate: event.afterSnapshot.paymentDate,
+      id: `payment-correction-${event.id}`,
+      note,
+      recordedAt: event.createdAt || null,
+      relationshipId,
+      source: "payment_correction",
+      title: dateOnly ? "Payment date corrected" : statusOnly ? "Payment status updated" : "Payment details corrected",
     }];
   });
 }
@@ -448,6 +553,7 @@ export function groupAccountActivityByEffectiveDate(items: readonly AccountActiv
 
 export function buildAccountActivityReadModel(input: BuildAccountActivityInput) {
   const renewalPeriods = input.renewalPeriods ?? [];
+  const paymentCorrections = input.paymentCorrectionEvents ?? [];
   const lifecycleItems = lifecycleAccountActivityItems(input.lifecycleEvents ?? [], input.relationshipId);
   const structuredLifecycleKeys = new Set(lifecycleItems.map((item) => {
     const legacyEvent = item.title === "Subscription paused" ? "Paused"
@@ -459,8 +565,9 @@ export function buildAccountActivityReadModel(input: BuildAccountActivityInput) 
   const linkedRenewalTransactionIds = new Set(renewalPeriods.map((period) => period.paymentTransactionId).filter(Boolean));
   const items = [
     ...currentBillingAccountActivityItems(input.billingEvents ?? [], input.relationshipId, renewalPeriods),
-    ...renewalPeriodAccountActivityItems(renewalPeriods, input.relationshipId),
-    ...historicalSubscriptionPeriodActivityItems(input.transactions ?? [], input.relationshipId, linkedRenewalTransactionIds),
+    ...renewalPeriodAccountActivityItems(renewalPeriods, input.relationshipId, paymentCorrections),
+    ...historicalSubscriptionPeriodActivityItems(input.transactions ?? [], input.relationshipId, linkedRenewalTransactionIds, paymentCorrections),
+    ...paymentCorrectionAccountActivityItems(paymentCorrections, input.relationshipId),
     ...renewalUpdateAccountActivityItems(input.renewalActivities ?? [], renewalPeriods, input.relationshipId),
     ...lifecycleItems,
     ...legacyAccountActivityItems(input.historicalEntries ?? [], input.relationshipId, structuredLifecycleKeys),

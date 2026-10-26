@@ -24,7 +24,7 @@ assert.match(payments, /billingChoice === "correction" \|\| billingChoice === "c
 assert.doesNotMatch(payments, /billingChoice === "unknown"[\s\S]*?onRequestCurrentBillingUpdate/,
   "unknown reason must leave Current Billing unchanged");
 
-const paymentWrite = payments.indexOf("const result = id ? await updateBillingTransaction");
+const paymentWrite = payments.indexOf("await correctManualBillingTransaction(originalPayment, values, requestId)");
 const paymentStored = payments.indexOf("setSaved((current)");
 const paymentCleared = payments.indexOf("clearDraft(key)", paymentStored);
 const billingRequested = payments.indexOf("onRequestCurrentBillingUpdate?.", paymentStored);

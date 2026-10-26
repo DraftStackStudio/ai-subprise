@@ -170,7 +170,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
       relationshipId={account.relationshipId}
     />
 
-    <SubscriptionPayments account={account} canAdd={canAddPayment} currencyOptions={actions.currencyOptions} onChanged={actions.onPaymentsChanged} onRequestCurrentBillingUpdate={currentBillingUpdateEligible && isTrustedCurrentBillingRevision(account.currentBillingRevision) ? requestPaymentBillingUpdate : undefined} />
+    <SubscriptionPayments account={account} canAdd={canAddPayment} currencyOptions={actions.currencyOptions} onChanged={actions.onPaymentsChanged} onRequestCurrentBillingUpdate={currentBillingUpdateEligible && isTrustedCurrentBillingRevision(account.currentBillingRevision) ? requestPaymentBillingUpdate : undefined} onUpdateRenewalPayment={actions.onUpdateRenewalPayment} />
 
     <section className="subscription-account-section" aria-labelledby="subscription-account-activity">
       <h3 id="subscription-account-activity">Account Activity</h3>
@@ -178,6 +178,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
         billingEvents={account.billingEvents}
         historicalEntries={account.activity}
         lifecycleEvents={account.lifecycleEvents}
+        paymentCorrectionEvents={account.paymentCorrectionEvents}
         relationshipId={account.relationshipId}
         renewalActivities={account.renewalActivities}
         renewalPeriods={account.renewalPeriods}
@@ -223,7 +224,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
         return updated ? { ...updated, id: existing.id } : existing;
       });
       merged.push(...components.filter((component) => !paymentAccount.billingComponents.some((existing) => existing.billingType === component.billingType)));
-      await saveInitialCurrentBilling(relationshipId, planName, merged); } : undefined} onRequestCurrentBillingUpdate={!firstTimeSetup && paymentMode === "period" && currentBillingUpdateEligible && isTrustedCurrentBillingRevision(account.currentBillingRevision) ? requestPaymentBillingUpdate : undefined} onPaymentsSaved={!firstTimeSetup && paymentMode === "period" ? actions.onPaymentsChanged : undefined} onSetupComplete={firstTimeSetup ? finishPaymentFlow : undefined} accounts={[{ accountActivity: paymentAccount.activity, accountEmail: paymentAccount.accountEmail, accountLabel: paymentAccount.accountLabel, accountTag: paymentAccount.accountTag, billingAmounts: paymentAccount.billingComponents, billingEvents: paymentAccount.billingEvents, lifecycleEvents: paymentAccount.lifecycleEvents, planName: paymentAccount.planName, relationshipId: paymentAccount.relationshipId, renewalActivities: paymentAccount.renewalActivities, renewalPeriods: paymentAccount.renewalPeriods }]} initialRelationshipId={account.relationshipId} initialEntryMode={paymentMode} toolName={account.toolName} toolLogo={account.logo} toolLogoBackground={account.logoBackground}
+      await saveInitialCurrentBilling(relationshipId, planName, merged); } : undefined} onRequestCurrentBillingUpdate={!firstTimeSetup && paymentMode === "period" && currentBillingUpdateEligible && isTrustedCurrentBillingRevision(account.currentBillingRevision) ? requestPaymentBillingUpdate : undefined} onPaymentsSaved={actions.onPaymentsChanged} onSetupComplete={firstTimeSetup ? finishPaymentFlow : undefined} accounts={[{ accountActivity: paymentAccount.activity, accountEmail: paymentAccount.accountEmail, accountLabel: paymentAccount.accountLabel, accountTag: paymentAccount.accountTag, billingAmounts: paymentAccount.billingComponents, billingEvents: paymentAccount.billingEvents, lifecycleEvents: paymentAccount.lifecycleEvents, paymentCorrectionEvents: paymentAccount.paymentCorrectionEvents, planName: paymentAccount.planName, relationshipId: paymentAccount.relationshipId, renewalActivities: paymentAccount.renewalActivities, renewalPeriods: paymentAccount.renewalPeriods }]} initialRelationshipId={account.relationshipId} initialEntryMode={paymentMode} toolName={account.toolName} toolLogo={account.logo} toolLogoBackground={account.logoBackground}
       onClose={finishPaymentFlow}
       onChangeRelationship={() => { setPaymentMode(null); setPaymentChoice(true); }} /> : null}
   </div>;

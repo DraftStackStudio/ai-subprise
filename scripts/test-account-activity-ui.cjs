@@ -151,9 +151,10 @@ for (const file of ["components/SubscriptionAccountView.tsx", "components/Billin
   const source = fs.readFileSync(path.join(root, file), "utf8");
   assert.match(source, /AccountActivityTable/);
   assert.match(source, /relationshipId=/);
+  assert.match(source, /paymentCorrectionEvents=/);
 }
 const pageSource = fs.readFileSync(path.join(root, "app/dashboard/page.tsx"), "utf8");
-for (const collection of ["subscriptionBillingEvents", "billingRenewalPeriods", "billingRenewalActivities", "subscriptionLifecycleEvents"]) {
+for (const collection of ["subscriptionBillingEvents", "billingRenewalPeriods", "billingRenewalActivities", "subscriptionLifecycleEvents", "billingPaymentCorrectionEvents"]) {
   assert.match(pageSource, new RegExp(`${collection}\\.filter\\(\\([^)]*\\) => [^)]*\\.relationshipId ===`));
 }
 const styles = fs.readFileSync(path.join(root, "app/globals.css"), "utf8");

@@ -117,6 +117,7 @@ import {
   markBillingRenewalNotCharged,
   syncDueBillingRenewalPeriods,
   undoBillingRenewalResolution,
+  updateBillingRenewalPayment,
   updateBillingRenewalPeriodSnapshot,
 } from "@/lib/supabase/billingRenewalPeriods";
 import {
@@ -136,11 +137,16 @@ import { mergeSubscriptionLifecycleHistory } from "@/lib/subscriptionLifecycleAc
 import { canPauseSubscription, type PauseSubscriptionInput } from "@/lib/subscriptionPause";
 import { canResumeSubscription, currentPauseEventForResume, matchesResumePayment, resumePaymentSourceKey, validateResumePayment, type ResumePaymentInput, type ResumeSubscriptionInput } from "@/lib/subscriptionResume";
 import { expiredTrialNeedsResolution, isTrialResolution, trialResolutionTransition } from "@/lib/trialResolution";
-import type { BillingRenewalActivity, BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
+import type { BillingRenewalActivity, BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPaymentInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
 import type { ResumeSubscriptionResult, SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
 import type { CurrentBillingRevision, UpdateCurrentBillingInput, UpdateCurrentBillingResult } from "@/types/currentBillingChange";
 import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent";
 import type { BillingTransaction } from "@/types/billingTransaction";
+import type { BillingPaymentCorrectionEvent } from "@/types/billingPaymentCorrectionEvent";
+import {
+  getBillingPaymentCorrectionEventsByRelationship,
+  getBillingPaymentCorrectionEventsByRelationships,
+} from "@/lib/supabase/billingPaymentCorrectionEvents";
 import {
   createToolRecord,
   getDeletedToolRecords,
@@ -1131,6 +1137,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const [subscriptionDetailsTarget, setSubscriptionDetailsTarget] = useState<string | null>(null);
   const [billingRenewalActivities, setBillingRenewalActivities] = useState<BillingRenewalActivity[]>([]);
   const [billingTransactions, setBillingTransactions] = useState<BillingTransaction[]>([]);
+  const [billingPaymentCorrectionEvents, setBillingPaymentCorrectionEvents] = useState<BillingPaymentCorrectionEvent[]>([]);
   const [billingHistoryTarget, setBillingHistoryTarget] = useState<BillingHistoryTarget | null>(null);
   const [billingPastEntryOpen, setBillingPastEntryOpen] = useState(false);
   const [billingPastInitialMode, setBillingPastInitialMode] = useState<"single" | "period" | "">("");
@@ -1565,6 +1572,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     if (historyRelationshipIds.length === 0) {
       setBillingRenewalPeriods([]);
       setBillingRenewalActivities([]);
+      setBillingPaymentCorrectionEvents([]);
       setSubscriptionLifecycleEvents([]);
       setSubscriptionBillingEvents([]);
       return;
@@ -1583,14 +1591,16 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         activities: await getBillingRenewalActivitiesByRelationships(historyRelationshipIds),
         lifecycleEvents: await getSubscriptionLifecycleEventsByRelationships(historyRelationshipIds),
         billingEvents: await getSubscriptionBillingEventsByRelationships(historyRelationshipIds),
+        paymentCorrectionEvents: await getBillingPaymentCorrectionEventsByRelationships(historyRelationshipIds),
         periods: await getBillingRenewalPeriodsByRelationships(historyRelationshipIds),
       }))
-      .then(({ activities, billingEvents, lifecycleEvents, periods, refreshedRelationships }) => {
+      .then(({ activities, billingEvents, lifecycleEvents, paymentCorrectionEvents, periods, refreshedRelationships }) => {
         if (isCancelled) return;
         setBillingRenewalPeriods(periods);
         setBillingRenewalActivities(activities);
         setSubscriptionLifecycleEvents(lifecycleEvents);
         setSubscriptionBillingEvents(billingEvents);
+        setBillingPaymentCorrectionEvents(paymentCorrectionEvents);
         if (refreshedRelationships) {
           setBillingRelationshipDetails(refreshedRelationships);
           setToolAccountDetails((current) => {
@@ -5348,6 +5358,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
         currentBillingRevision: detail.currentBillingRevision ?? null,
         retiredBillingComponents: detail.retiredBillingAmounts,
         payments: billingTransactions.filter((transaction) => transaction.relationshipId === detail.relationshipId),
+        paymentCorrectionEvents: billingPaymentCorrectionEvents.filter((event) => event.relationshipId === detail.relationshipId),
         renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === detail.relationshipId),
         renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === detail.relationshipId),
         lifecycleEvents: subscriptionLifecycleEvents.filter((event) => event.relationshipId === detail.relationshipId),
@@ -5698,6 +5709,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
           lifecycleEvents: subscriptionLifecycleEvents.filter((event) => event.relationshipId === directoryAccount.relationshipId),
           plan: activeDetail ? relationPlan(billingDetailsTool, directoryAccount.accountLabel) : storedRelationship?.plan ?? "",
           planName: directoryAccount.planName,
+          paymentCorrectionEvents: billingPaymentCorrectionEvents.filter((event) => event.relationshipId === directoryAccount.relationshipId),
           relationshipId: directoryAccount.relationshipId,
           renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === directoryAccount.relationshipId),
           renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === directoryAccount.relationshipId),
@@ -5730,11 +5742,12 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
   const refreshSubscriptionRenewalData = async (relationshipId: string) => {
     if (!shouldUseSupabase) throw new Error("Sign in to review renewal periods.");
     const { row } = subscriptionTarget(relationshipId);
-    const [periods, activities, lifecycleEvents, billingEvents, transactions, allLinkDetails] = await Promise.all([
+    const [periods, activities, lifecycleEvents, billingEvents, paymentCorrectionEvents, transactions, allLinkDetails] = await Promise.all([
       getBillingRenewalPeriodsByRelationship(relationshipId),
       getBillingRenewalActivitiesByRelationship(relationshipId),
       getSubscriptionLifecycleEventsByRelationship(relationshipId),
       getSubscriptionBillingEventsByRelationship(relationshipId),
+      getBillingPaymentCorrectionEventsByRelationship(relationshipId),
       getBillingTransactionsByRelationship(relationshipId),
       getToolLinkDetailRecords({ includeUnlinked: true }),
     ]);
@@ -5753,6 +5766,10 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
       ...lifecycleEvents,
     ]);
     setSubscriptionBillingEvents((current) => replaceRelationshipBillingEvents(current, relationshipId, billingEvents));
+    setBillingPaymentCorrectionEvents((current) => [
+      ...current.filter((event) => event.relationshipId !== relationshipId),
+      ...paymentCorrectionEvents,
+    ]);
     setBillingTransactions((current) => [
       ...current.filter((transaction) => transaction.relationshipId !== relationshipId),
       ...transactions,
@@ -5810,6 +5827,19 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     const refreshed = periods.find((candidate) => candidate.id === periodId && candidate.relationshipId === relationshipId);
     if (!refreshed) throw new Error("The updated renewal period could not be refreshed.");
     return refreshed;
+  };
+
+  const editSubscriptionRenewalPayment = async (relationshipId: string, periodId: string, paymentTransactionId: string, input: UpdateBillingRenewalPaymentInput) => {
+    subscriptionTarget(relationshipId);
+    const matchingPeriods = billingRenewalPeriods.filter((candidate) => candidate.id === periodId
+      && candidate.relationshipId === relationshipId
+      && candidate.resolution === "paid"
+      && candidate.paymentTransactionId === paymentTransactionId
+      && !candidate.excludedAt);
+    if (matchingPeriods.length !== 1) throw new Error("This renewal payment linkage changed. Refresh the account and try again.");
+    const result = await updateBillingRenewalPayment(relationshipId, periodId, paymentTransactionId, input);
+    await refreshSubscriptionRenewalData(relationshipId);
+    return result;
   };
 
   const undoSubscriptionRenewalResolution = async (relationshipId: string, periodId: string) => {
@@ -6380,6 +6410,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             billingEvents: subscriptionBillingEvents.filter((event) => event.relationshipId === detail.relationshipId),
             lifecycleEvents: subscriptionLifecycleEvents.filter((event) => event.relationshipId === detail.relationshipId),
             planName: capitaliseFirstLetter(detail.planName ?? ""),
+            paymentCorrectionEvents: billingPaymentCorrectionEvents.filter((event) => event.relationshipId === detail.relationshipId),
             relationshipId: detail.relationshipId,
             renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === detail.relationshipId),
             renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === detail.relationshipId),
@@ -6405,6 +6436,7 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             billingEvents: subscriptionBillingEvents.filter((event) => event.relationshipId === account.relationshipId),
             lifecycleEvents: subscriptionLifecycleEvents.filter((event) => event.relationshipId === account.relationshipId),
             planName: account.planName,
+            paymentCorrectionEvents: billingPaymentCorrectionEvents.filter((event) => event.relationshipId === account.relationshipId),
             relationshipId: account.relationshipId,
             renewalActivities: billingRenewalActivities.filter((activity) => activity.relationshipId === account.relationshipId),
             renewalPeriods: billingRenewalPeriods.filter((period) => period.relationshipId === account.relationshipId),
@@ -6838,10 +6870,17 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
               onConfirmRenewalPaid={confirmSubscriptionRenewalPaid}
               onMarkRenewalNotCharged={markSubscriptionRenewalNotCharged}
               onUndoRenewalResolution={undoSubscriptionRenewalResolution}
+              onUpdateRenewalPayment={editSubscriptionRenewalPayment}
               onUpdateRenewalPeriodSnapshot={editSubscriptionRenewalPeriod}
               onSaveBilling={saveSubscriptionBillingSetup} onUpdateCurrentBilling={updateSubscriptionCurrentBilling} onPauseSubscription={pauseSubscriptionRelationship}
               onResumeSubscription={resumeSubscriptionRelationship} onRecordResumePayment={recordResumePayment} onPaymentsChanged={() => {
-              if (shouldUseSupabase) void getBillingTransactions().then(setBillingTransactions).catch((error: unknown) => setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions."));
+              if (shouldUseSupabase) void Promise.all([
+                getBillingTransactions(),
+                getBillingPaymentCorrectionEventsByRelationships(subscriptionRows.map((row) => row.relationshipId)),
+              ]).then(([transactions, correctionEvents]) => {
+                setBillingTransactions(transactions);
+                setBillingPaymentCorrectionEvents(correctionEvents);
+              }).catch((error: unknown) => setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions."));
             }} />
           ) : activeSection === "dashboard" ? (
             <DashboardSummaryView
@@ -7092,6 +7131,18 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
                 setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions.");
               });
             }
+          }}
+          onPaymentsSaved={() => {
+            if (!shouldUseSupabase) return;
+            void Promise.all([
+              getBillingTransactions(),
+              getBillingPaymentCorrectionEventsByRelationships(billingHistoryAccounts.map((account) => account.relationshipId)),
+            ]).then(([transactions, correctionEvents]) => {
+              setBillingTransactions(transactions);
+              setBillingPaymentCorrectionEvents(correctionEvents);
+            }).catch((error: unknown) => {
+              setToolDataError(error instanceof Error ? error.message : "Could not refresh billing transactions.");
+            });
           }}
           restoredDate={billingHistoryTool?.restoredAt}
           toolLogo={billingHistoryTool?.logo}

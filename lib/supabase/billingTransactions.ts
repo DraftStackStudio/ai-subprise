@@ -36,6 +36,11 @@ function optionalAmount(value?: string) {
   return amount;
 }
 
+function localCalendarDate() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
 function asBillingTransaction(record: Record<string, unknown>): BillingTransaction {
   return {
     accountLabelSnapshot: optionalText(record.account_label_snapshot),
@@ -140,25 +145,47 @@ export async function createBillingTransaction(input: CreateBillingTransactionIn
 }
 
 export async function updateBillingTransaction(id: string, input: UpdateBillingTransactionInput) {
-  const payload: Record<string, unknown> = {};
-  if (input.amount !== undefined) payload.amount = optionalAmount(input.amount) || null;
-  if (input.billingTypeSnapshot !== undefined) payload.billing_type_snapshot = input.billingTypeSnapshot || null;
-  if (input.currency !== undefined) payload.currency = optionalCurrency(input.currency) || null;
-  if (input.note !== undefined) payload.note = input.note.trim() || null;
-  if (input.paymentDate !== undefined) payload.payment_date = input.paymentDate;
-  if (input.planNameSnapshot !== undefined) payload.plan_name_snapshot = input.planNameSnapshot.trim() || null;
-  if (input.status !== undefined) payload.status = input.status;
-  if (Object.keys(payload).length === 0) return getBillingTransaction(id);
+  const current = await getBillingTransaction(id);
+  if (current.source !== "manual" || !current.relationshipId) {
+    throw new Error("Only an exact manually entered Payment can use this correction workflow.");
+  }
+  return correctManualBillingTransaction(current, input, crypto.randomUUID());
+}
 
+export async function correctManualBillingTransaction(
+  original: BillingTransaction,
+  input: UpdateBillingTransactionInput,
+  requestId: string,
+) {
+  if (original.source !== "manual" || !original.relationshipId) {
+    throw new Error("Only an exact manually entered Payment can use this correction workflow.");
+  }
+  const values = {
+    amount: input.amount ?? original.amount,
+    billingTypeSnapshot: input.billingTypeSnapshot ?? original.billingTypeSnapshot,
+    currency: input.currency ?? original.currency,
+    note: input.note ?? original.note,
+    paymentDate: input.paymentDate ?? original.paymentDate,
+    planNameSnapshot: input.planNameSnapshot ?? original.planNameSnapshot,
+    status: input.status ?? original.status,
+  };
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from("billing_transactions")
-    .update(payload)
-    .eq("id", id)
-    .select("*")
-    .single();
+  const { error } = await supabase.rpc("correct_manual_billing_payment", {
+    p_amount: optionalAmount(values.amount) || null,
+    p_billing_type: values.billingTypeSnapshot || null,
+    p_currency: optionalCurrency(values.currency) || null,
+    p_expected_updated_at: original.updatedAt,
+    p_local_date: localCalendarDate(),
+    p_note: values.note.trim() || null,
+    p_payment_date: values.paymentDate,
+    p_payment_transaction_id: original.id,
+    p_plan_name: values.planNameSnapshot.trim() || null,
+    p_relationship_id: original.relationshipId,
+    p_request_id: requestId,
+    p_status: values.status,
+  });
   if (error) throw error;
-  return asBillingTransaction(data as Record<string, unknown>);
+  return getBillingTransaction(original.id);
 }
 
 export async function getBillingTransaction(id: string) {

@@ -16,6 +16,7 @@ const {
   buildAccountActivityReadModel,
   currentBillingAccountActivityItems,
   historicalSubscriptionPeriodActivityItems,
+  paymentCorrectionAccountActivityItems,
   renewalPeriodAccountActivityItems,
 } = moduleRecord.exports;
 
@@ -275,6 +276,55 @@ assert.equal(historicalPeriod.title, "Subscription period — Paid");
 assert.equal(historicalPeriod.source, "historical_subscription_period");
 assert.equal(historicalPeriod.effectiveDate, "2026-08-21");
 assert.equal(historicalPeriod.note, "50% off");
+
+const correctionEvent = (overrides = {}) => ({
+  afterSnapshot: { amount: "35", billingType: "Yearly", currency: "SGD", note: "", paymentDate: "2026-09-30", planName: "Pro", relationshipId: relationshipOne, source: "manual", sourceKey: `subscription-period:${relationshipOne}:Monthly:2026-08-21`, status: "Paid", transactionId: "transaction-1" },
+  beforeSnapshot: { amount: "30", billingType: "Monthly", currency: "SGD", note: "50% off", paymentDate: "2026-08-21", planName: "Plus", relationshipId: relationshipOne, source: "manual", sourceKey: `subscription-period:${relationshipOne}:Monthly:2026-08-21`, status: "Paid", transactionId: "transaction-1" },
+  changedFields: ["payment_date", "plan_name", "billing_type", "amount"],
+  createdAt: "2026-10-24T09:30:00.000Z",
+  effectiveDate: "2026-09-30",
+  id: "payment-correction-1",
+  paymentSource: "manual",
+  paymentTransactionId: "transaction-1",
+  relationshipId: relationshipOne,
+  requestId: "request-1",
+  userId,
+  ...overrides,
+});
+
+const dateCorrection = paymentCorrectionAccountActivityItems([correctionEvent({
+  changedFields: ["payment_date"],
+  id: "date-only",
+})], relationshipOne)[0];
+assert.equal(dateCorrection.title, "Payment date corrected");
+assert.equal(dateCorrection.effectiveDate, "2026-09-30");
+assert.equal(dateCorrection.note, "21 Aug → 30 Sept");
+assert.equal(dateCorrection.recordedAt, "2026-10-24T09:30:00.000Z");
+
+const statusCorrection = paymentCorrectionAccountActivityItems([correctionEvent({
+  afterSnapshot: { ...correctionEvent().afterSnapshot, status: "Failed" },
+  beforeSnapshot: { ...correctionEvent().beforeSnapshot, status: "Paid" },
+  changedFields: ["status"],
+  id: "status-only",
+})], relationshipOne)[0];
+assert.equal(statusCorrection.title, "Payment status updated");
+assert.equal(statusCorrection.note, "Paid → Failed");
+assert.equal(paymentCorrectionAccountActivityItems([correctionEvent(), correctionEvent()], relationshipOne).length, 1,
+  "the same persisted correction event must render once");
+assert.equal(paymentCorrectionAccountActivityItems([correctionEvent({ relationshipId: relationshipTwo })], relationshipOne).length, 0);
+
+const correctedHistorical = transaction({
+  amount: "35", billingTypeSnapshot: "Yearly", id: "transaction-1", paymentDate: "2026-09-30", planNameSnapshot: "Pro",
+});
+const preservedHistorical = historicalSubscriptionPeriodActivityItems(
+  [correctedHistorical], relationshipOne, new Set(), [correctionEvent()],
+)[0];
+assert.equal(preservedHistorical.effectiveDate, "2026-08-21");
+assert.deepEqual(preservedHistorical.details, ["Plus", "Monthly", "SGD 30"]);
+assert.equal(historicalSubscriptionPeriodActivityItems([
+  transaction({ id: "single-corrected", sourceKey: `single-payment:${relationshipOne}:one` }),
+], relationshipOne, new Set(), [correctionEvent({ paymentTransactionId: "single-corrected" })]).length, 0,
+"ordinary single payments must not become subscription-period activity");
 
 for (const insufficient of [
   transaction({ id: "single", sourceKey: `single-payment:${relationshipOne}:key:Monthly` }),

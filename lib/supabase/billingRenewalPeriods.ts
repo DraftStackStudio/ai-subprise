@@ -76,6 +76,7 @@ function exactMutationResult(data: unknown): BillingRenewalExactMutationResult {
   const record = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | undefined;
   if (!record) throw new Error("The renewal operation did not return a result.");
   return {
+    correctionEventId: text(record.correction_event_id) || undefined,
     paymentTransactionId: text(record.payment_transaction_id),
     periodId: text(record.period_id),
   };
@@ -199,12 +200,16 @@ export async function updateBillingRenewalPayment(
   const supabase = createClient();
   const { data, error } = await supabase.rpc("update_billing_renewal_payment", {
     p_amount: input.amount.trim() || null,
+    p_billing_type: input.billingType,
     p_currency: input.currency.trim() || null,
+    p_expected_updated_at: input.expectedUpdatedAt,
     p_local_date: localCalendarDate(),
     p_payment_date: input.paymentDate,
     p_payment_transaction_id: paymentTransactionId,
     p_period_id: periodId,
+    p_plan_name: input.planName.trim() || null,
     p_relationship_id: relationshipId,
+    p_request_id: input.requestId,
   });
   if (error) throw error;
   return exactMutationResult(data);

@@ -13,6 +13,7 @@ import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billi
 import type { LastBillingSetup, SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
 import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent";
 import type { CurrentBillingRevision } from "@/types/currentBillingChange";
+import type { BillingPaymentCorrectionEvent } from "@/types/billingPaymentCorrectionEvent";
 import BillingUpcomingView, { type BillingUpcomingFilter, type BillingUpcomingItem } from "@/components/BillingUpcomingView";
 import { newestFirstUnresolvedRenewalPeriods } from "@/lib/renewalPeriods";
 
@@ -38,6 +39,7 @@ export type SubscriptionRow = {
   currentBillingRevision: CurrentBillingRevision | null;
   retiredBillingComponents: RetiredBillingAmount[];
   payments: BillingTransaction[];
+  paymentCorrectionEvents?: BillingPaymentCorrectionEvent[];
   renewalPeriods: BillingRenewalPeriod[];
   renewalActivities?: BillingRenewalActivity[];
   lifecycleEvents: SubscriptionLifecycleEvent[];

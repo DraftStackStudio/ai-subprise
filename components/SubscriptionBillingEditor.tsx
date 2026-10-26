@@ -8,7 +8,7 @@ import type { PauseSubscriptionInput } from "@/lib/subscriptionPause";
 import type { ResumePaymentInput, ResumeSubscriptionInput } from "@/lib/subscriptionResume";
 import type { ResumeSubscriptionResult } from "@/types/subscriptionLifecycleEvent";
 import type { SubscriptionRow } from "@/components/SubscriptionsView";
-import type { BillingRenewalMutationResult, BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
+import type { BillingRenewalExactMutationResult, BillingRenewalMutationResult, BillingRenewalPeriod, MarkBillingRenewalNotChargedInput, UpdateBillingRenewalPaymentInput, UpdateBillingRenewalPeriodSnapshotInput } from "@/types/billingRenewalPeriod";
 import type { CurrentBillingChangeMode, CurrentBillingRevision, UpdateCurrentBillingInput, UpdateCurrentBillingResult } from "@/types/currentBillingChange";
 import { localBillingToday } from "@/lib/currentBilling";
 import { compareCurrentBilling, isTrustedCurrentBillingRevision } from "@/lib/currentBillingChange";
@@ -26,6 +26,7 @@ export type SubscriptionActions = {
   onSaveBilling: (input: UpdateCurrentBillingInput) => Promise<UpdateCurrentBillingResult>;
   onUpdateCurrentBilling: (input: UpdateCurrentBillingInput) => Promise<UpdateCurrentBillingResult>;
   onUndoRenewalResolution: (relationshipId: string, periodId: string) => Promise<BillingRenewalMutationResult>;
+  onUpdateRenewalPayment: (relationshipId: string, periodId: string, paymentTransactionId: string, input: UpdateBillingRenewalPaymentInput) => Promise<BillingRenewalExactMutationResult>;
   onUpdateRenewalPeriodSnapshot: (relationshipId: string, periodId: string, input: UpdateBillingRenewalPeriodSnapshotInput) => Promise<BillingRenewalPeriod>;
   onPaymentsChanged?: () => void;
 };

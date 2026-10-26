@@ -72,11 +72,16 @@ export type MarkBillingRenewalNotChargedInput = {
 
 export type UpdateBillingRenewalPaymentInput = {
   amount: string;
+  billingType: "Monthly" | "Yearly";
   currency: string;
+  expectedUpdatedAt: string;
   paymentDate: string;
+  planName: string;
+  requestId: string;
 };
 
 export type BillingRenewalExactMutationResult = {
+  correctionEventId?: string;
   paymentTransactionId: string;
   periodId: string;
 };

@@ -55,7 +55,8 @@ assert.match(accountView, /!firstTimeSetup && paymentMode === "period" && curren
 assert.match(accountView, /relationshipId !== account\.relationshipId/);
 assert.match(accountView, /index === componentIndex \? \{ \.\.\.component, currency, amount \} : component/);
 assert.match(accountView, /onSubmit: actions\.onUpdateCurrentBilling/);
-assert.match(accountView, /onPaymentsSaved=\{!firstTimeSetup && paymentMode === "period" \? actions\.onPaymentsChanged/);
+assert.match(accountView, /onPaymentsSaved=\{actions\.onPaymentsChanged\}/,
+  "saved historical corrections must refresh Payments and Account Activity without changing period-only Current Billing routing");
 assert.match(accountView, /onEstablishCurrentBilling=\{firstTimeSetup \?/,
   "initial and incomplete setup must retain its separate audited setup path");
 

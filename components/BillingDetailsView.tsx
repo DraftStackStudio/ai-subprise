@@ -13,6 +13,7 @@ import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent"
 import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
 import AccountActivityTable from "@/components/AccountActivityTable";
 import BillingUnconfirmedSummary from "@/components/BillingUnconfirmedSummary";
+import type { BillingPaymentCorrectionEvent } from "@/types/billingPaymentCorrectionEvent";
 
 export type BillingDetailsAccount = {
   accountActivity: BillingHistoryEntry[];
@@ -27,6 +28,7 @@ export type BillingDetailsAccount = {
   lifecycleEvents?: SubscriptionLifecycleEvent[];
   plan: string;
   planName: string;
+  paymentCorrectionEvents?: BillingPaymentCorrectionEvent[];
   relationshipId: string;
   renewalActivities?: BillingRenewalActivity[];
   renewalPeriods?: BillingRenewalPeriod[];
@@ -110,6 +112,7 @@ function AccountDetails({ account, onOpenBillingHistory, onReviewUnconfirmedBill
         emptyMessage="No account activity recorded yet."
         historicalEntries={account.accountActivity}
         lifecycleEvents={account.lifecycleEvents}
+        paymentCorrectionEvents={account.paymentCorrectionEvents}
         relationshipId={account.relationshipId}
         renewalActivities={account.renewalActivities}
         renewalPeriods={account.renewalPeriods}

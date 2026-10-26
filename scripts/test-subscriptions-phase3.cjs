@@ -535,7 +535,7 @@ async function main() {
     '@/components/DropdownControls': { DropdownControl: () => null },
     '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
     '@/lib/supabase/billingTransactions': {
-      updateBillingTransaction: async (id, values) => { writes.push({ id, values }); if (delayUpdate) await new Promise((resolve) => { releaseUpdate = resolve; }); return { ...historical, ...values, id }; },
+      correctManualBillingTransaction: async (original, values, requestId) => { writes.push({ id: original.id, values, requestId }); if (delayUpdate) await new Promise((resolve) => { releaseUpdate = resolve; }); return { ...original, ...values }; },
       createBillingTransaction: async (values) => { writes.push(values); if (failCreate) throw new Error('Retry'); return { ...historical, ...values, id: 'new-payment' }; },
     },
   }).default;
@@ -685,15 +685,24 @@ async function main() {
   {
     let database, writes, syncWrites;
     const api = load('lib/supabase/billingTransactions.ts', {
-      '@/lib/supabase/client': { createClient: () => ({ from(table) {
+      '@/lib/supabase/client': { createClient: () => ({ async rpc(name, args) {
+        assert.equal(name, 'correct_manual_billing_payment');
+        const id = args.p_payment_transaction_id;
+        const payload = {
+          amount: args.p_amount, billing_type_snapshot: args.p_billing_type, currency: args.p_currency,
+          note: args.p_note, payment_date: args.p_payment_date, plan_name_snapshot: args.p_plan_name,
+          status: args.p_status,
+        };
+        writes.push({ id, payload });
+        database[id] = { ...database[id], ...payload };
+        return { data: [{ payment_transaction_id: id }], error: null };
+      }, from(table) {
         assert.equal(table, 'billing_transactions');
-        return { update(payload) { return { eq(column, id) {
+        return { select() { return { eq(column, id) {
           assert.equal(column, 'id');
-          return { select() { return { async single() {
-            writes.push({ id, payload });
-            database[id] = { ...database[id], ...payload };
+          return { async single() {
             return { data: database[id], error: null };
-          } }; } };
+          } };
         } }; } };
       } }) },
     });
@@ -703,14 +712,14 @@ async function main() {
       '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
       '@/lib/supabase/billingTransactions': api,
     }).default;
-    const raw = { id: 'unknown', tool_email_link_id: 'r1', source: 'manual', payment_date: '2020-01-10', plan_name_snapshot: 'Old plan', billing_type_snapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: null, note: 'Keep this note' };
+    const raw = { id: 'unknown', tool_email_link_id: 'r1', source: 'manual', payment_date: '2020-01-10', plan_name_snapshot: 'Old plan', billing_type_snapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: null, note: 'Keep this note', updated_at: '2026-10-24T00:00:00Z' };
     const renderInline = () => { cursor = 0; return Payments({ account, canAdd: true, currencyOptions: [], onRequestCurrentBillingUpdate: () => { syncWrites++; } }); };
     const inlineField = (label) => nodes(renderInline()).find(node => (node.props?.['aria-label'] ?? node.props?.ariaLabel) === label);
     const begin = (amount) => {
       hooks = []; writes = []; syncWrites = 0;
       database = { unknown: { ...raw, amount }, untouched: { ...raw, id: 'untouched', tool_email_link_id: 'r2', amount: '81' } };
       account.relationshipId = 'r1'; account.billingComponents = setupComponents;
-      account.payments = [{ id: 'unknown', relationshipId: 'r1', source: 'manual', paymentDate: raw.payment_date, planNameSnapshot: raw.plan_name_snapshot, billingTypeSnapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: amount === null ? '' : amount, note: raw.note }];
+      account.payments = [{ id: 'unknown', relationshipId: 'r1', source: 'manual', paymentDate: raw.payment_date, planNameSnapshot: raw.plan_name_snapshot, billingTypeSnapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: amount === null ? '' : amount, note: raw.note, updatedAt: raw.updated_at }];
       nodes(renderInline()).find(node => node.props?.className === 'subscription-payment-edit-button').props.onClick();
     };
     for (const [amount, changedField, value] of [[null, 'Plan Name', 'New plan'], [null, 'Payment Status', 'Refunded'], ['0', 'Plan Name', 'Zero plan'], ['0.00', 'Plan Name', 'Zero decimal'], ['8.50', 'Plan Name', 'Same amount']]) {

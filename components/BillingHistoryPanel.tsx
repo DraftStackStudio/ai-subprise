@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { createBillingTransaction, deleteManualBillingTransaction, getBillingTransactionsByRelationship, updateBillingTransaction } from "@/lib/supabase/billingTransactions";
+import { correctManualBillingTransaction, createBillingTransaction, deleteManualBillingTransaction, getBillingTransactionsByRelationship } from "@/lib/supabase/billingTransactions";
 import { billingHistoryDisplayDate } from "@/lib/billingHistory";
 import { subscriptionPaymentPrefill, resolvePaymentDate } from "@/lib/subscriptionPaymentPrefill";
 import { firstTimeBillingComponents } from "@/lib/firstTimeBillingSetup";
@@ -19,6 +19,7 @@ import type { BillingTransaction, BillingTransactionStatus, BillingTransactionTy
 import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billingRenewalPeriod";
 import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent";
 import type { SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
+import type { BillingPaymentCorrectionEvent } from "@/types/billingPaymentCorrectionEvent";
 
 export type BillingHistoryAccount = {
   accountActivity: BillingHistoryEntry[];
@@ -29,6 +30,7 @@ export type BillingHistoryAccount = {
   billingEvents?: SubscriptionBillingEvent[];
   lifecycleEvents?: SubscriptionLifecycleEvent[];
   planName: string;
+  paymentCorrectionEvents?: BillingPaymentCorrectionEvent[];
   relationshipId: string;
   renewalActivities?: BillingRenewalActivity[];
   renewalPeriods?: BillingRenewalPeriod[];
@@ -196,7 +198,7 @@ function PastBillingAccountSummary({ accountEmail, accountLabel, accountTag, onC
   </div>;
 }
 
-function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, billingEvents, initialEntryMode, lifecycleEvents, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, renewalActivities, renewalPeriods, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
+function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, billingEvents, initialEntryMode, lifecycleEvents, paymentCorrectionEvents, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, renewalActivities, renewalPeriods, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
   const prefill = prefillCurrentBilling && initialEntryMode ? subscriptionPaymentPrefill(billingAmounts, initialEntryMode, selectedBillingType) : null;
   const [setupRenewalDate, setSetupRenewalDate] = useState(prefill?.nextRenewalDate ?? "");
   const [setupBillingSaved, setSetupBillingSaved] = useState(false);
@@ -209,6 +211,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const [showPastBillingModal, setShowPastBillingModal] = useState(Boolean(initialEntryMode));
   const [draft, setDraft] = useState<TransactionDraft>(() => ({ ...initialDraft(), planName, ...(prefill ? { ...prefill, startDate: initialEntryMode === "period" ? prefill.paymentDate : "", endDate: initialEntryMode === "period" ? prefill.paymentDate : "" } : {}) }));
   const [editingId, setEditingId] = useState("");
+  const [editRequestId, setEditRequestId] = useState("");
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
   const [periodDraftRows, setPeriodDraftRows] = useState<PeriodDraftRow[]>([]);
   const [periodGenerationKey, setPeriodGenerationKey] = useState("");
@@ -288,7 +291,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   const visibleTransactions = showAllPayments ? transactions : transactions.slice(0, 5);
   const hiddenPaymentCount = Math.max(0, transactions.length - visibleTransactions.length);
 
-  const closeForm = () => { resetPeriodValidation(); setShowPastBillingModal(false); setShowDeleteConfirmation(false); setEntryMode(""); setEditingId(""); setDraft(initialDraft()); setPeriodDraftRows([]); setPeriodGenerationKey(""); setPeriodEditId(""); setPeriodEditDraft(initialDraft()); setPeriodDraftDeleteId(""); setError(""); setOpenDropdownId(null); setInvoiceFileName(""); setShowPeriodPreview(false); setSinglePaymentBillingDrafts([]); setSinglePaymentKey(localDraftId()); setAdditionalTopUpDrafts([]); setSingleCurrencyError(""); setPeriodBillingChoice(null); };
+  const closeForm = () => { resetPeriodValidation(); setShowPastBillingModal(false); setShowDeleteConfirmation(false); setEntryMode(""); setEditingId(""); setEditRequestId(""); setDraft(initialDraft()); setPeriodDraftRows([]); setPeriodGenerationKey(""); setPeriodEditId(""); setPeriodEditDraft(initialDraft()); setPeriodDraftDeleteId(""); setError(""); setOpenDropdownId(null); setInvoiceFileName(""); setShowPeriodPreview(false); setSinglePaymentBillingDrafts([]); setSinglePaymentKey(localDraftId()); setAdditionalTopUpDrafts([]); setSingleCurrencyError(""); setPeriodBillingChoice(null); };
   const returnToEntrySelector = () => { resetPeriodValidation(); closeForm(); onChangeRelationship?.(); };
   const openForm = () => { onChangeRelationship?.(); };
   const field = (key: keyof TransactionDraft, value: string) => setDraft((current) => ({ ...current, [key]: value }));
@@ -382,7 +385,9 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
       const baseInputs = singlePaymentBillingDrafts.map((component, index) => ({ amount: component.amount, billingTypeSnapshot: component.billingType, currency: component.currency, note: draft.note, paymentDate: transactionDates[index], planNameSnapshot: draft.planName, status: draft.status }));
       const extraInputs = additionalTopUpDrafts.map((component) => ({ amount: component.amount, billingTypeSnapshot: "Top-up" as const, currency: sharedCurrency, draftId: component.id, note: component.note, paymentDate: component.paymentDate, planNameSnapshot: draft.planName, status: component.status }));
       if (editingId) {
-        await updateBillingTransaction(editingId, baseInputs[0]);
+        const original = transactions.find((transaction) => transaction.id === editingId && transaction.relationshipId === relationshipId);
+        if (!original || original.source !== "manual" || !editRequestId) throw new Error("This Payment changed. Close the editor and try again.");
+        await correctManualBillingTransaction(original, baseInputs[0], editRequestId);
         await Promise.all([
           ...baseInputs.slice(1).map((input) => createBillingTransaction({ ...input, relationshipId, sourceKey: `single-payment-edit:${editingId}:${input.billingTypeSnapshot}` })),
           ...extraInputs.map(({ draftId, ...input }) => createBillingTransaction({ ...input, relationshipId, sourceKey: `single-payment-edit:${editingId}:Top-up-extra:${draftId}` })),
@@ -393,7 +398,9 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
           ...extraInputs.map(({ draftId, ...input }) => createBillingTransaction({ ...input, relationshipId, sourceKey: `single-payment:${relationshipId}:${singlePaymentKey}:Top-up-extra:${draftId}` })),
         ]);
       }
-      await reload(); closeForm();
+      await reload();
+      if (editingId) onPaymentsSaved?.();
+      closeForm();
       if (onEstablishCurrentBilling && !editingId) onSetupComplete?.();
     } catch (caught: unknown) { setError(caught instanceof Error ? caught.message : "Could not save billing transaction."); }
     finally { setIsSaving(false); }
@@ -436,7 +443,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   };
 
   const beginEdit = (transaction: BillingTransaction) => {
-    setEntryMode("single"); setEditingId(transaction.id); setShowPastBillingModal(true);
+    setEntryMode("single"); setEditingId(transaction.id); setEditRequestId(crypto.randomUUID()); setShowPastBillingModal(true);
     setDraft({ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, endDate: "", note: transaction.note, paymentDate: transaction.paymentDate, planName: transaction.planNameSnapshot, startDate: "", status: transaction.status });
     if (transaction.billingTypeSnapshot) setSinglePaymentBillingDrafts([{ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, paymentDate: transaction.paymentDate }]);
     else setSinglePaymentBillingDrafts([]);
@@ -514,6 +521,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
         billingEvents={billingEvents}
         historicalEntries={activityEntries}
         lifecycleEvents={lifecycleEvents}
+        paymentCorrectionEvents={paymentCorrectionEvents}
         relationshipId={relationshipId}
         renewalActivities={renewalActivities}
         renewalPeriods={renewalPeriods}
