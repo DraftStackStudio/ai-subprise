@@ -7,6 +7,10 @@ const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const migration = read("supabase/migrations/0035_add_billing_payment_correction_events.sql");
 const payments = read("components/SubscriptionPayments.tsx");
 const transactions = read("lib/supabase/billingTransactions.ts");
+const renewalPeriods = read("lib/supabase/billingRenewalPeriods.ts");
+const correctionHistory = read("lib/supabase/billingPaymentCorrectionEvents.ts");
+const availability = read("lib/paymentCorrectionAvailability.ts");
+const historyPanel = read("components/BillingHistoryPanel.tsx");
 const page = read("app/dashboard/page.tsx");
 
 assert.match(migration, /create table public\.billing_payment_correction_events/);
@@ -36,6 +40,17 @@ assert.match(payments, /requestId,/);
 assert.match(payments, /originalPayment\?\.source === "manual" && value\.amount !== originalPayment\.amount/,
   "renewal edits must not show the Current Billing amount question");
 assert.match(transactions, /correct_manual_billing_payment/);
+assert.match(availability, /paymentCorrectionsEnabled = false/);
+assert.match(correctionHistory, /if \(!paymentCorrectionsEnabled\) return \[\]/,
+  "disabled compatibility mode must not query the 0035-only correction table");
+assert.match(transactions, /if \(!paymentCorrectionsEnabled\) throw new Error\(paymentCorrectionsUnavailableMessage\)/,
+  "manual correction must fail locally while migration 0035 is unavailable");
+assert.match(renewalPeriods, /if \(!paymentCorrectionsEnabled\) throw new Error\(paymentCorrectionsUnavailableMessage\)/,
+  "renewal correction must fail locally while migration 0035 is unavailable");
+assert.match(payments, /const canEditPayment = paymentCorrectionsEnabled && canAdd/,
+  "persisted Payment edit actions must be hidden while compatibility mode is disabled");
+assert.match(historyPanel, /transaction\.source === "manual" && !paymentCorrectionsEnabled \? <span>—<\/span>/,
+  "Billing History must hide manual Payment edit actions while compatibility mode is disabled");
 assert.doesNotMatch(transactions, /\.from\("billing_transactions"\)[\s\S]{0,120}\.update\(/,
   "the client must not directly update historical payments");
 assert.match(page, /getBillingPaymentCorrectionEventsByRelationship\(relationshipId\)/);

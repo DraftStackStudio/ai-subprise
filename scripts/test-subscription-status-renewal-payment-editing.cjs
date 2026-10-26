@@ -47,6 +47,7 @@ const Payments = load("components/SubscriptionPayments.tsx", {
   "@/components/PaymentBillingDifferenceChoice": { default: PaymentBillingDifferenceChoiceField },
   "@/lib/billingHistory": { billingHistoryDisplayDate: (value) => value },
   "@/lib/currentBilling": { validBillingDate: (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) },
+  "@/lib/paymentCorrectionAvailability": { paymentCorrectionsEnabled: true, paymentCorrectionsUnavailableMessage: "Payment corrections are temporarily unavailable." },
   "@/lib/subscriptionPaymentPrefill": { subscriptionPaymentPrefill: () => null },
   "@/lib/supabase/billingTransactions": {
     createBillingTransaction: async (value) => value,
@@ -92,6 +93,29 @@ const flush = () => new Promise((resolve) => setImmediate(resolve));
   assert(edit(payment.id), "an exactly linked confirmed renewal payment must show the existing pencil action");
   assert(edit(manualPayment.id), "manual payment editing must remain available");
   assert.equal(edit("unlinked-renewal"), undefined, "a renewal payment without one exact linked period must fail closed");
+
+  hooks = []; cursor = 0;
+  const DisabledPayments = load("components/SubscriptionPayments.tsx", {
+    react,
+    "@/components/DateFieldControl": { default: DateFieldControl },
+    "@/components/DropdownControls": { DropdownControl },
+    "@/components/PaymentBillingDifferenceChoice": { default: PaymentBillingDifferenceChoiceField },
+    "@/lib/billingHistory": { billingHistoryDisplayDate: (value) => value },
+    "@/lib/currentBilling": { validBillingDate: (value) => /^\d{4}-\d{2}-\d{2}$/.test(value) },
+    "@/lib/paymentCorrectionAvailability": { paymentCorrectionsEnabled: false, paymentCorrectionsUnavailableMessage: "Payment corrections are temporarily unavailable." },
+    "@/lib/subscriptionPaymentPrefill": { subscriptionPaymentPrefill: () => null },
+    "@/lib/supabase/billingTransactions": {
+      createBillingTransaction: async (value) => value,
+      correctManualBillingTransaction: async () => { throw new Error("disabled UI called the correction wrapper"); },
+    },
+  }).default;
+  const disabledTree = DisabledPayments(props);
+  const disabledNodes = nodes(disabledTree);
+  assert.equal(disabledNodes.some((node) => node.props?.className === "subscription-payment-edit-button"), false,
+    "disabled compatibility mode must hide manual and renewal payment edit actions");
+  assert(disabledNodes.some((node) => node.type === "button" && text(node) === "+ Add Payment"),
+    "disabled compatibility mode must preserve Add Payment");
+  hooks = []; cursor = 0;
 
   edit(payment.id).props.onClick();
   assert.equal(field(payment.id, "Payment Date").props.disabled, false);

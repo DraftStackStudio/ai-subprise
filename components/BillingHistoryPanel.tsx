@@ -20,6 +20,10 @@ import type { BillingRenewalActivity, BillingRenewalPeriod } from "@/types/billi
 import type { SubscriptionBillingEvent } from "@/types/subscriptionBillingEvent";
 import type { SubscriptionLifecycleEvent } from "@/types/subscriptionLifecycleEvent";
 import type { BillingPaymentCorrectionEvent } from "@/types/billingPaymentCorrectionEvent";
+import {
+  paymentCorrectionsEnabled,
+  paymentCorrectionsUnavailableMessage,
+} from "@/lib/paymentCorrectionAvailability";
 
 export type BillingHistoryAccount = {
   accountActivity: BillingHistoryEntry[];
@@ -385,6 +389,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
       const baseInputs = singlePaymentBillingDrafts.map((component, index) => ({ amount: component.amount, billingTypeSnapshot: component.billingType, currency: component.currency, note: draft.note, paymentDate: transactionDates[index], planNameSnapshot: draft.planName, status: draft.status }));
       const extraInputs = additionalTopUpDrafts.map((component) => ({ amount: component.amount, billingTypeSnapshot: "Top-up" as const, currency: sharedCurrency, draftId: component.id, note: component.note, paymentDate: component.paymentDate, planNameSnapshot: draft.planName, status: component.status }));
       if (editingId) {
+        if (!paymentCorrectionsEnabled) throw new Error(paymentCorrectionsUnavailableMessage);
         const original = transactions.find((transaction) => transaction.id === editingId && transaction.relationshipId === relationshipId);
         if (!original || original.source !== "manual" || !editRequestId) throw new Error("This Payment changed. Close the editor and try again.");
         await correctManualBillingTransaction(original, baseInputs[0], editRequestId);
@@ -443,6 +448,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   };
 
   const beginEdit = (transaction: BillingTransaction) => {
+    if (!paymentCorrectionsEnabled) return;
     setEntryMode("single"); setEditingId(transaction.id); setEditRequestId(crypto.randomUUID()); setShowPastBillingModal(true);
     setDraft({ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, endDate: "", note: transaction.note, paymentDate: transaction.paymentDate, planName: transaction.planNameSnapshot, startDate: "", status: transaction.status });
     if (transaction.billingTypeSnapshot) setSinglePaymentBillingDrafts([{ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, paymentDate: transaction.paymentDate }]);
@@ -513,7 +519,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
       <div className="billing-history-section-title-row"><h3>Payments</h3>{transactions.length ? <button className="billing-history-add-button" onClick={openForm} type="button">+ Add Payment</button> : null}</div>
       {error ? <p className="billing-history-error" role="alert">{error}</p> : null}
       {isLoading ? <p className="billing-history-loading">Loading payments...</p> : transactions.length ? <>
-        <div className="billing-history-table-wrap"><table className="billing-history-table"><thead><tr><th>Date</th><th>Plan</th><th>Type</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{visibleTransactions.map((transaction) => <Fragment key={transaction.id}><tr><td>{billingHistoryDisplayDate(transaction.paymentDate)}</td><td>{transaction.planNameSnapshot || "Not recorded"}</td><td>{transaction.billingTypeSnapshot || "—"}</td><td>{displayAmount(transaction)}</td><td><span className={`billing-transaction-status is-${transaction.status.toLowerCase()}`}>{transaction.status}</span></td><td><button aria-label={transaction.source === "manual" ? `Edit ${billingHistoryDisplayDate(transaction.paymentDate)} payment` : `View ${billingHistoryDisplayDate(transaction.paymentDate)} payment details`} className="billing-history-details-button" onClick={() => transaction.source === "manual" ? beginEdit(transaction) : setDetailTransactionId((value) => value === transaction.id ? "" : transaction.id)} type="button">•••</button></td></tr>{detailTransactionId === transaction.id ? <tr className="billing-history-detail-row"><td colSpan={6}><div><span><strong>Note</strong>{transaction.note || "No note recorded"}</span><small>Migrated history is read-only.</small></div></td></tr> : null}</Fragment>)}</tbody></table></div>
+        <div className="billing-history-table-wrap"><table className="billing-history-table"><thead><tr><th>Date</th><th>Plan</th><th>Type</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{visibleTransactions.map((transaction) => <Fragment key={transaction.id}><tr><td>{billingHistoryDisplayDate(transaction.paymentDate)}</td><td>{transaction.planNameSnapshot || "Not recorded"}</td><td>{transaction.billingTypeSnapshot || "—"}</td><td>{displayAmount(transaction)}</td><td><span className={`billing-transaction-status is-${transaction.status.toLowerCase()}`}>{transaction.status}</span></td><td>{transaction.source === "manual" && !paymentCorrectionsEnabled ? <span>—</span> : <button aria-label={transaction.source === "manual" ? `Edit ${billingHistoryDisplayDate(transaction.paymentDate)} payment` : `View ${billingHistoryDisplayDate(transaction.paymentDate)} payment details`} className="billing-history-details-button" onClick={() => transaction.source === "manual" ? beginEdit(transaction) : setDetailTransactionId((value) => value === transaction.id ? "" : transaction.id)} type="button">•••</button>}</td></tr>{detailTransactionId === transaction.id ? <tr className="billing-history-detail-row"><td colSpan={6}><div><span><strong>Note</strong>{transaction.note || "No note recorded"}</span><small>Migrated history is read-only.</small></div></td></tr> : null}</Fragment>)}</tbody></table></div>
         {transactions.length > 5 ? <button className="billing-history-view-more" onClick={() => setShowAllPayments((value) => !value)} type="button">{showAllPayments ? "Show fewer payments" : `View ${hiddenPaymentCount} more payments`}</button> : null}
       </> : <div className="billing-history-empty-state"><strong>No payments recorded yet</strong><p>Add previous payments to build your billing history.</p><button className="billing-history-add-button" onClick={openForm} type="button">+ Add Payment</button></div>}
 

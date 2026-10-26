@@ -1,4 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
+import {
+  paymentCorrectionsEnabled,
+  paymentCorrectionsUnavailableMessage,
+} from "@/lib/paymentCorrectionAvailability";
 import type {
   BillingRenewalExactMutationResult,
   BillingRenewalActivity,
@@ -197,6 +201,7 @@ export async function updateBillingRenewalPayment(
   paymentTransactionId: string,
   input: UpdateBillingRenewalPaymentInput,
 ) {
+  if (!paymentCorrectionsEnabled) throw new Error(paymentCorrectionsUnavailableMessage);
   const supabase = createClient();
   const { data, error } = await supabase.rpc("update_billing_renewal_payment", {
     p_amount: input.amount.trim() || null,

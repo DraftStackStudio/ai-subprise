@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/client";
+import { paymentCorrectionsEnabled } from "@/lib/paymentCorrectionAvailability";
 import type {
   BillingPaymentCorrectionEvent,
   BillingPaymentCorrectionField,
@@ -44,6 +45,7 @@ function asEvent(record: Record<string, unknown>): BillingPaymentCorrectionEvent
 }
 
 export async function getBillingPaymentCorrectionEventsByRelationships(relationshipIds: string[]) {
+  if (!paymentCorrectionsEnabled) return [];
   const scopedIds = [...new Set(relationshipIds.filter(Boolean))];
   if (!scopedIds.length) return [];
   const supabase = createClient();

@@ -395,6 +395,15 @@ const isSupabaseConfigured = Boolean(
   process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
 );
 
+function databaseErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message) return error.message;
+  if (error && typeof error === "object" && "message" in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
+  return fallback;
+}
+
 function TrashIconPaths() {
   return (
     <g fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8">
@@ -1581,26 +1590,31 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
     let isCancelled = false;
     const dueComponents = recurringComponents.filter((component) => component.nextRenewalDate < today);
 
-    Promise.all(dueComponents.map((component) => syncDueBillingRenewalPeriods(
-      component.relationshipId,
-      component.billingComponentId,
-      today,
-    )))
-      .then(async () => ({
-        refreshedRelationships: dueComponents.length ? await getToolLinkDetailRecords({ includeUnlinked: true }) : null,
-        activities: await getBillingRenewalActivitiesByRelationships(historyRelationshipIds),
-        lifecycleEvents: await getSubscriptionLifecycleEventsByRelationships(historyRelationshipIds),
-        billingEvents: await getSubscriptionBillingEventsByRelationships(historyRelationshipIds),
-        paymentCorrectionEvents: await getBillingPaymentCorrectionEventsByRelationships(historyRelationshipIds),
-        periods: await getBillingRenewalPeriodsByRelationships(historyRelationshipIds),
-      }))
-      .then(({ activities, billingEvents, lifecycleEvents, paymentCorrectionEvents, periods, refreshedRelationships }) => {
+    const loadRenewalData = async () => {
+      try {
+        await Promise.all(dueComponents.map((component) => syncDueBillingRenewalPeriods(
+          component.relationshipId,
+          component.billingComponentId,
+          today,
+        )));
+      } catch (error: unknown) {
+        if (!isCancelled) setToolDataError(databaseErrorMessage(error, "Could not detect overdue renewals."));
+        return;
+      }
+
+      try {
+        const [refreshedRelationships, activities, lifecycleEvents, billingEvents, periods] = await Promise.all([
+          dueComponents.length ? getToolLinkDetailRecords({ includeUnlinked: true }) : Promise.resolve(null),
+          getBillingRenewalActivitiesByRelationships(historyRelationshipIds),
+          getSubscriptionLifecycleEventsByRelationships(historyRelationshipIds),
+          getSubscriptionBillingEventsByRelationships(historyRelationshipIds),
+          getBillingRenewalPeriodsByRelationships(historyRelationshipIds),
+        ]);
         if (isCancelled) return;
         setBillingRenewalPeriods(periods);
         setBillingRenewalActivities(activities);
         setSubscriptionLifecycleEvents(lifecycleEvents);
         setSubscriptionBillingEvents(billingEvents);
-        setBillingPaymentCorrectionEvents(paymentCorrectionEvents);
         if (refreshedRelationships) {
           setBillingRelationshipDetails(refreshedRelationships);
           setToolAccountDetails((current) => {
@@ -1621,15 +1635,20 @@ export function DashboardContent({ forcedSection }: { forcedSection?: Section } 
             return next;
           });
         }
-      })
-      .catch((error: unknown) => {
-        if (isCancelled) return;
-        setBillingRenewalPeriods([]);
-        setBillingRenewalActivities([]);
-        setSubscriptionLifecycleEvents([]);
-        setSubscriptionBillingEvents([]);
-        setToolDataError(error instanceof Error ? error.message : "Could not detect overdue renewals.");
-      });
+      } catch (error: unknown) {
+        if (!isCancelled) setToolDataError(databaseErrorMessage(error, "Could not load renewal and Account Activity data."));
+        return;
+      }
+
+      try {
+        const paymentCorrectionEvents = await getBillingPaymentCorrectionEventsByRelationships(historyRelationshipIds);
+        if (!isCancelled) setBillingPaymentCorrectionEvents(paymentCorrectionEvents);
+      } catch (error: unknown) {
+        if (!isCancelled) setToolDataError(databaseErrorMessage(error, "Could not load payment-correction history."));
+      }
+    };
+
+    void loadRenewalData();
 
     return () => {
       isCancelled = true;

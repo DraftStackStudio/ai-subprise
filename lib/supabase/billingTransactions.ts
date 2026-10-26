@@ -1,4 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
+import {
+  paymentCorrectionsEnabled,
+  paymentCorrectionsUnavailableMessage,
+} from "@/lib/paymentCorrectionAvailability";
 import type {
   BillingTransaction,
   BillingTransactionSource,
@@ -157,6 +161,7 @@ export async function correctManualBillingTransaction(
   input: UpdateBillingTransactionInput,
   requestId: string,
 ) {
+  if (!paymentCorrectionsEnabled) throw new Error(paymentCorrectionsUnavailableMessage);
   if (original.source !== "manual" || !original.relationshipId) {
     throw new Error("Only an exact manually entered Payment can use this correction workflow.");
   }

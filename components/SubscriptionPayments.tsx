@@ -10,6 +10,10 @@ import { validBillingDate } from "@/lib/currentBilling";
 import DateFieldControl from "@/components/DateFieldControl";
 import PaymentBillingDifferenceChoiceField, { type PaymentBillingDifferenceChoice } from "@/components/PaymentBillingDifferenceChoice";
 import type { BillingRenewalExactMutationResult, BillingRenewalPeriod, UpdateBillingRenewalPaymentInput } from "@/types/billingRenewalPeriod";
+import {
+  paymentCorrectionsEnabled,
+  paymentCorrectionsUnavailableMessage,
+} from "@/lib/paymentCorrectionAvailability";
 
 const types: BillingTransactionType[] = ["Monthly", "Yearly", "Lifetime", "One-time", "Top-up"];
 const renewalTypes: BillingTransactionType[] = ["Monthly", "Yearly"];
@@ -68,6 +72,9 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     setError("");
     const originalPayment = draft.id ? rows.find((row) => row.id === draft.id && row.relationshipId === account.relationshipId) : undefined;
     const renewalPeriod = originalPayment?.source === "renewal" ? linkedRenewalPeriod(originalPayment) : null;
+    if (draft.id && !paymentCorrectionsEnabled) {
+      setError(paymentCorrectionsUnavailableMessage); return;
+    }
     if (!canAdd || draft.relationshipId !== account.relationshipId || (draft.id && (!originalPayment || !["manual", "renewal"].includes(originalPayment.source)))) {
       setError("This payment is no longer editable for this account."); return;
     }
@@ -160,6 +167,7 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
   </tr>{needsBillingDecision ? <tr className="subscription-payment-sync-row"><td colSpan={6}><PaymentBillingDifferenceChoiceField disabled={busy} onChange={(billingDifferenceChoice) => patch({ billingDifferenceChoice })} value={value.billingDifferenceChoice} /></td></tr> : null}{errors[key] ? <tr className="subscription-payment-feedback-row" data-error-key={key}><td colSpan={6}><small className="field-feedback error" role="alert">{errors[key]}</small></td></tr> : null}</Fragment>;
   };
   const beginEdit = (payment: BillingTransaction) => {
+    if (!paymentCorrectionsEnabled) return;
     const renewalPeriod = linkedRenewalPeriod(payment);
     if (!canAdd || (payment.source !== "manual" && !(payment.source === "renewal" && renewalPeriod && onUpdateRenewalPayment))) return;
     setDrafts((current) => current[payment.id] ? current : { ...current, [payment.id]: { ...payment, billingDifferenceChoice: "", currency: payment.currency.trim() || entryCurrency, requestId: crypto.randomUUID(), syncCurrency: payment.source === "manual" && !payment.currency.trim() } });
@@ -173,8 +181,8 @@ export default function SubscriptionPayments({ account, canAdd, currencyOptions,
     {rows.length || drafts.new ? <div className="subscription-payment-database"><table className="subscription-payment-table">
       <thead><tr>{["Date", "Plan", "Type", "Amount", "Status", "Action"].map((label) => <th scope="col" key={label}>{label}</th>)}</tr></thead>
       <tbody>{drafts.new ? editor(drafts.new) : null}{rows.map((payment) => {
-        const canEditRenewal = payment.source === "renewal" && Boolean(onUpdateRenewalPayment) && Boolean(linkedRenewalPeriod(payment));
-        const canEditPayment = canAdd && (payment.source === "manual" || canEditRenewal);
+        const canEditRenewal = paymentCorrectionsEnabled && payment.source === "renewal" && Boolean(onUpdateRenewalPayment) && Boolean(linkedRenewalPeriod(payment));
+        const canEditPayment = paymentCorrectionsEnabled && canAdd && (payment.source === "manual" || canEditRenewal);
         return drafts[payment.id] ? editor(drafts[payment.id]) : <tr key={payment.id} data-transaction-id={payment.id}>
         {cell(billingHistoryDisplayDate(payment.paymentDate))}{cell(payment.planNameSnapshot.trim() || "Not set")}{cell(payment.billingTypeSnapshot || "Not set")}
         {cell(payment.currency.trim() && payment.amount.trim() ? `${payment.currency} ${payment.amount}` : "—")}{cell(payment.status)}
