@@ -534,6 +534,7 @@ async function main() {
     react,
     '@/components/DropdownControls': { DropdownControl: () => null },
     '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
+    '@/lib/paymentCorrectionAvailability': { paymentCorrectionsEnabled: true, paymentCorrectionsUnavailableMessage: 'Payment corrections are temporarily unavailable.' },
     '@/lib/supabase/billingTransactions': {
       correctManualBillingTransaction: async (original, values, requestId) => { writes.push({ id: original.id, values, requestId }); if (delayUpdate) await new Promise((resolve) => { releaseUpdate = resolve; }); return { ...original, ...values }; },
       createBillingTransaction: async (values) => { writes.push(values); if (failCreate) throw new Error('Retry'); return { ...historical, ...values, id: 'new-payment' }; },
@@ -685,6 +686,7 @@ async function main() {
   {
     let database, writes, syncWrites;
     const api = load('lib/supabase/billingTransactions.ts', {
+      '@/lib/paymentCorrectionAvailability': { paymentCorrectionsEnabled: true, paymentCorrectionsUnavailableMessage: 'Payment corrections are temporarily unavailable.' },
       '@/lib/supabase/client': { createClient: () => ({ async rpc(name, args) {
         assert.equal(name, 'correct_manual_billing_payment');
         const id = args.p_payment_transaction_id;
@@ -710,6 +712,7 @@ async function main() {
       react,
       '@/components/DropdownControls': { DropdownControl: () => null },
       '@/lib/billingHistory': { billingHistoryDisplayDate: (value) => value },
+      '@/lib/paymentCorrectionAvailability': { paymentCorrectionsEnabled: true, paymentCorrectionsUnavailableMessage: 'Payment corrections are temporarily unavailable.' },
       '@/lib/supabase/billingTransactions': api,
     }).default;
     const raw = { id: 'unknown', tool_email_link_id: 'r1', source: 'manual', payment_date: '2020-01-10', plan_name_snapshot: 'Old plan', billing_type_snapshot: 'Monthly', currency: 'USD', status: 'Paid', amount: null, note: 'Keep this note', updated_at: '2026-10-24T00:00:00Z' };
