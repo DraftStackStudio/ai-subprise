@@ -188,6 +188,7 @@ declare
   v_currency text := nullif(upper(btrim(p_currency)), '');
   v_transaction public.billing_transactions%rowtype;
   v_period public.billing_renewal_periods%rowtype;
+  v_locked record;
   v_before jsonb;
   v_after jsonb;
   v_changed text[] := array[]::text[];
@@ -220,7 +221,7 @@ begin
     return;
   end if;
 
-  select period, transaction into v_period, v_transaction
+  select period as period_row, transaction as transaction_row into v_locked
   from public.billing_renewal_periods as period
   join public.tool_email_links as link on link.id = period.tool_email_link_id
   join public.billing_transactions as transaction on transaction.id = period.payment_transaction_id
@@ -232,6 +233,8 @@ begin
     and transaction.source = 'renewal' and transaction.source_key = 'renewal-period:' || p_period_id::text
   for update of period, link, transaction;
   if not found then raise exception 'The renewal period, relationship, or generated Payment changed.'; end if;
+  v_period := v_locked.period_row;
+  v_transaction := v_locked.transaction_row;
   if v_transaction.updated_at is distinct from p_expected_updated_at then raise exception 'This Payment changed after editing began. Refresh and try again.'; end if;
 
   v_before := public.billing_payment_snapshot(v_transaction);
