@@ -40,7 +40,9 @@ assert.match(payments, /requestId,/);
 assert.match(payments, /originalPayment\?\.source === "manual" && value\.amount !== originalPayment\.amount/,
   "renewal edits must not show the Current Billing amount question");
 assert.match(transactions, /correct_manual_billing_payment/);
-assert.match(availability, /paymentCorrectionsEnabled = false/);
+assert.match(availability, /NEXT_PUBLIC_PAYMENT_CORRECTIONS_ENABLED === "true"/);
+assert.match(availability, /NEXT_PUBLIC_VERCEL_ENV === "preview"/);
+assert.match(availability, /NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF === paymentCorrectionPreviewBranch/);
 assert.match(correctionHistory, /if \(!paymentCorrectionsEnabled\) return \[\]/,
   "disabled compatibility mode must not query the 0035-only correction table");
 assert.match(transactions, /if \(!paymentCorrectionsEnabled\) throw new Error\(paymentCorrectionsUnavailableMessage\)/,
