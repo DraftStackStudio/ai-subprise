@@ -7,6 +7,8 @@ import type {
 } from "@/types/billingPaymentCorrectionEvent";
 import type { BillingTransactionSource, BillingTransactionStatus, BillingTransactionType } from "@/types/billingTransaction";
 
+const correctionHistoryPageSize = 500;
+
 function text(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
 }
@@ -49,16 +51,37 @@ export async function getBillingPaymentCorrectionEventsByRelationships(relations
   const scopedIds = [...new Set(relationshipIds.filter(Boolean))];
   if (!scopedIds.length) return [];
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from("billing_payment_correction_events")
-    .select("*")
-    .in("tool_email_link_id", scopedIds)
-    .order("effective_date", { ascending: false })
-    .order("created_at", { ascending: false });
-  if (error) throw error;
+  const records: Record<string, unknown>[] = [];
+  let expectedCount: number | null = null;
+  let offset = 0;
+
+  do {
+    const { count, data, error } = await supabase
+      .from("billing_payment_correction_events")
+      .select("*", { count: "exact" })
+      .in("tool_email_link_id", scopedIds)
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .range(offset, offset + correctionHistoryPageSize - 1);
+    if (error) throw error;
+    if (expectedCount === null) {
+      if (count === null) throw new Error("Could not verify complete payment-correction history.");
+      expectedCount = count;
+    }
+    const page = (data ?? []) as Record<string, unknown>[];
+    records.push(...page);
+    offset += page.length;
+    if (offset < expectedCount && page.length === 0) {
+      throw new Error("Payment-correction history ended before every record was loaded.");
+    }
+  } while (offset < (expectedCount ?? 0));
+
   const allowed = new Set(scopedIds);
-  return (data ?? []).map((record) => asEvent(record as Record<string, unknown>))
-    .filter((event) => allowed.has(event.relationshipId));
+  return records.map(asEvent)
+    .filter((event) => allowed.has(event.relationshipId))
+    .sort((left, right) => right.effectiveDate.localeCompare(left.effectiveDate)
+      || right.createdAt.localeCompare(left.createdAt)
+      || right.id.localeCompare(left.id));
 }
 
 export async function getBillingPaymentCorrectionEventsByRelationship(relationshipId: string) {

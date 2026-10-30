@@ -65,6 +65,7 @@ type AdditionalTopUpDraft = {
   status: BillingTransactionStatus;
 };
 type PanelProps = {
+  allowPaymentCorrections?: boolean;
   accounts: BillingHistoryAccount[];
   initialEntryMode?: Exclude<EntryMode, "">;
   prefillCurrentBilling?: boolean;
@@ -82,6 +83,7 @@ type PanelProps = {
   toolName: string;
 };
 type AccountSectionProps = BillingHistoryAccount & {
+  allowPaymentCorrections?: boolean;
   initialEntryMode?: Exclude<EntryMode, "">;
   prefillCurrentBilling?: boolean;
   onEstablishCurrentBilling?: (relationshipId: string, planName: string, components: BillingAmount[]) => Promise<void>;
@@ -202,7 +204,7 @@ function PastBillingAccountSummary({ accountEmail, accountLabel, accountTag, onC
   </div>;
 }
 
-function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, billingAmounts, billingEvents, initialEntryMode, lifecycleEvents, paymentCorrectionEvents, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, renewalActivities, renewalPeriods, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
+function AccountSection({ accountActivity, accountEmail, accountLabel, accountTag, allowPaymentCorrections = false, billingAmounts, billingEvents, initialEntryMode, lifecycleEvents, paymentCorrectionEvents, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, isExpanded, onChangeRelationship, onToggle, planName, relationshipId, renewalActivities, renewalPeriods, restoredDate, toolLogo, toolLogoBackground, toolName }: AccountSectionProps) {
   const prefill = prefillCurrentBilling && initialEntryMode ? subscriptionPaymentPrefill(billingAmounts, initialEntryMode, selectedBillingType) : null;
   const [setupRenewalDate, setSetupRenewalDate] = useState(prefill?.nextRenewalDate ?? "");
   const [setupBillingSaved, setSetupBillingSaved] = useState(false);
@@ -389,7 +391,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
       const baseInputs = singlePaymentBillingDrafts.map((component, index) => ({ amount: component.amount, billingTypeSnapshot: component.billingType, currency: component.currency, note: draft.note, paymentDate: transactionDates[index], planNameSnapshot: draft.planName, status: draft.status }));
       const extraInputs = additionalTopUpDrafts.map((component) => ({ amount: component.amount, billingTypeSnapshot: "Top-up" as const, currency: sharedCurrency, draftId: component.id, note: component.note, paymentDate: component.paymentDate, planNameSnapshot: draft.planName, status: component.status }));
       if (editingId) {
-        if (!paymentCorrectionsEnabled) throw new Error(paymentCorrectionsUnavailableMessage);
+        if (!allowPaymentCorrections || !paymentCorrectionsEnabled) throw new Error(paymentCorrectionsUnavailableMessage);
         const original = transactions.find((transaction) => transaction.id === editingId && transaction.relationshipId === relationshipId);
         if (!original || original.source !== "manual" || !editRequestId) throw new Error("This Payment changed. Close the editor and try again.");
         await correctManualBillingTransaction(original, baseInputs[0], editRequestId);
@@ -448,7 +450,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   };
 
   const beginEdit = (transaction: BillingTransaction) => {
-    if (!paymentCorrectionsEnabled) return;
+    if (!allowPaymentCorrections || !paymentCorrectionsEnabled) return;
     setEntryMode("single"); setEditingId(transaction.id); setEditRequestId(crypto.randomUUID()); setShowPastBillingModal(true);
     setDraft({ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, endDate: "", note: transaction.note, paymentDate: transaction.paymentDate, planName: transaction.planNameSnapshot, startDate: "", status: transaction.status });
     if (transaction.billingTypeSnapshot) setSinglePaymentBillingDrafts([{ amount: transaction.amount, billingType: transaction.billingTypeSnapshot, currency: transaction.currency, paymentDate: transaction.paymentDate }]);
@@ -519,7 +521,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
       <div className="billing-history-section-title-row"><h3>Payments</h3>{transactions.length ? <button className="billing-history-add-button" onClick={openForm} type="button">+ Add Payment</button> : null}</div>
       {error ? <p className="billing-history-error" role="alert">{error}</p> : null}
       {isLoading ? <p className="billing-history-loading">Loading payments...</p> : transactions.length ? <>
-        <div className="billing-history-table-wrap"><table className="billing-history-table"><thead><tr><th>Date</th><th>Plan</th><th>Type</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{visibleTransactions.map((transaction) => <Fragment key={transaction.id}><tr><td>{billingHistoryDisplayDate(transaction.paymentDate)}</td><td>{transaction.planNameSnapshot || "Not recorded"}</td><td>{transaction.billingTypeSnapshot || "—"}</td><td>{displayAmount(transaction)}</td><td><span className={`billing-transaction-status is-${transaction.status.toLowerCase()}`}>{transaction.status}</span></td><td>{transaction.source === "manual" && !paymentCorrectionsEnabled ? <span>—</span> : <button aria-label={transaction.source === "manual" ? `Edit ${billingHistoryDisplayDate(transaction.paymentDate)} payment` : `View ${billingHistoryDisplayDate(transaction.paymentDate)} payment details`} className="billing-history-details-button" onClick={() => transaction.source === "manual" ? beginEdit(transaction) : setDetailTransactionId((value) => value === transaction.id ? "" : transaction.id)} type="button">•••</button>}</td></tr>{detailTransactionId === transaction.id ? <tr className="billing-history-detail-row"><td colSpan={6}><div><span><strong>Note</strong>{transaction.note || "No note recorded"}</span><small>Migrated history is read-only.</small></div></td></tr> : null}</Fragment>)}</tbody></table></div>
+        <div className="billing-history-table-wrap"><table className="billing-history-table"><thead><tr><th>Date</th><th>Plan</th><th>Type</th><th>Amount</th><th>Status</th><th>Action</th></tr></thead><tbody>{visibleTransactions.map((transaction) => <Fragment key={transaction.id}><tr><td>{billingHistoryDisplayDate(transaction.paymentDate)}</td><td>{transaction.planNameSnapshot || "Not recorded"}</td><td>{transaction.billingTypeSnapshot || "—"}</td><td>{displayAmount(transaction)}</td><td><span className={`billing-transaction-status is-${transaction.status.toLowerCase()}`}>{transaction.status}</span></td><td>{transaction.source === "manual" && (!allowPaymentCorrections || !paymentCorrectionsEnabled) ? <span>—</span> : <button aria-label={transaction.source === "manual" ? `Edit ${billingHistoryDisplayDate(transaction.paymentDate)} payment` : `View ${billingHistoryDisplayDate(transaction.paymentDate)} payment details`} className="billing-history-details-button" onClick={() => transaction.source === "manual" ? beginEdit(transaction) : setDetailTransactionId((value) => value === transaction.id ? "" : transaction.id)} type="button">•••</button>}</td></tr>{detailTransactionId === transaction.id ? <tr className="billing-history-detail-row"><td colSpan={6}><div><span><strong>Note</strong>{transaction.note || "No note recorded"}</span><small>Migrated history is read-only.</small></div></td></tr> : null}</Fragment>)}</tbody></table></div>
         {transactions.length > 5 ? <button className="billing-history-view-more" onClick={() => setShowAllPayments((value) => !value)} type="button">{showAllPayments ? "Show fewer payments" : `View ${hiddenPaymentCount} more payments`}</button> : null}
       </> : <div className="billing-history-empty-state"><strong>No payments recorded yet</strong><p>Add previous payments to build your billing history.</p><button className="billing-history-add-button" onClick={openForm} type="button">+ Add Payment</button></div>}
 
@@ -606,7 +608,7 @@ function AccountSection({ accountActivity, accountEmail, accountLabel, accountTa
   </section>;
 }
 
-export default function BillingHistoryPanel({ accounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, initialRelationshipId, onChangeRelationship, onClose, restoredDate, toolLogo, toolLogoBackground, toolName }: PanelProps) {
+export default function BillingHistoryPanel({ allowPaymentCorrections = false, accounts, initialEntryMode, prefillCurrentBilling, onEstablishCurrentBilling, onRequestCurrentBillingUpdate, onPaymentsSaved, onSetupComplete, selectedBillingType, initialRelationshipId, onChangeRelationship, onClose, restoredDate, toolLogo, toolLogoBackground, toolName }: PanelProps) {
   const [expandedRelationshipIds, setExpandedRelationshipIds] = useState(() => new Set([initialRelationshipId]));
   const toggleRelationship = (relationshipId: string) => setExpandedRelationshipIds((current) => {
     const next = new Set(current);
@@ -618,6 +620,6 @@ export default function BillingHistoryPanel({ accounts, initialEntryMode, prefil
     <div className="billing-history-panel-actions"><button aria-label="Close billing history" className="modal-close-button" onClick={onClose} type="button">x</button></div>
     <h2 className="billing-history-heading">Billing History</h2>
     <div className="billing-history-tool-row"><h3 className="billing-history-tool-heading">{toolName}</h3>{accounts.length > 1 ? <div className="billing-history-expand-controls"><button onClick={() => setExpandedRelationshipIds(new Set(accounts.map((account) => account.relationshipId)))} type="button">Expand all</button><button onClick={() => setExpandedRelationshipIds(new Set())} type="button">Collapse all</button></div> : null}</div>
-    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} onEstablishCurrentBilling={account.relationshipId === initialRelationshipId ? onEstablishCurrentBilling : undefined} onRequestCurrentBillingUpdate={account.relationshipId === initialRelationshipId ? onRequestCurrentBillingUpdate : undefined} onPaymentsSaved={account.relationshipId === initialRelationshipId ? onPaymentsSaved : undefined} onSetupComplete={onSetupComplete} prefillCurrentBilling={account.relationshipId === initialRelationshipId && prefillCurrentBilling} selectedBillingType={account.relationshipId === initialRelationshipId ? selectedBillingType : undefined} initialEntryMode={account.relationshipId === initialRelationshipId ? initialEntryMode : undefined} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onChangeRelationship={onChangeRelationship} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>)}</div>
+    <div className="billing-history-account-list">{accounts.map((account) => <AccountSection {...account} allowPaymentCorrections={allowPaymentCorrections} onEstablishCurrentBilling={account.relationshipId === initialRelationshipId ? onEstablishCurrentBilling : undefined} onRequestCurrentBillingUpdate={account.relationshipId === initialRelationshipId ? onRequestCurrentBillingUpdate : undefined} onPaymentsSaved={account.relationshipId === initialRelationshipId ? onPaymentsSaved : undefined} onSetupComplete={onSetupComplete} prefillCurrentBilling={account.relationshipId === initialRelationshipId && prefillCurrentBilling} selectedBillingType={account.relationshipId === initialRelationshipId ? selectedBillingType : undefined} initialEntryMode={account.relationshipId === initialRelationshipId ? initialEntryMode : undefined} isExpanded={expandedRelationshipIds.has(account.relationshipId)} key={account.relationshipId} onChangeRelationship={onChangeRelationship} onToggle={() => toggleRelationship(account.relationshipId)} restoredDate={account.relationshipId === initialRelationshipId ? restoredDate : undefined} toolLogo={toolLogo} toolLogoBackground={toolLogoBackground} toolName={toolName}/>)}</div>
   </aside></div>;
 }

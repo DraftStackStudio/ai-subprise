@@ -28,9 +28,36 @@ function queryResult(result) {
     select() { return chain; },
     in() { return chain; },
     order() { return chain; },
-    then(resolve, reject) { return Promise.resolve(result).then(resolve, reject); },
+    range() { return Promise.resolve(result); },
   };
   return chain;
+}
+
+function pagedQuery(records, ranges, count = records.length) {
+  const chain = {
+    from() { return chain; },
+    select() { return chain; },
+    in() { return chain; },
+    order() { return chain; },
+    range(from, to) {
+      ranges.push([from, to]);
+      return Promise.resolve({ count, data: records.slice(from, to + 1), error: null });
+    },
+  };
+  return chain;
+}
+
+function correctionRecord(index, relationshipId = "relationship-1") {
+  const suffix = String(index).padStart(4, "0");
+  const snapshot = {
+    amount: "10.000000", billingType: "Monthly", currency: "USD", note: "", paymentDate: "2026-10-01",
+    planName: "Pro", relationshipId, source: "manual", sourceKey: `manual-${suffix}`, status: "Paid", transactionId: `payment-${suffix}`,
+  };
+  return {
+    after_snapshot: snapshot, before_snapshot: snapshot, changed_fields: ["note"], created_at: `2026-10-01T00:00:00.${suffix}Z`,
+    effective_date: "2026-10-01", id: `event-${suffix}`, payment_source: "manual", payment_transaction_id: `payment-${suffix}`,
+    request_id: `request-${suffix}`, tool_email_link_id: relationshipId, user_id: "user-1",
+  };
 }
 
 const unavailable = "Payment corrections are temporarily unavailable until the database update is complete.";
@@ -49,15 +76,36 @@ const enabledAvailability = { paymentCorrectionsEnabled: true, paymentCorrection
   let historyQueries = 0;
   const enabledHistory = load("lib/supabase/billingPaymentCorrectionEvents.ts", {
     "@/lib/paymentCorrectionAvailability": enabledAvailability,
-    "@/lib/supabase/client": { createClient: () => ({ from: () => { historyQueries += 1; return queryResult({ data: [], error: null }); } }) },
+    "@/lib/supabase/client": { createClient: () => ({ from: () => { historyQueries += 1; return queryResult({ count: 0, data: [], error: null }); } }) },
   });
   assert.deepEqual(await enabledHistory.getBillingPaymentCorrectionEventsByRelationships(["relationship-1"]), []);
   assert.equal(historyQueries, 1, "enabled correction history must retain the Supabase query");
 
+  const historyRecords = Array.from({ length: 501 }, (_, index) => correctionRecord(index));
+  const historyRanges = [];
+  const pagedHistory = load("lib/supabase/billingPaymentCorrectionEvents.ts", {
+    "@/lib/paymentCorrectionAvailability": enabledAvailability,
+    "@/lib/supabase/client": { createClient: () => ({ from: () => pagedQuery(historyRecords, historyRanges) }) },
+  });
+  const completeHistory = await pagedHistory.getBillingPaymentCorrectionEventsByRelationships(["relationship-1"]);
+  assert.equal(completeHistory.length, 501, "enabled correction history must load every page");
+  assert.deepEqual(historyRanges, [[0, 499], [500, 999]], "correction history must continue until the exact count is loaded");
+  assert.equal(completeHistory[0].id, "event-0500", "paginated history must retain newest-first presentation order");
+
+  const incompleteHistory = load("lib/supabase/billingPaymentCorrectionEvents.ts", {
+    "@/lib/paymentCorrectionAvailability": enabledAvailability,
+    "@/lib/supabase/client": { createClient: () => ({ from: () => pagedQuery(historyRecords.slice(0, 500), [], 501) }) },
+  });
+  await assert.rejects(
+    incompleteHistory.getBillingPaymentCorrectionEventsByRelationships(["relationship-1"]),
+    /ended before every record was loaded/,
+    "correction history must fail closed instead of returning a silently truncated result",
+  );
+
   const databaseError = { code: "42501", message: "permission denied for payment correction history" };
   const failingHistory = load("lib/supabase/billingPaymentCorrectionEvents.ts", {
     "@/lib/paymentCorrectionAvailability": enabledAvailability,
-    "@/lib/supabase/client": { createClient: () => ({ from: () => queryResult({ data: null, error: databaseError }) }) },
+    "@/lib/supabase/client": { createClient: () => ({ from: () => queryResult({ count: null, data: null, error: databaseError }) }) },
   });
   await assert.rejects(
     failingHistory.getBillingPaymentCorrectionEventsByRelationships(["relationship-1"]),
@@ -113,12 +161,19 @@ const enabledAvailability = { paymentCorrectionsEnabled: true, paymentCorrection
 
   const page = fs.readFileSync(path.join(root, "app/dashboard/page.tsx"), "utf8");
   const historyPanel = fs.readFileSync(path.join(root, "components/BillingHistoryPanel.tsx"), "utf8");
+  const subscriptionAccount = fs.readFileSync(path.join(root, "components/SubscriptionAccountView.tsx"), "utf8");
   assert.match(page, /catch \(error: unknown\) \{[\s\S]*?Could not detect overdue renewals\.[\s\S]*?return;[\s\S]*?Could not load renewal and Account Activity data\./,
     "synchronization and subsequent data-loading errors must use separate handling");
   assert.match(page, /typeof message === "string" && message\.trim\(\)/,
     "plain Supabase error objects must retain their actual messages");
-  assert.match(historyPanel, /transaction\.source === "manual" && !paymentCorrectionsEnabled \? <span>—<\/span>/,
-    "Billing History must hide persisted manual-payment editing while compatibility mode is disabled");
+  assert.match(historyPanel, /allowPaymentCorrections = false/,
+    "Billing History must default to read-only correction permissions");
+  assert.match(historyPanel, /transaction\.source === "manual" && \(!allowPaymentCorrections \|\| !paymentCorrectionsEnabled\) \? <span>—<\/span>/,
+    "Billing History must hide manual-payment editing unless its Subscriptions caller explicitly allows corrections");
+  assert.match(subscriptionAccount, /<BillingHistoryPanel allowPaymentCorrections/,
+    "Subscriptions must explicitly opt its payment workflow into correction editing");
+  assert.doesNotMatch(page, /<BillingHistoryPanel\s+allowPaymentCorrections/,
+    "Billing must never opt its history panel into correction editing");
 
   console.log("PASS: disabled payment-correction compatibility avoids 0035 reads and RPCs, hides edits, preserves Add Payment, and restores normal paths when enabled.");
 })().catch((error) => {

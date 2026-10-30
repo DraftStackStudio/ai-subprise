@@ -49,8 +49,10 @@ assert.match(renewalPeriods, /if \(!paymentCorrectionsEnabled\) throw new Error\
   "renewal correction must fail locally while migration 0035 is unavailable");
 assert.match(payments, /const canEditPayment = paymentCorrectionsEnabled && canAdd/,
   "persisted Payment edit actions must be hidden while compatibility mode is disabled");
-assert.match(historyPanel, /transaction\.source === "manual" && !paymentCorrectionsEnabled \? <span>—<\/span>/,
-  "Billing History must hide manual Payment edit actions while compatibility mode is disabled");
+assert.match(historyPanel, /transaction\.source === "manual" && \(!allowPaymentCorrections \|\| !paymentCorrectionsEnabled\) \? <span>—<\/span>/,
+  "Billing History must require both an enabled rollout and explicit Subscriptions correction permission");
+assert.match(historyPanel, /allowPaymentCorrections = false/,
+  "Billing History must default to read-only Payment rows");
 assert.doesNotMatch(transactions, /\.from\("billing_transactions"\)[\s\S]{0,120}\.update\(/,
   "the client must not directly update historical payments");
 assert.match(page, /getBillingPaymentCorrectionEventsByRelationship\(relationshipId\)/);

@@ -219,7 +219,7 @@ export default function SubscriptionAccountView({ account, ...actions }: Subscri
       }} />
     </section></div> : null}
     {paymentChoice ? <BillingPastEntryModal relationships={[paymentAccount]} initialRelationshipId={account.relationshipId} lockedRelationshipId={account.relationshipId} billingComponents={paymentAccount.billingComponents} onCancel={() => { setPaymentChoice(false); setFirstTimeSetup(false); setPaymentPrefill(null); }} onContinue={(relationship, mode, billingType) => { if (relationship.relationshipId !== account.relationshipId) return; setPaymentChoice(false); setPaymentComponentType(billingType); setPaymentMode(mode); }} /> : null}
-    {paymentMode ? <BillingHistoryPanel prefillCurrentBilling selectedBillingType={paymentComponentType} onEstablishCurrentBilling={firstTimeSetup ? async (relationshipId, planName, components) => { if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed."); const merged = paymentAccount.billingComponents.map((existing) => {
+    {paymentMode ? <BillingHistoryPanel allowPaymentCorrections prefillCurrentBilling selectedBillingType={paymentComponentType} onEstablishCurrentBilling={firstTimeSetup ? async (relationshipId, planName, components) => { if (relationshipId !== account.relationshipId) throw new Error("The selected relationship changed."); const merged = paymentAccount.billingComponents.map((existing) => {
         const updated = components.find((component) => component.billingType === existing.billingType);
         return updated ? { ...updated, id: existing.id } : existing;
       });
