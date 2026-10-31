@@ -52,7 +52,9 @@ assert.equal(loadAvailability({
 }).paymentCorrectionsEnabled, true, "only the dedicated temporary Preview branch may enable corrections");
 
 const nextConfig = fs.readFileSync(path.join(root, "next.config.ts"), "utf8");
-assert.match(nextConfig, /NEXT_PUBLIC_VERCEL_ENV: process\.env\.VERCEL_ENV \?\? ""/);
-assert.match(nextConfig, /NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF: process\.env\.VERCEL_GIT_COMMIT_REF \?\? ""/);
+assert.doesNotMatch(nextConfig, /NEXT_PUBLIC_VERCEL_ENV\s*:/,
+  "Next.js config must not overwrite Vercel's automatically exposed Preview environment value");
+assert.doesNotMatch(nextConfig, /NEXT_PUBLIC_VERCEL_GIT_COMMIT_REF\s*:/,
+  "Next.js config must not overwrite Vercel's automatically exposed Git branch value");
 
 console.log("PASS: payment corrections fail closed and can only enable on the dedicated protected Preview branch.");
